@@ -1,0 +1,260 @@
+{
+  "format": "er-sketch",
+  "version": 1,
+  "diagram": {
+    "tables": [
+      {
+        "id": "Users",
+        "name": "Users",
+        "logicalName": "ユーザー",
+        "x": 80,
+        "y": 80,
+        "columns": [
+          [
+            "id",
+            "uuid",
+            "PK",
+            "Users-id",
+            "ユニークID"
+          ],
+          [
+            "email",
+            "text",
+            "",
+            "Users-email",
+            "メールアドレス"
+          ],
+          [
+            "name",
+            "text",
+            "",
+            "Users-name",
+            "ユーザー名"
+          ]
+        ]
+      },
+      {
+        "id": "Events",
+        "name": "Events",
+        "logicalName": "イベント",
+        "x": 80,
+        "y": 400,
+        "columns": [
+          [
+            "id",
+            "uuid",
+            "PK",
+            "Events-id",
+            "ユニークID"
+          ],
+          [
+            "title",
+            "text",
+            "",
+            "Events-title",
+            "イベント名"
+          ],
+          [
+            "description",
+            "text",
+            "",
+            "Events-description",
+            "イベント詳細"
+          ],
+          [
+            "eventVenue",
+            "text",
+            "",
+            "Events-eventVenue",
+            "イベント会場"
+          ],
+          [
+            "eventDate",
+            "timestamp",
+            "",
+            "Events-eventDate",
+            "イベント開催日時"
+          ],
+          [
+            "createdAt",
+            "timestamp",
+            "",
+            "Events-createdAt",
+            "作成日時"
+          ]
+        ]
+      },
+      {
+        "id": "Seats",
+        "name": "Seats",
+        "logicalName": "座席",
+        "x": 520,
+        "y": 400,
+        "columns": [
+          [
+            "id",
+            "uuid",
+            "PK",
+            "Seats-id",
+            "ユニークID"
+          ],
+          [
+            "eventId",
+            "uuid",
+            "FK",
+            "Seats-eventId",
+            "イベントID"
+          ],
+          [
+            "seatNumber",
+            "text",
+            "",
+            "Seats-seatNumber",
+            "座席番号"
+          ],
+          [
+            "section",
+            "text",
+            "",
+            "Seats-section",
+            "セクション"
+          ],
+          [
+            "row",
+            "integer",
+            "",
+            "Seats-row",
+            "列番号"
+          ],
+          [
+            "column",
+            "integer",
+            "",
+            "Seats-column",
+            "座席番号"
+          ],
+          [
+            "price",
+            "decimal(10,2)",
+            "",
+            "Seats-price",
+            "座席の価格"
+          ],
+          [
+            "status",
+            "text",
+            "",
+            "Seats-status",
+            "座席ステータス"
+          ]
+        ]
+      },
+      {
+        "id": "Tickets",
+        "name": "Tickets",
+        "logicalName": "予約チケット",
+        "x": 1000,
+        "y": 80,
+        "columns": [
+          [
+            "id",
+            "uuid",
+            "PK",
+            "Tickets-id",
+            "ユニークID"
+          ],
+          [
+            "eventId",
+            "uuid",
+            "FK",
+            "Tickets-eventId",
+            "イベントID"
+          ],
+          [
+            "userId",
+            "uuid",
+            "FK",
+            "Tickets-userId",
+            "予約ユーザーID"
+          ],
+          [
+            "seatId",
+            "uuid",
+            "FK",
+            "Tickets-seatId",
+            "座席ID"
+          ],
+          [
+            "reservedAt",
+            "timestamp",
+            "",
+            "Tickets-reservedAt",
+            "予約日時"
+          ]
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "id": "Users-Tickets",
+        "from": {
+          "table": "Users",
+          "row": 0,
+          "side": "right"
+        },
+        "to": {
+          "table": "Tickets",
+          "row": 2,
+          "side": "left"
+        },
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "id": "Events-Seats",
+        "from": {
+          "table": "Events",
+          "row": 0,
+          "side": "right"
+        },
+        "to": {
+          "table": "Seats",
+          "row": 1,
+          "side": "left"
+        },
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "id": "Events-Tickets",
+        "from": {
+          "table": "Events",
+          "row": 0,
+          "side": "right"
+        },
+        "to": {
+          "table": "Tickets",
+          "row": 1,
+          "side": "left"
+        },
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "id": "Seats-Tickets",
+        "from": {
+          "table": "Seats",
+          "row": 0,
+          "side": "right"
+        },
+        "to": {
+          "table": "Tickets",
+          "row": 3,
+          "side": "left"
+        },
+        "trunk": null,
+        "manual": false
+      }
+    ]
+  }
+}
