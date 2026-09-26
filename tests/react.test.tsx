@@ -140,7 +140,7 @@ test("React restores legacy JSON, edits logical names, persists and undoes/redoe
   );
   await submit();
   assert.equal(saved().tables[0].logicalName, "ユーザー");
-  await click(document.querySelector('[role="switch"]'));
+  await click(document.querySelector('input[value="logical"]'));
   assert.ok(byLabel("ユーザーを編集"));
   await click(byLabel("元に戻す"));
   assert.equal(saved().tables[0].logicalName, "");

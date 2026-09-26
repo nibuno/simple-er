@@ -320,147 +320,148 @@ export function App() {
     : "";
   return (
     <>
-      <header>
-        <h1>SimpleER</h1>
-        <div className="toolbar">
-          {(["undo", "redo"] as const).map((kind, i) => (
-            <button
-              key={kind}
-              id={kind}
-              className="history-button"
-              title={i ? "やり直す" : "元に戻す"}
-              aria-label={i ? "やり直す" : "元に戻す"}
-              disabled={i ? !history.future.length : !history.past.length}
-              onClick={i ? redo : undo}
-            >
-              <svg
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-                focusable="false"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+      <header className="editor-header">
+        <div className="document-menu">
+          <h1>SimpleER</h1>
+          <details
+            ref={options}
+            className="file-options"
+            onClick={(e) => {
+              if ((e.target as Element).closest("button") && options.current) {
+                options.current.open = false;
+                options.current.querySelector("summary")?.focus();
+              }
+            }}
+          >
+            <summary>ファイル</summary>
+            <div className="file-options-panel">
+              <button
+                onClick={() => replace({ tables: [], edges: [] }, "", true)}
               >
-                <path
-                  d={
-                    i
-                      ? "m15 5 5 5-5 5 M20 10H10a6 6 0 0 0-6 6v3"
-                      : "M9 5 4 10l5 5 M4 10h10a6 6 0 0 1 6 6v3"
-                  }
-                />
-              </svg>
-            </button>
-          ))}
+                新しい図
+              </button>
+              <button onClick={() => file.current?.click()}>
+                ファイルを開く
+              </button>
+              <button onClick={download}>ファイルに保存</button>
+            </div>
+          </details>
+          <input
+            ref={file}
+            type="file"
+            accept=".json,application/json"
+            hidden
+            onChange={async (e) => {
+              const input = e.currentTarget,
+                selectedFile = input.files?.[0];
+              if (!selectedFile) return;
+              try {
+                if (selectedFile.size > 2_000_000)
+                  throw new Error("ファイルの上限は2MBです。");
+                replace(decode(await selectedFile.text()), "", true);
+              } catch (error) {
+                setHint(
+                  `読み込めませんでした：${messageOf(error)} 現在の図は保持しています。`,
+                );
+              } finally {
+                input.value = "";
+              }
+            }}
+          />
         </div>
+        <nav className="editing-tools" aria-label="ER図の操作">
+          <div className="history-tools" role="group" aria-label="編集履歴">
+            {(["undo", "redo"] as const).map((kind, i) => (
+              <button
+                key={kind}
+                id={kind}
+                className="history-button"
+                title={i ? "やり直す" : "元に戻す"}
+                aria-label={i ? "やり直す" : "元に戻す"}
+                disabled={i ? !history.future.length : !history.past.length}
+                onClick={i ? redo : undo}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path
+                    d={
+                      i
+                        ? "m15 5 5 5-5 5 M20 10H10a6 6 0 0 0-6 6v3"
+                        : "M9 5 4 10l5 5 M4 10h10a6 6 0 0 1 6 6v3"
+                    }
+                  />
+                </svg>
+              </button>
+            ))}
+          </div>
+          <button className="primary" onClick={() => open()}>
+            テーブルを追加
+          </button>
+          <button onClick={() => setInfer(true)}>自動で接続</button>
+          <button
+            disabled={state.tables.length < 2}
+            title="テーブルの配置と間隔を整える"
+            onClick={() => {
+              try {
+                replace(
+                  tidyDiagram(state, view.current.w / view.current.h),
+                  "",
+                  true,
+                );
+              } catch (error) {
+                setHint(messageOf(error));
+              }
+            }}
+          >
+            整頓
+          </button>
+        </nav>
+        <fieldset className="name-display">
+          <legend>表示名</legend>
+          <div className="name-segments">
+            {([false, true] as const).map((isLogical) => (
+              <label key={String(isLogical)}>
+                <input
+                  type="radio"
+                  name="name-display"
+                  value={isLogical ? "logical" : "physical"}
+                  checked={logical === isLogical}
+                  onChange={() => {
+                    setLogical(isLogical);
+                    try {
+                      localStorage.setItem(
+                        "er-sketch.name-display",
+                        isLogical ? "logical" : "physical",
+                      );
+                    } catch {}
+                  }}
+                />
+                <span>{isLogical ? "論理名" : "物理名"}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
       </header>
       <main>
-        <nav className="document-tools" aria-label="ER図の操作">
-          <div>
-            <button className="primary" onClick={() => open()}>
-              テーブルを追加
-            </button>
-            <button onClick={() => setInfer(true)}>自動で接続</button>
-            <button
-              disabled={state.tables.length < 2}
-              title="テーブルの配置と間隔を整える"
-              onClick={() => {
-                try {
-                  replace(
-                    tidyDiagram(state, view.current.w / view.current.h),
-                    "",
-                    true,
-                  );
-                } catch (error) {
-                  setHint(messageOf(error));
-                }
-              }}
-            >
-              整頓
-            </button>
-            <button
-              onClick={() => replace({ tables: [], edges: [] }, "", true)}
-            >
-              新しい図
-            </button>
-          </div>
-          <div>
-            <span
-              id="save-status"
-              role="status"
-              className={saveError ? "error" : ""}
-            >
-              {saveError}
-            </span>
-            <details
-              ref={options}
-              className="file-options"
-              onClick={(e) => {
-                if (
-                  (e.target as Element).closest("button") &&
-                  options.current
-                ) {
-                  options.current.open = false;
-                  options.current.querySelector("summary")?.focus();
-                }
-              }}
-            >
-              <summary>オプション</summary>
-              <div className="file-options-panel">
-                <button onClick={download}>ファイルに保存</button>
-                <button onClick={() => file.current?.click()}>
-                  ファイルを開く
-                </button>
-              </div>
-            </details>
-            <input
-              ref={file}
-              type="file"
-              accept=".json,application/json"
-              hidden
-              onChange={async (e) => {
-                const input = e.currentTarget,
-                  selectedFile = input.files?.[0];
-                if (!selectedFile) return;
-                try {
-                  if (selectedFile.size > 2_000_000)
-                    throw new Error("ファイルの上限は2MBです。");
-                  replace(decode(await selectedFile.text()), "", true);
-                } catch (error) {
-                  setHint(
-                    `読み込めませんでした：${messageOf(error)} 現在の図は保持しています。`,
-                  );
-                } finally {
-                  input.value = "";
-                }
-              }}
-            />
-          </div>
-        </nav>
-        <div className="instruction">
+        <div className="instruction" data-visible={Boolean(hint || saveError)}>
           <span role="status" aria-live="polite">
             {hint}
           </span>
-          <div className="view-controls">
-            <label className="name-toggle">
-              <input
-                type="checkbox"
-                role="switch"
-                checked={logical}
-                onChange={(e) => {
-                  setLogical(e.target.checked);
-                  try {
-                    localStorage.setItem(
-                      "er-sketch.name-display",
-                      e.target.checked ? "logical" : "physical",
-                    );
-                  } catch {}
-                }}
-              />
-              論理名で表示
-            </label>
-          </div>
+          <span
+            id="save-status"
+            role="status"
+            className={saveError ? "error" : ""}
+          >
+            {saveError}
+          </span>
         </div>
         <DiagramCanvas
           state={state}
