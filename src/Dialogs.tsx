@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Column, Diagram, Key, Table } from "./types.ts";
 import { editTable, inferConnections, makeEdge, uid } from "./model.ts";
@@ -149,6 +149,7 @@ export function TableEditor({
 }) {
   const [draft, setDraft] = useState(() => structuredClone(initial)),
     [error, setError] = useState("");
+  const addedColumn = useRef<string | null>(null);
   const list = useRef<HTMLDivElement>(null),
     frame = useRef(0);
   const [dragging, setDragging] = useState<string | null>(null),
@@ -160,6 +161,19 @@ export function TableEditor({
   } | null>(null);
   const creating = !state.tables.some((t) => t.id === draft.id);
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
+  useLayoutEffect(() => {
+    const id = addedColumn.current;
+    if (!id || !list.current) return;
+    const input = list.current.querySelector<HTMLInputElement>(
+      `[data-column="${CSS.escape(id)}"] input`,
+    );
+    if (!input) return;
+    addedColumn.current = null;
+    // Scroll only the list, keeping the dialog and action buttons in place.
+    list.current.scrollTop = list.current.scrollHeight;
+    input.focus({ preventScroll: true });
+    input.select();
+  }, [draft.columns]);
   function column(
     index: number,
     patch: Partial<Record<0 | 1 | 2 | 4, string>>,
@@ -280,23 +294,16 @@ export function TableEditor({
               （{draft.columns.length}）
             </span>
           </h3>
-          <button
-            type="button"
-            disabled={draft.columns.length >= 60}
-            onClick={() => {
-              let i = 1;
-              while (draft.columns.some((c) => c[0] === `column_${i}`)) i++;
-              setDraft({
-                ...draft,
-                columns: [
-                  ...draft.columns,
-                  [`column_${i}`, "text", "", uid(), ""],
-                ],
-              });
-            }}
-          >
-            カラムを追加
-          </button>
+        </div>
+        <div className="column-labels" aria-hidden="true">
+          <span />
+          <span>物理名</span>
+          <span>
+            論理名 <small>（任意）</small>
+          </span>
+          <span>型</span>
+          <span>キー</span>
+          <span />
         </div>
         <div id="column-editor" ref={list}>
           {draft.columns.map((c, i) => {
@@ -389,7 +396,8 @@ export function TableEditor({
                 <div className="row-actions">
                   <button
                     type="button"
-                    className="danger"
+                    className="delete-column"
+                    title="カラムを削除"
                     aria-label={`カラム${i + 1}を削除`}
                     disabled={draft.columns.length === 1}
                     onClick={() =>
@@ -401,13 +409,45 @@ export function TableEditor({
                       })
                     }
                   >
-                    削除
+                    <svg
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      focusable="false"
+                      width="16"
+                      height="16"
+                    >
+                      <path
+                        d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
                   </button>
                 </div>
               </div>
             );
           })}
         </div>
+        <button
+          type="button"
+          className="add-column"
+          disabled={draft.columns.length >= 60}
+          onClick={() => {
+            let i = 1;
+            while (draft.columns.some((c) => c[0] === `column_${i}`)) i++;
+            const id = uid();
+            addedColumn.current = id;
+            setDraft({
+              ...draft,
+              columns: [...draft.columns, [`column_${i}`, "text", "", id, ""]],
+            });
+          }}
+        >
+          カラムを追加
+        </button>
         <p className="error" role="alert">
           {error}
         </p>

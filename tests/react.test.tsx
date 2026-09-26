@@ -324,3 +324,142 @@ test("connection handle drag stays manual and undo restores its original route",
   await click(byLabel("元に戻す"));
   assert.deepEqual(saved(), before);
 });
+
+async function wheel(element, options) {
+  const event = new dom.window.WheelEvent("wheel", {
+    bubbles: true,
+    cancelable: true,
+    ...options,
+  });
+  await act(() => element.dispatchEvent(event));
+  return event;
+}
+function currentView() {
+  return document
+    .querySelector("#diagram")
+    .getAttribute("viewBox")
+    .split(" ")
+    .map(Number);
+}
+test("trackpad pans over tables at each zoom without modifying data or history", async () => {
+  const before = saved();
+  const table = document.querySelector(".table-heading");
+  for (const zoom of [100, 125, 150]) {
+    if (zoom !== 100) await click(byLabel("拡大"));
+    const [x, y, w, h] = currentView();
+    const event = await wheel(table, { deltaX: 24, deltaY: -48 });
+    const next = currentView();
+    assert.equal(event.defaultPrevented, true);
+    assert.ok(Math.abs(next[0] - (x + (24 * 100) / zoom)) < 1e-8);
+    assert.ok(Math.abs(next[1] - (y - (48 * 100) / zoom)) < 1e-8);
+    assert.deepEqual(next.slice(2), [w, h]);
+  }
+  assert.deepEqual(saved(), before);
+  assert.equal(byLabel("元に戻す").disabled, true);
+});
+test("scroll units are normalized, Command gestures pass through, and drag ignores scrolling", async () => {
+  const svg = document.querySelector("#diagram");
+  let [x, y, w, h] = currentView();
+  await wheel(svg, { deltaMode: 1, deltaX: 2, deltaY: -3 });
+  assert.deepEqual(currentView(), [x + 32, y - 48, w, h]);
+  [x, y, w, h] = currentView();
+  await wheel(svg, { deltaMode: 2, deltaX: -1, deltaY: 1 });
+  assert.deepEqual(currentView(), [x - w, y + h, w, h]);
+  const before = currentView();
+  for (const modifier of ["metaKey"]) {
+    const event = await wheel(svg, { deltaY: 60, [modifier]: true });
+    assert.equal(event.defaultPrevented, false);
+    assert.deepEqual(currentView(), before);
+  }
+  await pointer(
+    document.querySelector(".table-heading"),
+    "pointerdown",
+    100,
+    100,
+  );
+  await wheel(svg, { deltaX: 30, deltaY: 60 });
+  assert.deepEqual(currentView(), before);
+  await pointer(svg, "pointercancel", 100, 100);
+});
+
+test("pinch zoom anchors the cursor, clamps scale and leaves the diagram and history unchanged", async () => {
+  const svg = document.querySelector("#diagram");
+  const data = saved();
+  const [x, y, w, h] = currentView();
+  const anchor = [x + w / 4, y + h / 3];
+  const event = await wheel(svg, {
+    ctrlKey: true,
+    deltaY: -Math.log(2) / 0.01,
+    clientX: 300,
+    clientY: 240,
+  });
+  assert.equal(event.defaultPrevented, true);
+  let next = currentView();
+  assert.ok(Math.abs(next[2] - w / 2) < 1e-8);
+  assert.ok(Math.abs(next[0] + next[2] / 4 - anchor[0]) < 1e-8);
+  assert.ok(Math.abs(next[1] + next[3] / 3 - anchor[1]) < 1e-8);
+  assert.equal(document.querySelector("#zoom-label").textContent, "200%");
+  await wheel(svg, { ctrlKey: true, deltaY: -10000 });
+  assert.equal(document.querySelector("#zoom-label").textContent, "400%");
+  await wheel(svg, { ctrlKey: true, deltaY: 10000 });
+  assert.equal(document.querySelector("#zoom-label").textContent, "25%");
+  assert.deepEqual(saved(), data);
+  assert.equal(byLabel("元に戻す").disabled, true);
+  const view = currentView();
+  const outside = await wheel(document.querySelector("header"), {
+    ctrlKey: true,
+    deltaY: -40,
+  });
+  assert.equal(outside.defaultPrevented, false);
+  assert.deepEqual(currentView(), view);
+});
+async function gesture(type, scale) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.assign(event, { scale, clientX: 300, clientY: 240 });
+  await act(() => document.querySelector("#diagram").dispatchEvent(event));
+  assert.equal(event.defaultPrevented, true);
+}
+test("WebKit pinch uses cumulative scale without double applying wheel events and resumes panning", async () => {
+  const [x, y, w, h] = currentView();
+  await gesture("gesturestart", 1);
+  await gesture("gesturechange", 1.5);
+  await wheel(document.querySelector("#diagram"), {
+    ctrlKey: true,
+    deltaY: -40,
+  });
+  assert.equal(document.querySelector("#zoom-label").textContent, "150%");
+  await gesture("gesturechange", 2);
+  assert.equal(document.querySelector("#zoom-label").textContent, "200%");
+  let next = currentView();
+  assert.ok(Math.abs(next[0] + next[2] / 4 - (x + w / 4)) < 1e-8);
+  assert.ok(Math.abs(next[1] + next[3] / 3 - (y + h / 3)) < 1e-8);
+  await gesture("gestureend", 2);
+  await gesture("gesturestart", 1);
+  await gesture("gesturechange", 0.5);
+  await gesture("gestureend", 0.5);
+  assert.equal(document.querySelector("#zoom-label").textContent, "100%");
+  next = currentView();
+  await wheel(document.querySelector("#diagram"), { deltaX: 24, deltaY: -48 });
+  assert.deepEqual(currentView(), [
+    next[0] + 24,
+    next[1] - 48,
+    next[2],
+    next[3],
+  ]);
+});
+
+test("adding repeated columns focuses the new name and keeps edits as a cancellable draft", async () => {
+  const before = saved();
+  await click(byLabel("usersを編集"));
+  const originalCount = document.querySelectorAll(".column-edit-row").length;
+  for (let i = 1; i <= 12; i++) {
+    await click(byText("カラムを追加"));
+    const input = byLabel(`カラム${originalCount + i}の物理名`);
+    assert.equal(document.activeElement, input);
+    assert.equal(input.selectionStart, 0);
+    assert.equal(input.selectionEnd, input.value.length);
+  }
+  assert.deepEqual(saved(), before);
+  await click(byText("キャンセル"));
+  assert.deepEqual(saved(), before);
+});

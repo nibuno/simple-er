@@ -900,3 +900,196 @@ main {
     padding: 6px;
   }
 }
+
+/* Table editing: one aligned row per column, with a bounded scrolling list. */
+#table-editor {
+  --column-grid: 24px minmax(120px, 1fr) minmax(120px, 1fr)
+    minmax(125px, 0.85fr) 132px 32px;
+  width: 920px;
+  height: min(640px, calc(100dvh - 32px));
+  padding: 20px;
+  max-height: calc(100dvh - 32px);
+}
+#table-form {
+  height: 100%;
+  max-height: none;
+}
+#table-form > .dialog-heading {
+  margin-bottom: 12px;
+}
+#table-form .table-names {
+  gap: 20px;
+}
+#table-form .table-names .field {
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+#table-form > .column-heading {
+  margin-bottom: 8px;
+}
+#table-form > .column-labels {
+  display: grid;
+  grid-template-columns: var(--column-grid);
+  gap: 8px;
+  padding: 0 4px 8px 0;
+  color: var(--muted);
+  font-size: 12px;
+  flex-shrink: 0;
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+}
+.column-labels small {
+  font: inherit;
+}
+#column-editor {
+  flex: 1 1 0;
+  padding: 0 4px 0 0;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+}
+#table-editor .column-edit-row {
+  grid-template-columns: var(--column-grid);
+  gap: 8px;
+  margin: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  align-items: start;
+}
+#table-editor .column-names {
+  display: contents;
+}
+#table-editor .column-edit-row input,
+#table-editor .column-edit-row select {
+  height: 36px;
+  padding: 6px 8px;
+  font-size: 13px;
+  border-color: transparent;
+  background: transparent;
+}
+#table-editor .column-edit-row input:hover,
+#table-editor .column-edit-row select:hover {
+  border-color: var(--border);
+}
+#table-editor .column-edit-row input:focus,
+#table-editor .column-edit-row select:focus {
+  background: var(--surface);
+  border-color: var(--border);
+}
+#table-editor .column-edit-row input::placeholder {
+  color: var(--muted);
+  font-size: 12px;
+}
+#table-editor .reorder-handle {
+  align-self: start;
+  height: 36px;
+  font-size: 20px;
+  padding: 6px 2px;
+}
+#table-editor .delete-column {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 36px;
+  padding: 8px;
+  border-color: transparent;
+  color: var(--muted);
+}
+#table-editor .delete-column:hover:not(:disabled) {
+  color: var(--danger);
+}
+#table-editor .delete-column svg {
+  width: 16px;
+  height: 16px;
+}
+#table-editor .row-actions {
+  gap: 0;
+}
+#table-form > .add-column {
+  align-self: flex-start;
+  flex-shrink: 0;
+  margin: 8px 0 0 24px;
+  padding: 8px;
+  border-color: transparent;
+  color: var(--accent);
+  font-size: 13px;
+}
+.add-column::before {
+  content: "+";
+  margin-right: 6px;
+}
+#table-form > .dialog-actions {
+  flex-shrink: 0;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+#table-form > .dialog-actions > .danger {
+  border-color: transparent;
+  font-size: 13px;
+}
+#table-editor .drop-before::before {
+  top: 0;
+}
+#table-editor .drop-after::after {
+  bottom: 0;
+}
+@media (max-width: 760px) {
+  #table-editor {
+    --column-grid: 24px minmax(90px, 1fr) minmax(105px, 0.85fr) 32px;
+    padding: 16px;
+  }
+  #table-form {
+    max-height: none;
+  }
+  #table-form .table-names {
+    gap: 12px;
+  }
+  #table-form > .column-labels {
+    display: none;
+  }
+  #table-editor .column-names {
+    display: flex;
+    grid-column: 2;
+    grid-row: 1 / 3;
+    gap: 4px;
+  }
+  #table-editor .column-type-control {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  #table-editor .column-edit-row > select {
+    grid-column: 3;
+    grid-row: 2;
+  }
+  #table-editor .reorder-handle {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    align-self: center;
+  }
+  #table-editor .row-actions {
+    grid-column: 4;
+    grid-row: 1 / 3;
+    align-self: center;
+  }
+  #table-editor .column-edit-row {
+    gap: 4px;
+  }
+  #table-form > .dialog-actions {
+    gap: 6px;
+  }
+  #table-form > .dialog-actions > .danger {
+    padding: 8px 0;
+  }
+}
+@media (max-width: 380px) {
+  #table-editor {
+    padding: 12px;
+  }
+  #table-form {
+    max-height: none;
+  }
+  #table-form > .dialog-actions > .danger {
+    font-size: 11px;
+  }
+}

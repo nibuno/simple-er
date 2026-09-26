@@ -107,6 +107,91 @@ export function DiagramCanvas(p: Props) {
   useEffect(() => {
     if (p.fitRequest) fit();
   }, [p.fitRequest]);
+  useEffect(() => {
+    const canvas = svg.current!;
+    let gestureScale: number | null = null;
+    function zoomAt(factor: number, clientX: number, clientY: number) {
+      const size = viewport();
+      const rect = canvas.getBoundingClientRect();
+      const fx = (clientX - rect.left) / (rect.width || size.w);
+      const fy = (clientY - rect.top) / (rect.height || size.h);
+      setView((current) => {
+        const percent = Math.max(25, Math.min(400, current.zoom * factor));
+        const w = (size.w * 100) / percent;
+        const h = (size.h * 100) / percent;
+        return {
+          x: current.x + (current.w - w) * fx,
+          y: current.y + (current.h - h) * fy,
+          w,
+          h,
+          zoom: percent,
+        };
+      });
+    }
+    const wheel = (event: WheelEvent) => {
+      if (event.metaKey && !event.ctrlKey) return;
+      event.preventDefault();
+      // Avoid changing the coordinate system during a table/connection drag.
+      if (drag.current || gestureScale !== null) return;
+      const size = viewport();
+      const unitX =
+        event.deltaMode === 2 ? size.w : event.deltaMode === 1 ? 16 : 1;
+      const unitY =
+        event.deltaMode === 2 ? size.h : event.deltaMode === 1 ? 16 : 1;
+      const dx = event.deltaX * unitX;
+      const dy = event.deltaY * unitY;
+      // Trackpad pinch is delivered as Ctrl+wheel in Chromium and Firefox.
+      if (event.ctrlKey) {
+        zoomAt(Math.exp(-dy * 0.01), event.clientX, event.clientY);
+        return;
+      }
+      setView((current) => ({
+        ...current,
+        x: current.x + (dx * current.w) / size.w,
+        y: current.y + (dy * current.h) / size.h,
+      }));
+    };
+    // WebKit also exposes native gesture events with cumulative scale.
+    type CanvasGesture = Event & {
+      scale?: number;
+      clientX?: number;
+      clientY?: number;
+    };
+    const gestureStart = (event: CanvasGesture) => {
+      event.preventDefault();
+      gestureScale = event.scale && event.scale > 0 ? event.scale : 1;
+    };
+    const gestureChange = (event: CanvasGesture) => {
+      if (gestureScale === null) return;
+      event.preventDefault();
+      const scale = event.scale;
+      if (!scale || !Number.isFinite(scale) || scale <= 0) return;
+      const factor = scale / gestureScale;
+      gestureScale = scale;
+      if (drag.current) return;
+      const rect = canvas.getBoundingClientRect();
+      zoomAt(
+        factor,
+        event.clientX ?? rect.left + viewport().w / 2,
+        event.clientY ?? rect.top + viewport().h / 2,
+      );
+    };
+    const gestureEnd = (event: Event) => {
+      if (gestureScale === null) return;
+      event.preventDefault();
+      gestureScale = null;
+    };
+    canvas.addEventListener("wheel", wheel, { passive: false });
+    canvas.addEventListener("gesturestart", gestureStart, { passive: false });
+    canvas.addEventListener("gesturechange", gestureChange, { passive: false });
+    canvas.addEventListener("gestureend", gestureEnd, { passive: false });
+    return () => {
+      canvas.removeEventListener("wheel", wheel);
+      canvas.removeEventListener("gesturestart", gestureStart);
+      canvas.removeEventListener("gesturechange", gestureChange);
+      canvas.removeEventListener("gestureend", gestureEnd);
+    };
+  }, []);
   function point(e: PointerEvent): Point {
     const matrix = svg.current!.getScreenCTM();
     return new DOMPoint(e.clientX, e.clientY).matrixTransform(
