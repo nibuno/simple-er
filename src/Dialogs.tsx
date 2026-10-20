@@ -12,6 +12,7 @@ import type {
 import {
   referenceImpacts,
   editTable,
+  removeTable,
   inferConnections,
   makeEdge,
   uid,
@@ -802,23 +803,7 @@ export function TableEditor({
               className="danger"
               onClick={() => {
                 onApply(
-                  {
-                    ...state,
-                    tables: state.tables
-                      .filter((t) => t.id !== draft.id)
-                      .map((t) => ({
-                        ...t,
-                        foreignKeys: t.foreignKeys?.map((f) =>
-                          f.target?.tableId === draft.id
-                            ? { ...f, target: undefined }
-                            : f,
-                        ),
-                      })),
-                    edges: state.edges.filter(
-                      (e) =>
-                        e.from.table !== draft.id && e.to.table !== draft.id,
-                    ),
-                  },
+                  removeTable(state, draft.id).next,
                   `${draft.name || draft.id}を削除しました。${incomingCount ? `外部キー${incomingCount}件は参照先未設定として「要確認」に残しています。` : ""}「元に戻す」で復元できます。`,
                 );
                 onClose();

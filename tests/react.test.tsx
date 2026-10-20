@@ -1022,3 +1022,26 @@ test("clicks within one table re-pick the connection source instead of connectin
   assert.equal(document.querySelector(".connect-hint"), null);
   assert.equal(saved().edges.length, before);
 });
+
+test("Delete or Backspace removes the selected foreign key or table with undo", async () => {
+  const edges = saved().edges.length;
+  await click(document.querySelector(".sidebar-item.relation"));
+  await key(document.body, "Delete");
+  assert.equal(saved().edges.length, edges - 1);
+  await click(byLabel("元に戻す"));
+  assert.equal(saved().edges.length, edges);
+  const users = [...document.querySelectorAll(".sidebar-item")].find((b) =>
+    b.textContent.startsWith("users"),
+  );
+  await click(users);
+  await key(byLabel("インスペクタで物理名を編集"), "Backspace");
+  assert.equal(saved().tables.length, 3);
+  await key(document.body, "Backspace");
+  assert.equal(saved().tables.length, 2);
+  assert.match(
+    document.querySelector(".instruction").textContent,
+    /usersを削除しました/,
+  );
+  await click(byLabel("元に戻す"));
+  assert.equal(saved().tables.length, 3);
+});

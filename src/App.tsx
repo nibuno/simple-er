@@ -13,6 +13,7 @@ import { initialDocument } from "./initial.ts";
 import {
   canConnect,
   removeForeignKey,
+  removeTable,
   editTable,
   decode,
   decodeDocument,
@@ -216,6 +217,28 @@ export function App() {
       ) {
         e.preventDefault();
         open();
+      }
+      if (
+        (e.key === "Delete" || e.key === "Backspace") &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey
+      ) {
+        if (edge?.foreignKeyId) {
+          e.preventDefault();
+          replace(
+            removeForeignKey(state, edge.foreignKeyId),
+            "外部キーを削除しました。「元に戻す」で復元できます。",
+          );
+        } else if (inspected) {
+          e.preventDefault();
+          const { next, incoming } = removeTable(state, inspected.id);
+          replace(
+            next,
+            `${inspected.name || inspected.id}を削除しました。${incoming ? `外部キー${incoming}件は参照先未設定として「要確認」に残しています。` : ""}「元に戻す」で復元できます。`,
+          );
+        }
+        return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -858,6 +881,8 @@ export function App() {
               </button>
               <button
                 id="remove"
+                data-shortcut="⌫"
+                title="外部キーを削除 (Delete)"
                 onClick={() =>
                   edge?.foreignKeyId &&
                   replace(removeForeignKey(state, edge.foreignKeyId))
