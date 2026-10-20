@@ -1,12 +1,14 @@
 # SimpleERのWeb公開方針
 
-調査日: 2026-10-20。対象: HEAD `07edb96` と現在の未コミット変更（React 19 / Vite 7構成）。コードと公式資料を確認した計画であり、公開環境での動作検証は未実施。
+調査日: 2026-10-20。当初の調査対象はHEAD `07edb96` と当時の未コミット変更（React 19 / Vite 7構成）。同日に公開準備と初回デプロイを実施した。
 
 ## 公開準備の進捗
 
 2026-10-20にソース公開の了承を得て、`nibuno/simple-er` を公開先として準備した。相対base、`npm run build:pages`、手動実行のPages用Actionsを追加済み。公開用ビルドはSimpleERのみを直接 `dist-pages/` へ生成する方式とし、下記のステージングへのコピー案を置き換えた。
 
 ローカルでは158件のテストと型チェック・公開用ビルドが成功。`/simple-er/` 配下をブラウザで開き、テーブル追加と再読み込み後の復元を確認した。以下は当初計画の記録であり、公開結果はREADMEとGitHub Actionsの実行履歴を参照する。
+
+初回の[GitHub Actions実行](https://github.com/nibuno/simple-er/actions/runs/39425678828)は成功し、[公開URL](https://nibuno.github.io/simple-er/)で画面の描画を確認した。独自ドメインは未設定。SafariとChromeの両方での操作確認、狭い画面での確認は今回の公開検証には含めていない。
 
 ## 推奨方針
 
