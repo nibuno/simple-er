@@ -1001,3 +1001,24 @@ test("sidebar lists tables and relations and selects them", async () => {
     ["order_items4"],
   );
 });
+
+test("clicks within one table re-pick the connection source instead of connecting", async () => {
+  const before = saved().edges.length;
+  await click(byLabel("users.id を接続"));
+  assert.match(
+    document.querySelector(".connect-hint").textContent,
+    /users\.id/,
+  );
+  await click(byLabel("users.name を接続"));
+  assert.equal(saved().edges.length, before);
+  assert.match(
+    document.querySelector(".connect-hint").textContent,
+    /users\.name/,
+  );
+  await click(byLabel("users.name を接続"));
+  assert.equal(document.querySelector(".connect-hint"), null);
+  await click(byLabel("users.id を接続"));
+  await key(document.body, "Escape");
+  assert.equal(document.querySelector(".connect-hint"), null);
+  assert.equal(saved().edges.length, before);
+});

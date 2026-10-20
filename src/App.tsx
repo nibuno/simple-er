@@ -280,6 +280,12 @@ export function App() {
       setHint("");
       return;
     }
+    // Clicks within one table re-pick the source; self-references are set in the editor.
+    if (pending.table === table) {
+      setPending(pending.row === row ? null : { table, row });
+      setHint("");
+      return;
+    }
     if (
       !canConnect(state, pending, { table, row }) &&
       !canConnect(state, { table, row }, pending)
@@ -424,6 +430,12 @@ export function App() {
   );
   const edge = state.edges.find((e) => e.id === selected);
   const inspected = state.tables.find((t) => t.id === focusedTable);
+  const pendingTable = pending
+    ? state.tables.find((t) => t.id === pending.table)
+    : undefined;
+  const pendingColumn = pending
+    ? pendingTable?.columns[pending.row]
+    : undefined;
   function selectTable(id: string) {
     setSelected(null);
     setAdjustingLine(false);
@@ -802,6 +814,16 @@ export function App() {
             fitRequest={fitRequest}
             viewRef={view}
           >
+            {pendingTable && pendingColumn && (
+              <div className="connect-hint" role="status">
+                <span className="mono">
+                  {displayTable(pendingTable)}.{displayColumn(pendingColumn)}
+                </span>
+                の接続先を、別のテーブルのカラムから選んでください
+                <kbd className="kbd">Esc</kbd>
+                <span className="connect-hint-note">で取り消し</span>
+              </div>
+            )}
             <div id="selection" hidden={!edge}>
               <span id="edge-label">{edgeLabel}</span>
               <button

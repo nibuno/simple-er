@@ -2189,7 +2189,11 @@ select:focus {
 .row.pending .row-bg {
   fill: var(--selected);
   stroke: var(--accent);
-  stroke-dasharray: 3 3;
+  stroke-width: 1.5;
+}
+.row.pending .column-name {
+  fill: var(--accent-strong);
+  font-weight: 600;
 }
 .table.selected .table-box {
   stroke: var(--accent);
@@ -2576,5 +2580,44 @@ dialog::backdrop {
   }
   .editing-tools > button:not(.primary) .icon {
     display: none;
+  }
+}
+
+.connect-hint {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--text);
+  color: #f4f4f5;
+  font-size: 12.5px;
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+}
+.connect-hint .mono {
+  color: #86efac;
+  font-weight: 600;
+}
+.connect-hint .kbd {
+  margin-left: 6px;
+  background: transparent;
+  border-color: rgb(255 255 255 / 28%);
+  color: #d4d4d8;
+}
+.connect-hint-note {
+  margin-left: -2px;
+  color: #a1a1aa;
+}
+@media (max-width: 560px) {
+  .connect-hint {
+    flex-wrap: wrap;
+    justify-content: center;
+    width: max-content;
   }
 }
