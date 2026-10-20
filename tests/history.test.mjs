@@ -1,13 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { historyReducer } from "../src/history.ts";
-import { initial } from "../src/initial.ts";
+import { initial as diagram } from "../src/initial.ts";
+import { documentFromDiagram } from "../src/model.ts";
+const initial = documentFromDiagram(diagram);
 test("many drag previews commit as one undo step, cancel creates no history", () => {
   const origin = { present: initial, past: [], future: [] };
   let state = origin;
   for (let i = 1; i <= 20; i++) {
     const next = structuredClone(initial);
-    next.tables[0].x += i;
+    next.presentation.tables[0].x += i;
     state = historyReducer(state, { type: "preview", next });
   }
   assert.equal(state.past.length, 0);
@@ -30,7 +32,7 @@ test("history is bounded and a new edit clears the redo branch", () => {
   let state = { present: initial, past: [], future: [] };
   for (let i = 1; i <= 70; i++) {
     const next = structuredClone(initial);
-    next.tables[0].x += i;
+    next.presentation.tables[0].x += i;
     state = historyReducer(state, { type: "commit", next });
   }
   assert.equal(state.past.length, 60);

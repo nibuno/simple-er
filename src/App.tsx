@@ -1,15 +1,27 @@
+import { watchStorage } from "../shared/storage.ts";
 import { messageOf, overlaps } from "./utils.ts";
-import { useEffect, useReducer, useRef, useState } from "react";
-import type { Column, Diagram, Endpoint, Table, View } from "./types.ts";
-import { initial } from "./initial.ts";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import type {
+  Column,
+  Diagram,
+  DiagramDocument,
+  Endpoint,
+  Table,
+  View,
+} from "./types.ts";
+import { initialDocument } from "./initial.ts";
 import {
   canConnect,
+  removeForeignKey,
+  editTable,
   decode,
-  encode,
+  decodeDocument,
+  documentFromDiagram,
+  projectDocument,
+  encodeDocument,
   makeEdge,
   title,
   uid,
-  validateDiagram,
 } from "./model.ts";
 import { tableWidth } from "./geometry.ts";
 import { tidyDiagram } from "./layout.ts";
@@ -23,22 +35,36 @@ function restore() {
     const saved = localStorage.getItem(STORAGE);
     if (saved)
       try {
-        return { diagram: decode(saved), message: "" };
+        const diagram = decodeDocument(saved);
+        try {
+          if (
+            JSON.parse(saved).version === 1 &&
+            !localStorage.getItem(STORAGE + ".v1-backup")
+          )
+            localStorage.setItem(STORAGE + ".v1-backup", saved);
+        } catch {
+          return {
+            diagram,
+            message:
+              "旧データの退避先に保存できませんでした。ファイルに保存してバックアップしてください。",
+          };
+        }
+        return { diagram, message: "" };
       } catch {
         localStorage.setItem(STORAGE + ".recovery", saved);
         return {
-          diagram: initial,
+          diagram: structuredClone(initialDocument),
           message:
             "保存データを読み込めませんでした。元データを退避し、サンプルを表示しています。",
         };
       }
   } catch {
     return {
-      diagram: initial,
+      diagram: structuredClone(initialDocument),
       message: "自動保存を利用できません。ファイルに保存してください",
     };
   }
-  return { diagram: initial, message: "" };
+  return { diagram: structuredClone(initialDocument), message: "" };
 }
 export function App() {
   const [loaded] = useState(restore);
@@ -47,11 +73,32 @@ export function App() {
     past: [],
     future: [],
   });
-  const state = history.present;
+  const state = useMemo(
+    () => projectDocument(history.present),
+    [history.present],
+  );
   const [selected, setSelected] = useState<string | null>(null);
+  const [adjustingLine, setAdjustingLine] = useState(false);
+  const [adjustable, setAdjustable] = useState(false);
   const [pending, setPending] = useState<Endpoint | null>(null);
   const [hint, setHint] = useState(loaded.message);
   const [saveError, setSaveError] = useState("");
+  const [storageConflict, setStorageConflict] = useState(false);
+  const pausedSave = useRef(false);
+  const lastSaved = useRef<string | null>(null);
+  useEffect(() => {
+    try {
+      lastSaved.current = localStorage.getItem(STORAGE);
+    } catch {}
+    return watchStorage(
+      STORAGE,
+      () => lastSaved.current,
+      () => {
+        pausedSave.current = true;
+        setStorageConflict(true);
+      },
+    );
+  }, []);
   const [logical, setLogical] = useState(() => {
     try {
       return localStorage.getItem("er-sketch.name-display") === "logical";
@@ -60,6 +107,10 @@ export function App() {
     }
   });
   const [draft, setDraft] = useState<Table | null>(null);
+  const [editConstraints, setEditConstraints] = useState(false);
+  const [editingForeignKey, setEditingForeignKey] = useState<
+    string | undefined
+  >();
   const [infer, setInfer] = useState(false);
   const [fitRequest, setFitRequest] = useState(0);
   const view = useRef<View>({ x: 0, y: 0, w: 1200, h: 720, zoom: 100 });
@@ -69,22 +120,37 @@ export function App() {
   stateRef.current = state;
   const displayTable = (t: Table) =>
     logical && t.logicalName ? t.logicalName : title(t);
-  const displayColumn = (c: Column) => (logical && c[4] ? c[4] : c[0]);
-  function save(next: Diagram) {
+  const displayColumn = (c: Column) =>
+    logical && c.logicalName ? c.logicalName : c.name;
+  function save(next: DiagramDocument) {
+    if (pausedSave.current) return;
     try {
-      localStorage.setItem(STORAGE, encode(next));
+      const raw = encodeDocument(next);
+      // Also detect a write that arrived before its storage event was delivered.
+      if (localStorage.getItem(STORAGE) !== lastSaved.current) {
+        pausedSave.current = true;
+        setStorageConflict(true);
+        return;
+      }
+      localStorage.setItem(STORAGE, raw);
+      lastSaved.current = raw;
       setSaveError("");
     } catch {
       setSaveError("自動保存できません。ファイルに保存してください");
     }
   }
   function commit(next: Diagram, before?: Diagram) {
-    const valid = validateDiagram(next);
-    dispatch({ type: "commit", next: valid, before });
+    const valid = documentFromDiagram(next);
+    dispatch({
+      type: "commit",
+      next: valid,
+      before: before ? documentFromDiagram(before) : undefined,
+    });
     save(valid);
   }
   function clear() {
     setSelected(null);
+    setAdjustingLine(false);
     setPending(null);
     setHint("");
   }
@@ -138,7 +204,9 @@ export function App() {
     document.addEventListener("keydown", key);
     return () => document.removeEventListener("keydown", key);
   });
-  function open(id?: string) {
+  function open(id?: string, constraints = false, foreignKeyId?: string) {
+    setEditingForeignKey(foreignKeyId);
+    setEditConstraints(constraints);
     if (id) {
       setDraft(structuredClone(state.tables.find((t) => t.id === id)!));
       return;
@@ -155,8 +223,20 @@ export function App() {
       logicalName: "",
       x: Math.round(view.current.x + 80),
       y: Math.round(view.current.y + 100),
-      columns: [["id", "uuid", "PK", uid(), ""]],
+      columns: [
+        { name: "id", type: "uuid", key: "PK", id: uid(), logicalName: "" },
+      ],
+      keys: [],
+      foreignKeys: [],
     };
+    table.keys = [
+      {
+        id: uid(),
+        name: "",
+        kind: "primary",
+        columnIds: [table.columns[0].id],
+      },
+    ];
     const origin = { x: table.x, y: table.y };
     let found = false;
     for (let row = 0; row < 50 && !found; row++)
@@ -171,22 +251,20 @@ export function App() {
     setDraft(table);
   }
   function connect(table: string, row: number) {
-    if (!state.tables.find((t) => t.id === table)!.columns[row][2]) {
-      setHint(
-        "接続するカラムは「編集」で外部キー（FK）または主キー（PK）を設定してください。",
-      );
-      return;
-    }
     if (!pending) {
       setPending({ table, row });
       setSelected(null);
-      setHint(
-        "対応する主キー（PK）または外部キー（FK）を選んでください。Escでキャンセル。",
-      );
+      setAdjustingLine(false);
+      setHint("");
       return;
     }
-    if (!canConnect(state, pending, { table, row })) {
-      setHint("主キー（PK）と外部キー（FK）の組み合わせを選んでください。");
+    if (
+      !canConnect(state, pending, { table, row }) &&
+      !canConnect(state, { table, row }, pending)
+    ) {
+      setHint(
+        "参照先の主キー・一意制約と参照元カラムを選んでください。複合キーは編集画面で設定できます。",
+      );
       return;
     }
     if (
@@ -210,15 +288,23 @@ export function App() {
       setHint("接続は200本までです。");
       return;
     }
-    const edge = makeEdge(state, pending, { table, row });
-    commit({ ...state, edges: [...state.edges, edge] });
-    clear();
-    setSelected(edge.id);
+    const next = structuredClone(state);
+    try {
+      const edge = makeEdge(next, pending, { table, row });
+      commit({ ...next, edges: [...next.edges, edge] });
+      clear();
+      setSelected(edge.id);
+    } catch (error) {
+      setPending(null);
+      setHint(messageOf(error));
+    }
   }
   function download() {
     try {
       const url = URL.createObjectURL(
-        new Blob([encode(state)], { type: "application/json" }),
+        new Blob([encodeDocument(history.present)], {
+          type: "application/json",
+        }),
       );
       const link = document.createElement("a");
       link.href = url;
@@ -309,15 +395,28 @@ export function App() {
       context.unregisterTool?.("move_table");
     };
   }, []);
+  const pendingForeignKeys = state.tables.flatMap((table) =>
+    (table.foreignKeys ?? [])
+      .filter((fk) => !fk.target)
+      .map((fk) => ({ table, fk })),
+  );
   const edge = state.edges.find((e) => e.id === selected);
-  const edgeLabel = edge
-    ? [edge.from, edge.to]
-        .map((p) => {
-          const t = state.tables.find((t) => t.id === p.table)!;
-          return `${displayTable(t)}.${displayColumn(t.columns[p.row])}`;
-        })
-        .join(" — ")
-    : "";
+  const selectedTable =
+    edge && state.tables.find((t) => t.id === edge.to.table);
+  const selectedFk = selectedTable?.foreignKeys?.find(
+    (f) => f.id === edge?.foreignKeyId,
+  );
+  const edgeLabel =
+    selectedFk && selectedTable && selectedFk.target
+      ? `${selectedFk.name || "外部キー"}：${selectedFk.columnIds
+          .map((id, i) => {
+            const parent = state.tables.find(
+              (t) => t.id === selectedFk.target!.tableId,
+            )!;
+            return `${displayTable(selectedTable)}.${displayColumn(selectedTable.columns.find((c) => c.id === id)!)} → ${displayTable(parent)}.${displayColumn(parent.columns.find((c) => c.id === selectedFk.target!.columnIds[i])!)}`;
+          })
+          .join(" / ")}`
+      : "";
   return (
     <>
       <header className="editor-header">
@@ -451,6 +550,132 @@ export function App() {
         </fieldset>
       </header>
       <main>
+        {storageConflict && (
+          <div className="migration-notice" role="alert">
+            別の画面でER図が変更されました。自動保存を停止しています。読み込む前に、この画面の図を「ファイルに保存」で残せます。読み込み時に編集履歴はリセットされます。
+            <button
+              onClick={() => {
+                try {
+                  const raw = localStorage.getItem(STORAGE);
+                  if (!raw) {
+                    setSaveError(
+                      "別の画面で保存データが削除されました。この画面の図をファイルに保存してください。",
+                    );
+                    return;
+                  }
+                  const next = decodeDocument(raw);
+                  dispatch({ type: "reset", next });
+                  lastSaved.current = raw;
+                  pausedSave.current = false;
+                  setStorageConflict(false);
+                  clear();
+                  setSaveError("");
+                  requestAnimationFrame(() =>
+                    (
+                      (document.querySelector(
+                        ".migration-notice summary",
+                      ) as HTMLElement | null) ?? document.getElementById("fit")
+                    )?.focus(),
+                  );
+                } catch (e) {
+                  setSaveError(messageOf(e));
+                }
+              }}
+            >
+              保存されている図を読み込む
+            </button>
+          </div>
+        )}
+        {pendingForeignKeys.length + (state.unresolvedEdges?.length ?? 0) >
+          0 && (
+          <details
+            className="migration-notice"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.currentTarget.open = false;
+                e.currentTarget.querySelector("summary")?.focus();
+                e.stopPropagation();
+              }
+            }}
+          >
+            <summary>
+              要確認{" "}
+              {pendingForeignKeys.length + (state.unresolvedEdges?.length ?? 0)}
+              件
+              <span className="issue-counts">
+                （参照先未設定 {pendingForeignKeys.length}・旧データの線{" "}
+                {state.unresolvedEdges?.length ?? 0}）
+              </span>
+            </summary>
+            <div className="issue-list">
+              {pendingForeignKeys.map(({ table, fk }) => (
+                <div className="issue-row" key={fk.id}>
+                  <span>
+                    {displayTable(table)}.
+                    {fk.columnIds
+                      .map((id) =>
+                        displayColumn(table.columns.find((c) => c.id === id)!),
+                      )
+                      .join(", ")}{" "}
+                    — 参照先未設定
+                  </span>
+                  <button
+                    onClick={() => open(table.id, true, fk.id)}
+                    aria-label={`${displayTable(table)}の${fk.name || fk.columnIds.map((id) => displayColumn(table.columns.find((c) => c.id === id)!)).join(", ")}の参照先を設定`}
+                  >
+                    編集
+                  </button>
+                </div>
+              ))}
+              {(state.unresolvedEdges?.length ?? 0) > 0 && (
+                <p>
+                  旧データの線は参照方向を確定できませんでした。番号は読み込み前のカラム位置です。必要な外部キーを設定してから破棄してください。破棄は再読み込みまで「元に戻す」で取り消せます。
+                </p>
+              )}
+              {state.unresolvedEdges?.map((edge, index) => (
+                <div className="issue-row" key={`${edge.id}:${index}`}>
+                  <span>
+                    旧データの線:{" "}
+                    {state.tables.some((t) => t.id === edge.from.table)
+                      ? displayTable(
+                          state.tables.find((t) => t.id === edge.from.table)!,
+                        )
+                      : edge.from.table + "（削除済み）"}
+                    （{edge.from.row + 1}列目）—{" "}
+                    {state.tables.some((t) => t.id === edge.to.table)
+                      ? displayTable(
+                          state.tables.find((t) => t.id === edge.to.table)!,
+                        )
+                      : edge.to.table + "（削除済み）"}
+                    （{edge.to.row + 1}列目）
+                  </span>
+                  <button
+                    aria-label={`旧データの線${index + 1}を破棄`}
+                    onClick={() => {
+                      commit({
+                        ...state,
+                        unresolvedEdges: state.unresolvedEdges!.filter(
+                          (_, i) => i !== index,
+                        ),
+                      });
+                      setHint(
+                        "旧データの線を1本破棄しました。「元に戻す」で復元できます。",
+                      );
+                      requestAnimationFrame(() => {
+                        const target = document.querySelector(
+                          ".migration-notice summary",
+                        ) as HTMLElement | null;
+                        (target ?? document.getElementById("fit"))?.focus();
+                      });
+                    }}
+                  >
+                    破棄
+                  </button>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
         <div className="instruction" data-visible={Boolean(hint || saveError)}>
           <span role="status" aria-live="polite">
             {hint}
@@ -466,10 +691,25 @@ export function App() {
         <DiagramCanvas
           state={state}
           selected={selected}
+          adjustingLine={adjustingLine}
+          onAdjustable={setAdjustable}
           pending={pending}
           displayTable={displayTable}
           displayColumn={displayColumn}
           onEdit={open}
+          logical={logical}
+          onRename={(id, columnId, value) => {
+            const table = structuredClone(
+              state.tables.find((t) => t.id === id)!,
+            );
+            if (columnId)
+              table.columns.find((c) => c.id === columnId)![
+                logical ? "logicalName" : "name"
+              ] = value;
+            else if (logical) table.logicalName = value;
+            else table.name = value;
+            commit(editTable(state, table));
+          }}
           onConnect={connect}
           onSelect={(id) => {
             clear();
@@ -478,37 +718,52 @@ export function App() {
           onClear={clear}
           onHint={setHint}
           onCommit={commit}
-          onPreview={(next) => dispatch({ type: "preview", next })}
+          onPreview={(next) =>
+            dispatch({ type: "preview", next: documentFromDiagram(next) })
+          }
           fitRequest={fitRequest}
           viewRef={view}
         >
           <div id="selection" hidden={!edge}>
             <span id="edge-label">{edgeLabel}</span>
             <button
+              aria-pressed={adjustingLine}
+              disabled={!adjustable}
+              onClick={() => setAdjustingLine((v) => !v)}
+            >
+              経路を調整
+            </button>
+            <button
               onClick={() => {
                 if (!edge) return;
-                const next = structuredClone(state),
-                  e = next.edges.find((e) => e.id === edge.id)!,
-                  a = state.tables.find((t) => t.id === e.from.table)!,
-                  b = state.tables.find((t) => t.id === e.to.table)!;
-                e.trunk =
-                  (a.x + tableWidth(a) / 2 + b.x + tableWidth(b) / 2) / 2;
-                e.manual = false;
+                const next = structuredClone(state);
+                for (const e of next.edges.filter(
+                  (e) => e.foreignKeyId === edge.foreignKeyId,
+                )) {
+                  e.trunk = null;
+                  e.manual = false;
+                }
+                setAdjustingLine(false);
                 commit(next);
               }}
             >
               線を自動に戻す
             </button>
             <button
-              id="remove"
               onClick={() =>
-                replace({
-                  ...state,
-                  edges: state.edges.filter((e) => e.id !== selected),
-                })
+                edge && open(edge.to.table, true, edge.foreignKeyId)
               }
             >
-              接続を削除
+              外部キーを編集
+            </button>
+            <button
+              id="remove"
+              onClick={() =>
+                edge?.foreignKeyId &&
+                replace(removeForeignKey(state, edge.foreignKeyId))
+              }
+            >
+              外部キーを削除
             </button>
           </div>
         </DiagramCanvas>
@@ -516,6 +771,8 @@ export function App() {
       {draft && (
         <TableEditor
           initial={draft}
+          showConstraints={editConstraints}
+          initialForeignKey={editingForeignKey}
           state={state}
           onClose={() => setDraft(null)}
           onApply={replace}

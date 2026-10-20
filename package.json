@@ -5,11 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && vite build --config vite.canvas.config.ts",
+    "build:pages": "tsc --noEmit && vite build --outDir dist-pages",
+    "dev:canvas": "vite --config vite.canvas.config.ts --host 127.0.0.1 --port 5174",
+    "build:canvas": "tsc --noEmit && vite build --config vite.canvas.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.mjs tests/*.test.tsx",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
-    "format": "prettier --write src tests index.html package.json tsconfig.json"
+    "format": "prettier --write src canvas/src canvas/index.html tests index.html package.json tsconfig.json vite.config.ts vite.canvas.config.ts"
   },
   "dependencies": {
     "react": "^19.2.0",

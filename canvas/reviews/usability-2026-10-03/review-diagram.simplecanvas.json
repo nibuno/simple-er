@@ -1,0 +1,101 @@
+{
+  "format": "simple-canvas",
+  "version": 1,
+  "id": "043d9b36-8b50-4e3a-8a09-ebada1ebce6c",
+  "title": "レビュー用・非同期通知",
+  "nodes": [
+    {
+      "id": "cca59064-1e2f-46f3-8119-5a774893b74f",
+      "kind": "box",
+      "shape": "rectangle",
+      "x": 4,
+      "y": 104,
+      "w": 200,
+      "h": 100,
+      "title": "API",
+      "description": "注文受付 → 202 を返す",
+      "body": "",
+      "groupId": "326ae84a-7a79-4143-a207-c456165f8d33"
+    },
+    {
+      "id": "a4a29f36-6336-460f-9219-1bdb18dcf06a",
+      "kind": "box",
+      "shape": "rectangle",
+      "x": 334,
+      "y": 104,
+      "w": 200,
+      "h": 100,
+      "title": "Queue",
+      "description": "通知イベントをためる",
+      "body": "",
+      "groupId": "326ae84a-7a79-4143-a207-c456165f8d33"
+    },
+    {
+      "id": "7157bb14-3c12-4a7a-b7ff-e66d9791fe4d",
+      "kind": "box",
+      "shape": "rectangle",
+      "x": 664,
+      "y": 104,
+      "w": 200,
+      "h": 105,
+      "title": "Worker",
+      "description": "メール送信・失敗時は再試行",
+      "body": "冪等性キーは注文IDを使う。\n再試行は3回まで。\n送信成功後にメッセージを削除する。",
+      "groupId": "326ae84a-7a79-4143-a207-c456165f8d33"
+    },
+    {
+      "id": "1566c8aa-409d-41b7-9bca-66780175f347",
+      "kind": "note",
+      "shape": "rectangle",
+      "x": -42.764578833693264,
+      "y": 333.69330453563714,
+      "w": 280,
+      "h": 224,
+      "title": "方針と懸念",
+      "description": "",
+      "body": "方針：メール送信は非同期にする。\nAPI は通知完了を待たずに応答する。\n\n懸念：重複配信をどう防ぐか。\n再試行は3回まで、失敗時はDLQへ。\n確認：監視と手動再実行の担当を決める。"
+    },
+    {
+      "id": "fe2d768d-753c-41b5-91a7-eb0ebb53a96a",
+      "kind": "note",
+      "shape": "rectangle",
+      "x": 936,
+      "y": 104,
+      "w": 280,
+      "h": 180,
+      "title": "",
+      "description": "",
+      "body": "",
+      "attachedTo": "7157bb14-3c12-4a7a-b7ff-e66d9791fe4d",
+      "groupId": "326ae84a-7a79-4143-a207-c456165f8d33"
+    },
+    {
+      "id": "326ae84a-7a79-4143-a207-c456165f8d33",
+      "kind": "group",
+      "shape": "rectangle",
+      "x": -28,
+      "y": 50,
+      "w": 1276,
+      "h": 266,
+      "title": "非同期通知",
+      "description": "",
+      "body": ""
+    }
+  ],
+  "edges": [
+    {
+      "id": "3e628dea-a438-4a58-8d45-68317abceda7",
+      "from": "cca59064-1e2f-46f3-8119-5a774893b74f",
+      "to": "a4a29f36-6336-460f-9219-1bdb18dcf06a",
+      "label": "注文確定イベント",
+      "dashed": false
+    },
+    {
+      "id": "18470866-1715-4415-9900-23c8e039669b",
+      "from": "a4a29f36-6336-460f-9219-1bdb18dcf06a",
+      "to": "7157bb14-3c12-4a7a-b7ff-e66d9791fe4d",
+      "label": "最大10件を取得",
+      "dashed": false
+    }
+  ]
+}

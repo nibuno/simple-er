@@ -1,0 +1,160 @@
+{
+  "edges": [
+    {
+      "foreignKeyId": "f4ecfea7-6430-4123-8958-4911d8068eec",
+      "from": {
+        "row": 0,
+        "side": "right",
+        "table": "c4f11eae-0d85-46e5-b1fe-0f431114b095"
+      },
+      "id": "f4ecfea7-6430-4123-8958-4911d8068eec:0",
+      "manual": false,
+      "to": {
+        "row": 1,
+        "side": "left",
+        "table": "c2f64fbc-ab4a-40dc-bfa5-43dc611e0583"
+      },
+      "trunk": null
+    },
+    {
+      "foreignKeyId": "f0fd1cf6-e537-44e6-ac92-8aeb2e02bbff",
+      "from": {
+        "row": 0,
+        "side": "right",
+        "table": "c4f11eae-0d85-46e5-b1fe-0f431114b095"
+      },
+      "id": "f0fd1cf6-e537-44e6-ac92-8aeb2e02bbff:0",
+      "manual": false,
+      "to": {
+        "row": 2,
+        "side": "left",
+        "table": "48ab73ef-7e45-461c-ac8a-24d713c13f1f"
+      },
+      "trunk": null
+    },
+    {
+      "foreignKeyId": "59c420d8-4b63-4701-b83d-3a9ec4a1d043",
+      "from": {
+        "row": 0,
+        "side": "right",
+        "table": "c2f64fbc-ab4a-40dc-bfa5-43dc611e0583"
+      },
+      "id": "59c420d8-4b63-4701-b83d-3a9ec4a1d043:0",
+      "manual": false,
+      "to": {
+        "row": 1,
+        "side": "left",
+        "table": "48ab73ef-7e45-461c-ac8a-24d713c13f1f"
+      },
+      "trunk": null
+    }
+  ],
+  "schemaVersion": 2,
+  "tables": [
+    {
+      "columns": [
+        ["id", "uuid", "PK", "e0e7c179-b08a-4d53-989a-cbca96319d8f", ""],
+        ["name", "text", "", "68f91a80-79be-42b4-b2ac-67babf76dc7b", ""]
+      ],
+      "foreignKeys": [],
+      "id": "c4f11eae-0d85-46e5-b1fe-0f431114b095",
+      "keys": [
+        {
+          "columnIds": ["e0e7c179-b08a-4d53-989a-cbca96319d8f"],
+          "id": "c4f11eae-0d85-46e5-b1fe-0f431114b095:pk",
+          "kind": "primary",
+          "name": ""
+        }
+      ],
+      "logicalName": "",
+      "name": "Users",
+      "x": 80,
+      "y": 80
+    },
+    {
+      "columns": [
+        ["id", "uuid", "PK", "d355fb62-18b5-4aed-a411-5191f02ef610", ""],
+        ["user_id", "uuid", "FK", "19ea7c77-1a20-41be-a938-194385480b67", ""]
+      ],
+      "foreignKeys": [
+        {
+          "columnIds": ["19ea7c77-1a20-41be-a938-194385480b67"],
+          "id": "f4ecfea7-6430-4123-8958-4911d8068eec",
+          "name": "",
+          "target": {
+            "columnIds": ["e0e7c179-b08a-4d53-989a-cbca96319d8f"],
+            "tableId": "c4f11eae-0d85-46e5-b1fe-0f431114b095"
+          }
+        }
+      ],
+      "id": "c2f64fbc-ab4a-40dc-bfa5-43dc611e0583",
+      "keys": [
+        {
+          "columnIds": ["d355fb62-18b5-4aed-a411-5191f02ef610"],
+          "id": "c2f64fbc-ab4a-40dc-bfa5-43dc611e0583:pk",
+          "kind": "primary",
+          "name": ""
+        }
+      ],
+      "logicalName": "",
+      "name": "LiveStreams",
+      "x": 430,
+      "y": 80
+    },
+    {
+      "columns": [
+        ["id", "uuid", "PK", "a6dec944-f924-4f53-bd1e-9158e96d8650", ""],
+        [
+          "live_stream_id",
+          "uuid",
+          "FK",
+          "f09fa0b3-eb09-4a19-a0c3-14ff3fdde7b4",
+          ""
+        ],
+        ["user_id", "uuid", "FK", "f39ea591-1ac6-4fc9-83e7-eeae5981f351", ""],
+        ["body", "text", "", "02b6541f-4aed-4b4b-8519-b2e5ee695c58", ""],
+        [
+          "posted_at",
+          "timestamp",
+          "",
+          "92ef93f1-f892-4882-8551-d725832db912",
+          ""
+        ]
+      ],
+      "foreignKeys": [
+        {
+          "columnIds": ["f39ea591-1ac6-4fc9-83e7-eeae5981f351"],
+          "id": "f0fd1cf6-e537-44e6-ac92-8aeb2e02bbff",
+          "name": "",
+          "target": {
+            "columnIds": ["e0e7c179-b08a-4d53-989a-cbca96319d8f"],
+            "tableId": "c4f11eae-0d85-46e5-b1fe-0f431114b095"
+          }
+        },
+        {
+          "columnIds": ["f09fa0b3-eb09-4a19-a0c3-14ff3fdde7b4"],
+          "id": "59c420d8-4b63-4701-b83d-3a9ec4a1d043",
+          "name": "",
+          "target": {
+            "columnIds": ["d355fb62-18b5-4aed-a411-5191f02ef610"],
+            "tableId": "c2f64fbc-ab4a-40dc-bfa5-43dc611e0583"
+          }
+        }
+      ],
+      "id": "48ab73ef-7e45-461c-ac8a-24d713c13f1f",
+      "keys": [
+        {
+          "columnIds": ["a6dec944-f924-4f53-bd1e-9158e96d8650"],
+          "id": "48ab73ef-7e45-461c-ac8a-24d713c13f1f:pk",
+          "kind": "primary",
+          "name": ""
+        }
+      ],
+      "logicalName": "",
+      "name": "Comments",
+      "x": 780,
+      "y": 80
+    }
+  ],
+  "unresolvedEdges": []
+}

@@ -19,8 +19,8 @@ function fixture() {
         x: 0,
         y: 0,
         columns: [
-          ["id", "uuid", "PK", "u-id"],
-          ["name", "text", "", "u-name"],
+          { name: "id", type: "uuid", key: "PK", id: "u-id" },
+          { name: "name", type: "text", key: "", id: "u-name" },
         ],
       },
       {
@@ -29,8 +29,8 @@ function fixture() {
         x: 480,
         y: 160,
         columns: [
-          ["id", "uuid", "PK", "o-id"],
-          ["user_id", "uuid", "FK", "o-user"],
+          { name: "id", type: "uuid", key: "PK", id: "o-id" },
+          { name: "user_id", type: "uuid", key: "FK", id: "o-user" },
         ],
       },
     ],
@@ -58,26 +58,26 @@ test("editing a table and reordering a column preserves the relation and manual 
     t = structuredClone(original.tables[1]);
   t.name = "purchases";
   t.columns.reverse();
-  t.columns[0][0] = "customer_id";
+  t.columns[0].name = "customer_id";
   const updated = editTable(original, t);
   assert.equal(updated.edges[0].to.row, 0);
   assert.equal(updated.edges[0].to.table, "orders");
   assert.equal(updated.edges[0].trunk, 375);
   assert.equal(updated.edges[0].manual, true);
-  assert.equal(updated.tables[1].columns[0][3], "o-user");
+  assert.equal(updated.tables[1].columns[0].id, "o-user");
   assert.equal(original.tables[1].name, "orders");
 });
 test("deleting a connected column removes only its relation", () => {
   const original = connected(),
     t = structuredClone(original.tables[1]);
-  t.columns = t.columns.filter((c) => c[3] !== "o-user");
+  t.columns = t.columns.filter((c) => c.id !== "o-user");
   assert.equal(editTable(original, t).edges.length, 0);
   assert.equal(original.edges.length, 1);
 });
 test("adding a column does not move existing tables or detach edges", () => {
   const original = connected(),
     t = structuredClone(original.tables[1]);
-  t.columns.unshift(["number", "text", "", "o-number"]);
+  t.columns.unshift({ name: "number", type: "text", key: "", id: "o-number" });
   const next = editTable(original, t);
   assert.equal(next.edges[0].to.row, 2);
   assert.deepEqual(
@@ -103,7 +103,7 @@ test("ambiguous table names are skipped instead of connecting arbitrarily", () =
     name: "user",
     x: 900,
     y: 0,
-    columns: [["id", "uuid", "PK", "another-id"]],
+    columns: [{ name: "id", type: "uuid", key: "PK", id: "another-id" }],
   });
   const result = inferConnections(data);
   assert.equal(result.candidates.length, 0);
@@ -111,16 +111,16 @@ test("ambiguous table names are skipped instead of connecting arbitrarily", () =
 });
 test("type mismatch and composite primary keys are skipped", () => {
   const data = fixture();
-  data.tables[0].columns[0][1] = "integer";
+  data.tables[0].columns[0].type = "integer";
   assert.match(inferConnections(data).skipped[0], /型/);
-  data.tables[0].columns[0][1] = "uuid";
-  data.tables[0].columns[1][2] = "PK";
+  data.tables[0].columns[0].type = "uuid";
+  data.tables[0].keys[0].columnIds.push("u-name");
   assert.match(inferConnections(data).skipped[0], /主キー/);
 });
 test("basic -ies plural matching finds category_id to categories", () => {
   const data = fixture();
   data.tables[0].name = "categories";
-  data.tables[1].columns[1][0] = "category_id";
+  data.tables[1].columns[1].name = "category_id";
   assert.equal(inferConnections(data).candidates.length, 1);
 });
 test("invalid or unsupported files fail without changing the original state", () => {
@@ -129,7 +129,7 @@ test("invalid or unsupported files fail without changing the original state", ()
   assert.throws(() => decode("{"));
   assert.throws(() => decode('{"format":"er-sketch","version":99}'));
   const invalid = JSON.parse(before);
-  invalid.diagram.edges[0].to.row = 55;
+  invalid.schema.tables[1].foreignKeys[0].target.columnIds = ["missing"];
   assert.throws(() => decode(JSON.stringify(invalid)), /存在しない/);
   assert.equal(encode(original), before);
 });
@@ -138,7 +138,12 @@ test("duplicate trimmed names and unsafe table IDs are rejected", () => {
   data.tables[1].name = " users ";
   assert.throws(() => validateDiagram(data), /重複/);
   const columns = fixture();
-  columns.tables[0].columns.push([" id ", "text", "", "dup"]);
+  columns.tables[0].columns.push({
+    name: " id ",
+    type: "text",
+    key: "",
+    id: "dup",
+  });
   assert.throws(() => validateDiagram(columns), /重複/);
   const ids = fixture();
   ids.tables[0].id = 'bad"]';
@@ -148,6 +153,8 @@ test("empty diagrams can be saved and restored", () =>
   assert.deepEqual(decode(encode({ tables: [], edges: [] })), {
     tables: [],
     edges: [],
+    schemaVersion: 2,
+    unresolvedEdges: [],
   }));
 test("after rename, reorder and reload the route still attaches to the intended row", () => {
   const data = connected(),
@@ -164,39 +171,37 @@ test("logical names survive editing and file save without changing connection id
   const data = connected(),
     table = structuredClone(data.tables[1]);
   table.logicalName = "注文";
-  table.columns[1][4] = "ユーザーID";
+  table.columns[1].logicalName = "ユーザーID";
   const restored = decode(encode(editTable(data, table)));
   assert.equal(restored.tables[1].logicalName, "注文");
-  assert.equal(restored.tables[1].columns[1][4], "ユーザーID");
+  assert.equal(restored.tables[1].columns[1].logicalName, "ユーザーID");
   assert.deepEqual(restored.edges, data.edges);
 });
 test("logical names do not affect automatic relation inference; older files remain readable", () => {
   const data = fixture();
   data.tables[0].logicalName = "会員";
-  data.tables[1].columns[1][4] = "会員番号";
+  data.tables[1].columns[1].logicalName = "会員番号";
   assert.equal(inferConnections(data).candidates.length, 1);
   for (const t of data.tables) {
     delete t.logicalName;
-    for (const c of t.columns) c.length = 4;
+    t.columns = t.columns.map((c) => [c.name, c.type, c.key, c.id]);
   }
   const restored = decode(
     JSON.stringify({ format: "er-sketch", version: 1, diagram: data }),
   );
   assert.equal(restored.tables[0].logicalName, "");
-  assert.equal(restored.tables[1].columns[1][4], "");
+  assert.equal(restored.tables[1].columns[1].logicalName, "");
 });
 
-test("manual relations reject normal columns and PK-to-PK pairs", () => {
+test("manual relations reject pairs without a unique target and allow identifying relationships", () => {
   const data = fixture();
   assert.throws(
     () =>
       makeEdge(data, { table: "users", row: 1 }, { table: "orders", row: 1 }),
     /主キー/,
   );
-  assert.throws(
-    () =>
-      makeEdge(data, { table: "users", row: 0 }, { table: "orders", row: 0 }),
-    /主キー/,
+  assert.ok(
+    makeEdge(data, { table: "users", row: 0 }, { table: "orders", row: 0 }),
   );
   assert.ok(
     makeEdge(data, { table: "orders", row: 1 }, { table: "users", row: 0 }),
@@ -208,7 +213,7 @@ test("long names expand table bounds and connection anchors", async () => {
     table = data.tables[0],
     before = tableWidth(table);
   table.name = "live_stream_information_details";
-  table.columns[1][0] = "live_stream_information_identifier";
+  table.columns[1].name = "live_stream_information_identifier";
   assert.ok(tableWidth(table) > before);
   assert.equal(port(table, 0, "right").x, table.x + tableWidth(table));
   assert.equal(boxes([table])[0].r, table.x + tableWidth(table) + 18);

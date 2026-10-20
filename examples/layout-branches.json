@@ -1,0 +1,744 @@
+{
+  "format": "er-sketch",
+  "version": 2,
+  "schema": {
+    "tables": [
+      {
+        "id": "accounts",
+        "name": "accounts",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "accounts-key",
+            "name": "",
+            "kind": "primary",
+            "columnIds": [
+              "accounts-pk"
+            ]
+          }
+        ],
+        "foreignKeys": [],
+        "columns": [
+          {
+            "id": "accounts-pk",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "accounts-extra-0",
+            "name": "value_0",
+            "type": "text",
+            "logicalName": ""
+          },
+          {
+            "id": "accounts-extra-1",
+            "name": "value_1",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "customers",
+        "name": "customers",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "customers-key",
+            "name": "",
+            "kind": "primary",
+            "columnIds": [
+              "customers-pk"
+            ]
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "customers-ref-0",
+            "name": "",
+            "columnIds": [
+              "customers-fk-0"
+            ],
+            "target": {
+              "tableId": "accounts",
+              "columnIds": [
+                "accounts-pk"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          {
+            "id": "customers-pk",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "customers-fk-0",
+            "name": "accounts_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "customers-extra-0",
+            "name": "value_0",
+            "type": "text",
+            "logicalName": ""
+          },
+          {
+            "id": "customers-extra-1",
+            "name": "value_1",
+            "type": "text",
+            "logicalName": ""
+          },
+          {
+            "id": "customers-extra-2",
+            "name": "value_2",
+            "type": "text",
+            "logicalName": ""
+          },
+          {
+            "id": "customers-extra-3",
+            "name": "value_3",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "products",
+        "name": "products",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "products-key",
+            "name": "",
+            "kind": "primary",
+            "columnIds": [
+              "products-pk"
+            ]
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "products-ref-0",
+            "name": "",
+            "columnIds": [
+              "products-fk-0"
+            ],
+            "target": {
+              "tableId": "accounts",
+              "columnIds": [
+                "accounts-pk"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          {
+            "id": "products-pk",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "products-fk-0",
+            "name": "accounts_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "products-extra-0",
+            "name": "value_0",
+            "type": "text",
+            "logicalName": ""
+          },
+          {
+            "id": "products-extra-1",
+            "name": "value_1",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "orders",
+        "name": "orders",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "orders-key",
+            "name": "",
+            "kind": "primary",
+            "columnIds": [
+              "orders-pk"
+            ]
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "orders-ref-0",
+            "name": "",
+            "columnIds": [
+              "orders-fk-0"
+            ],
+            "target": {
+              "tableId": "customers",
+              "columnIds": [
+                "customers-pk"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          {
+            "id": "orders-pk",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "orders-fk-0",
+            "name": "customers_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "orders-extra-0",
+            "name": "value_0",
+            "type": "text",
+            "logicalName": ""
+          },
+          {
+            "id": "orders-extra-1",
+            "name": "value_1",
+            "type": "text",
+            "logicalName": ""
+          },
+          {
+            "id": "orders-extra-2",
+            "name": "value_2",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "product_images",
+        "name": "product_images",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "product_images-key",
+            "name": "",
+            "kind": "primary",
+            "columnIds": [
+              "product_images-pk"
+            ]
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "product_images-ref-0",
+            "name": "",
+            "columnIds": [
+              "product_images-fk-0"
+            ],
+            "target": {
+              "tableId": "products",
+              "columnIds": [
+                "products-pk"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          {
+            "id": "product_images-pk",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "product_images-fk-0",
+            "name": "products_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "product_images-extra-0",
+            "name": "value_0",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "order_items",
+        "name": "order_items",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "order_items-key",
+            "name": "",
+            "kind": "primary",
+            "columnIds": [
+              "order_items-pk"
+            ]
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "order_items-ref-0",
+            "name": "",
+            "columnIds": [
+              "order_items-fk-0"
+            ],
+            "target": {
+              "tableId": "orders",
+              "columnIds": [
+                "orders-pk"
+              ]
+            }
+          },
+          {
+            "id": "order_items-ref-1",
+            "name": "",
+            "columnIds": [
+              "order_items-fk-1"
+            ],
+            "target": {
+              "tableId": "products",
+              "columnIds": [
+                "products-pk"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          {
+            "id": "order_items-pk",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "order_items-fk-0",
+            "name": "orders_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "order_items-fk-1",
+            "name": "products_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "order_items-extra-0",
+            "name": "value_0",
+            "type": "text",
+            "logicalName": ""
+          },
+          {
+            "id": "order_items-extra-1",
+            "name": "value_1",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "payments",
+        "name": "payments",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "payments-key",
+            "name": "",
+            "kind": "primary",
+            "columnIds": [
+              "payments-pk"
+            ]
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "payments-ref-0",
+            "name": "",
+            "columnIds": [
+              "payments-fk-0"
+            ],
+            "target": {
+              "tableId": "orders",
+              "columnIds": [
+                "orders-pk"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          {
+            "id": "payments-pk",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "payments-fk-0",
+            "name": "orders_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "payments-extra-0",
+            "name": "value_0",
+            "type": "text",
+            "logicalName": ""
+          },
+          {
+            "id": "payments-extra-1",
+            "name": "value_1",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "shipments",
+        "name": "shipments",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "shipments-key",
+            "name": "",
+            "kind": "primary",
+            "columnIds": [
+              "shipments-pk"
+            ]
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "shipments-ref-0",
+            "name": "",
+            "columnIds": [
+              "shipments-fk-0"
+            ],
+            "target": {
+              "tableId": "orders",
+              "columnIds": [
+                "orders-pk"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          {
+            "id": "shipments-pk",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "shipments-fk-0",
+            "name": "orders_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "shipments-extra-0",
+            "name": "value_0",
+            "type": "text",
+            "logicalName": ""
+          },
+          {
+            "id": "shipments-extra-1",
+            "name": "value_1",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "shipment_items",
+        "name": "shipment_items",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "shipment_items-key",
+            "name": "",
+            "kind": "primary",
+            "columnIds": [
+              "shipment_items-pk"
+            ]
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "shipment_items-ref-0",
+            "name": "",
+            "columnIds": [
+              "shipment_items-fk-0"
+            ],
+            "target": {
+              "tableId": "shipments",
+              "columnIds": [
+                "shipments-pk"
+              ]
+            }
+          },
+          {
+            "id": "shipment_items-ref-1",
+            "name": "",
+            "columnIds": [
+              "shipment_items-fk-1"
+            ],
+            "target": {
+              "tableId": "order_items",
+              "columnIds": [
+                "order_items-pk"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          {
+            "id": "shipment_items-pk",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "shipment_items-fk-0",
+            "name": "shipments_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "shipment_items-fk-1",
+            "name": "order_items_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "shipment_items-extra-0",
+            "name": "value_0",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "audit_events",
+        "name": "audit_events",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "audit_events-key",
+            "name": "",
+            "kind": "primary",
+            "columnIds": [
+              "audit_events-pk"
+            ]
+          }
+        ],
+        "foreignKeys": [],
+        "columns": [
+          {
+            "id": "audit_events-pk",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "audit_events-extra-0",
+            "name": "value_0",
+            "type": "text",
+            "logicalName": ""
+          },
+          {
+            "id": "audit_events-extra-1",
+            "name": "value_1",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "settings",
+        "name": "settings",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "settings-key",
+            "name": "",
+            "kind": "primary",
+            "columnIds": [
+              "settings-pk"
+            ]
+          }
+        ],
+        "foreignKeys": [],
+        "columns": [
+          {
+            "id": "settings-pk",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "settings-extra-0",
+            "name": "value_0",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      }
+    ]
+  },
+  "presentation": {
+    "tables": [
+      {
+        "tableId": "accounts",
+        "x": 0,
+        "y": 0
+      },
+      {
+        "tableId": "customers",
+        "x": 380,
+        "y": 0
+      },
+      {
+        "tableId": "products",
+        "x": 760,
+        "y": 0
+      },
+      {
+        "tableId": "orders",
+        "x": 0,
+        "y": 340
+      },
+      {
+        "tableId": "product_images",
+        "x": 380,
+        "y": 340
+      },
+      {
+        "tableId": "order_items",
+        "x": 760,
+        "y": 340
+      },
+      {
+        "tableId": "payments",
+        "x": 0,
+        "y": 680
+      },
+      {
+        "tableId": "shipments",
+        "x": 380,
+        "y": 680
+      },
+      {
+        "tableId": "shipment_items",
+        "x": 760,
+        "y": 680
+      },
+      {
+        "tableId": "audit_events",
+        "x": 0,
+        "y": 1020
+      },
+      {
+        "tableId": "settings",
+        "x": 380,
+        "y": 1020
+      }
+    ],
+    "routes": [
+      {
+        "foreignKeyId": "customers-ref-0",
+        "columnId": "customers-fk-0",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "products-ref-0",
+        "columnId": "products-fk-0",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "orders-ref-0",
+        "columnId": "orders-fk-0",
+        "fromSide": "left",
+        "toSide": "right",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "product_images-ref-0",
+        "columnId": "product_images-fk-0",
+        "fromSide": "left",
+        "toSide": "right",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "order_items-ref-0",
+        "columnId": "order_items-fk-0",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "order_items-ref-1",
+        "columnId": "order_items-fk-1",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "payments-ref-0",
+        "columnId": "payments-fk-0",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "shipments-ref-0",
+        "columnId": "shipments-fk-0",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "shipment_items-ref-0",
+        "columnId": "shipment_items-fk-0",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "shipment_items-ref-1",
+        "columnId": "shipment_items-fk-1",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      }
+    ]
+  },
+  "unresolvedEdges": []
+}

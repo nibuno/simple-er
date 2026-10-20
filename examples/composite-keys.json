@@ -1,0 +1,292 @@
+{
+  "format": "er-sketch",
+  "version": 2,
+  "schema": {
+    "tables": [
+      {
+        "id": "accounts",
+        "name": "accounts",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "accounts_pk",
+            "name": "accounts_pk",
+            "kind": "primary",
+            "columnIds": [
+              "accounts_0",
+              "accounts_1"
+            ]
+          },
+          {
+            "id": "accounts_email_unique",
+            "name": "accounts_email_unique",
+            "kind": "unique",
+            "columnIds": [
+              "accounts_0",
+              "accounts_2"
+            ]
+          }
+        ],
+        "foreignKeys": [],
+        "columns": [
+          {
+            "id": "accounts_0",
+            "name": "tenant_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "accounts_1",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "accounts_2",
+            "name": "email",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "orders",
+        "name": "orders",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "orders_pk",
+            "name": "orders_pk",
+            "kind": "primary",
+            "columnIds": [
+              "orders_0",
+              "orders_1"
+            ]
+          },
+          {
+            "id": "orders_lookup",
+            "name": "orders_lookup",
+            "kind": "index",
+            "columnIds": [
+              "orders_2",
+              "orders_3"
+            ]
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "orders_account_fk",
+            "name": "orders_account_fk",
+            "columnIds": [
+              "orders_0",
+              "orders_2"
+            ],
+            "target": {
+              "tableId": "accounts",
+              "columnIds": [
+                "accounts_0",
+                "accounts_1"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          {
+            "id": "orders_0",
+            "name": "tenant_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "orders_1",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "orders_2",
+            "name": "account_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "orders_3",
+            "name": "created_at",
+            "type": "timestamp",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "items",
+        "name": "items",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "items_pk",
+            "name": "items_pk",
+            "kind": "primary",
+            "columnIds": [
+              "items_0",
+              "items_1"
+            ]
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "items_order_fk",
+            "name": "items_order_fk",
+            "columnIds": [
+              "items_0",
+              "items_2"
+            ],
+            "target": {
+              "tableId": "orders",
+              "columnIds": [
+                "orders_0",
+                "orders_1"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          {
+            "id": "items_0",
+            "name": "tenant_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "items_1",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "items_2",
+            "name": "order_id",
+            "type": "uuid",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "categories",
+        "name": "categories",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "categories_pk",
+            "name": "categories_pk",
+            "kind": "primary",
+            "columnIds": [
+              "categories_0"
+            ]
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "categories_parent_fk",
+            "name": "categories_parent_fk",
+            "columnIds": [
+              "categories_1"
+            ],
+            "target": {
+              "tableId": "categories",
+              "columnIds": [
+                "categories_0"
+              ]
+            }
+          }
+        ],
+        "columns": [
+          {
+            "id": "categories_0",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "categories_1",
+            "name": "parent_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "categories_2",
+            "name": "name",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      }
+    ]
+  },
+  "presentation": {
+    "tables": [
+      {
+        "tableId": "accounts",
+        "x": 80,
+        "y": 80
+      },
+      {
+        "tableId": "orders",
+        "x": 430,
+        "y": 80
+      },
+      {
+        "tableId": "items",
+        "x": 791,
+        "y": 80
+      },
+      {
+        "tableId": "categories",
+        "x": 80,
+        "y": 438
+      }
+    ],
+    "routes": [
+      {
+        "foreignKeyId": "orders_account_fk",
+        "columnId": "orders_0",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "orders_account_fk",
+        "columnId": "orders_2",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "items_order_fk",
+        "columnId": "items_0",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "items_order_fk",
+        "columnId": "items_2",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "categories_parent_fk",
+        "columnId": "categories_1",
+        "fromSide": "right",
+        "toSide": "right",
+        "trunk": null,
+        "manual": false
+      }
+    ]
+  },
+  "unresolvedEdges": []
+}

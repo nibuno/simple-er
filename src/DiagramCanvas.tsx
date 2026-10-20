@@ -1,12 +1,29 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent, ReactNode, RefObject } from "react";
 import type { Column, Diagram, Endpoint, Point, Table, View } from "./types.ts";
-import { height, HEADER, ROW, rounded, route, tableWidth } from "./geometry.ts";
+import {
+  height,
+  HEADER,
+  ROW,
+  rounded,
+  routeEdges,
+  tableWidth,
+} from "./geometry.ts";
+import { RelationshipDecorations } from "./RelationshipDecorations.tsx";
+import { relationshipLabels } from "./relationships.ts";
 import { overlaps } from "./utils.ts";
 
 interface Props {
+  logical?: boolean;
+  onRename?: (
+    table: string,
+    columnId: string | undefined,
+    value: string,
+  ) => void;
   state: Diagram;
   selected: string | null;
+  adjustingLine?: boolean;
+  onAdjustable?: (value: boolean) => void;
   pending: Endpoint | null;
   displayTable: (t: Table) => string;
   displayColumn: (c: Column) => string;
@@ -42,8 +59,49 @@ type Drag =
   | { kind: "pan"; start: Point; view: View; pointer: number };
 const steps = [25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 400];
 export function DiagramCanvas(p: Props) {
+  const [renaming, setRenaming] = useState<{
+    table: string;
+    columnId?: string;
+    value: string;
+  } | null>(null);
+  const [renameError, setRenameError] = useState("");
+  function beginRename(t: Table, c?: Column) {
+    p.onClear();
+    setRenameError("");
+    setRenaming({
+      table: t.id,
+      columnId: c?.id,
+      value: c
+        ? p.logical
+          ? (c.logicalName ?? "")
+          : c.name
+        : p.logical
+          ? (t.logicalName ?? "")
+          : (t.name ?? t.id),
+    });
+  }
+
   const svg = useRef<SVGSVGElement>(null),
     drag = useRef<Drag | null>(null);
+  useEffect(() => {
+    // Blank SVG areas do not consistently move focus in browsers.
+    // Release the old diagram control before the clicked control takes focus.
+    const releaseFocus = (event: globalThis.PointerEvent) => {
+      const active = document.activeElement;
+      if (
+        event.button === 0 &&
+        active instanceof SVGElement &&
+        svg.current?.contains(active) &&
+        event.target instanceof Node &&
+        !active.contains(event.target)
+      ) {
+        active.blur();
+      }
+    };
+    document.addEventListener("pointerdown", releaseFocus, true);
+    return () =>
+      document.removeEventListener("pointerdown", releaseFocus, true);
+  }, []);
   const [view, setView] = useState<View>({
     x: 0,
     y: 0,
@@ -55,9 +113,17 @@ export function DiagramCanvas(p: Props) {
   latest.current = p;
   p.viewRef.current = view;
   const routes = useMemo(
-    () => new Map(p.state.edges.map((e) => [e.id, route(e, p.state.tables)])),
+    () => routeEdges(p.state.edges, p.state.tables),
     [p.state],
   );
+  const latestRoutes = useRef(routes);
+  latestRoutes.current = routes;
+  const labels = useMemo(
+    () => relationshipLabels(p.state, routes),
+    [p.state, routes],
+  );
+  const latestLabels = useRef(labels);
+  latestLabels.current = labels;
   function viewport() {
     return {
       w: Math.max(1, svg.current?.clientWidth ?? 1200),
@@ -80,10 +146,26 @@ export function DiagramCanvas(p: Props) {
       zoom(100, 0, 0);
       return;
     }
-    const x = Math.min(...tables.map((t) => t.x)) - 70,
-      y = Math.min(...tables.map((t) => t.y)) - 80;
-    const right = Math.max(...tables.map((t) => t.x + tableWidth(t))) + 70,
-      bottom = Math.max(...tables.map((t) => t.y + height(t))) + 100,
+    const points = [
+      ...[...latestRoutes.current.values()].flatMap((r) => r.points),
+      ...[...latestLabels.current.values()].flatMap((l) => [
+        { x: l.x, y: l.y },
+        { x: l.x + l.width, y: l.y + l.height },
+      ]),
+    ];
+    const x =
+        Math.min(...tables.map((t) => t.x), ...points.map((p) => p.x)) - 70,
+      y = Math.min(...tables.map((t) => t.y), ...points.map((p) => p.y)) - 80;
+    const right =
+        Math.max(
+          ...tables.map((t) => t.x + tableWidth(t)),
+          ...points.map((p) => p.x),
+        ) + 70,
+      bottom =
+        Math.max(
+          ...tables.map((t) => t.y + height(t)),
+          ...points.map((p) => p.y),
+        ) + 100,
       size = viewport();
     zoom(
       reset ? 100 : Math.min(size.w / (right - x), size.h / (bottom - y)) * 100,
@@ -248,7 +330,10 @@ export function DiagramCanvas(p: Props) {
     }
   }
   const selectedRoute = p.selected ? routes.get(p.selected) : undefined,
-    h = selectedRoute?.handle;
+    h = p.adjustingLine ? selectedRoute?.handle : undefined;
+  useEffect(() => {
+    p.onAdjustable?.(!!selectedRoute?.handle);
+  }, [selectedRoute, p.onAdjustable]);
   function moveLine(x: number) {
     const next = structuredClone(p.state),
       edge = next.edges.find((e) => e.id === p.selected);
@@ -300,11 +385,14 @@ export function DiagramCanvas(p: Props) {
         <g id="edges">
           {p.state.edges.map((edge) => {
             const r = routes.get(edge.id)!,
-              d = rounded(r.points);
+              d = rounded(r.points),
+              child = p.state.tables.find((t) => t.id === edge.to.table)!,
+              fk = child.foreignKeys?.find((f) => f.id === edge.foreignKeyId),
+              label = labels.get(edge.id);
             return (
               <g
                 key={edge.id}
-                className={`edge${p.selected === edge.id ? " selected" : ""}`}
+                className={`edge${p.state.edges.find((e) => e.id === p.selected)?.foreignKeyId === edge.foreignKeyId ? " selected" : ""}`}
                 tabIndex={0}
                 role="button"
                 aria-label={`${p.displayTable(p.state.tables.find((t) => t.id === edge.from.table)!)}から${p.displayTable(p.state.tables.find((t) => t.id === edge.to.table)!)}への接続線`}
@@ -321,15 +409,31 @@ export function DiagramCanvas(p: Props) {
               >
                 <path d={d} className="edge-hit" />
                 <path d={d} className="edge-path" />
-                {[r.points[0], r.points.at(-1)!].map((pos, i) => (
-                  <circle
-                    key={i}
-                    cx={pos.x}
-                    cy={pos.y}
-                    r={3.5}
-                    className="endpoint"
+                {fk && (
+                  <RelationshipDecorations
+                    child={child}
+                    fk={fk}
+                    from={r.points[0]}
+                    to={r.points.at(-1)!}
+                    fromSide={r.fromSide ?? edge.from.side}
+                    toSide={r.toSide ?? edge.to.side}
                   />
-                ))}
+                )}
+                {label && (
+                  <g
+                    className="relationship-label"
+                    transform={`translate(${label.x} ${label.y})`}
+                  >
+                    <rect width={label.width} height={label.height} rx={3} />
+                    <text x={label.width / 2} textAnchor="middle">
+                      {label.lines.map((line, i) => (
+                        <tspan key={i} x={label.width / 2} y={14 + i * 16}>
+                          {line}
+                        </tspan>
+                      ))}
+                    </text>
+                  </g>
+                )}
               </g>
             );
           })}
@@ -365,10 +469,10 @@ export function DiagramCanvas(p: Props) {
                       pointer: e.pointerId,
                     })
                   }
-                  onDoubleClick={() => p.onEdit(t.id)}
+                  onDoubleClick={() => beginRename(t)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
-                      p.onEdit(t.id);
+                      beginRename(t);
                       return;
                     }
                     if (
@@ -404,7 +508,13 @@ export function DiagramCanvas(p: Props) {
                   <path
                     d={`M9 0H${width - 9}Q${width} 0 ${width} 9V${HEADER}H0V9Q0 0 9 0`}
                   />
-                  <text x={16} y={31} className="table-title">
+                  <text
+                    x={16}
+                    y={31}
+                    className="table-title"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     {p.displayTable(t)}
                   </text>
                 </g>
@@ -431,20 +541,26 @@ export function DiagramCanvas(p: Props) {
                   const y = HEADER + i * ROW;
                   return (
                     <g
-                      key={c[3]}
-                      className={`row${!c[2] ? " non-key" : ""}${p.pending?.table === t.id && p.pending.row === i ? " pending" : ""}`}
-                      tabIndex={c[2] ? 0 : -1}
-                      role={c[2] ? "button" : "group"}
-                      aria-label={`${p.displayTable(t)}.${p.displayColumn(c)}${c[2] ? " を接続" : ""}`}
+                      key={c.id}
+                      className={`row${!c.key ? " non-key" : ""}${p.pending?.table === t.id && p.pending.row === i ? " pending" : ""}`}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`${p.displayTable(t)}.${p.displayColumn(c)} を接続`}
                       onClick={() => p.onConnect(t.id, i)}
+                      onDoubleClick={() => beginRename(t, c)}
                       onKeyDown={(e) => {
+                        if (e.key === "F2") {
+                          e.preventDefault();
+                          beginRename(t, c);
+                          return;
+                        }
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
                           p.onConnect(t.id, i);
                         }
                       }}
                     >
-                      <title>{`${c[4] ? c[4] + " / " : ""}${c[0]} · ${c[1]} ${c[2]}`}</title>
+                      <title>{`${c.logicalName ? c.logicalName + " / " : ""}${c.name} · ${c.type} ${c.key}`}</title>
                       <rect
                         x={1}
                         y={y}
@@ -453,9 +569,14 @@ export function DiagramCanvas(p: Props) {
                         className="row-bg"
                       />
                       <text x={12} y={y + 24} className="column-key">
-                        {c[2] === "PK,FK" ? "P/F" : c[2]}
+                        {c.key === "PK,FK" ? "P/F" : c.key}
                       </text>
-                      <text x={39} y={y + 24} className="column-name">
+                      <text
+                        x={39}
+                        y={y + 24}
+                        className="column-name"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {p.displayColumn(c)}
                       </text>
                       <text
@@ -464,21 +585,95 @@ export function DiagramCanvas(p: Props) {
                         textAnchor="end"
                         className="column-type"
                       >
-                        {c[1]}
+                        {c.type}
                       </text>
-                      {c[2] &&
-                        [0, width].map((x) => (
+                      {c.key &&
+                        (["left", "right"] as const).map((side) => (
                           <circle
-                            key={x}
-                            cx={x}
+                            key={side}
+                            cx={side === "left" ? 0 : width}
                             cy={y + ROW / 2}
-                            r={4}
+                            r={3.5}
                             className="port"
                           />
                         ))}
                     </g>
                   );
                 })}
+                {renaming?.table === t.id && (
+                  <foreignObject
+                    x={8}
+                    y={
+                      renaming.columnId
+                        ? HEADER +
+                          t.columns.findIndex(
+                            (c) => c.id === renaming.columnId,
+                          ) *
+                            ROW
+                        : 0
+                    }
+                    width={width - 16}
+                    height={100}
+                    style={{ overflow: "visible" }}
+                  >
+                    <form
+                      className="inline-name"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        try {
+                          p.onRename?.(
+                            renaming.table,
+                            renaming.columnId,
+                            renaming.value,
+                          );
+                          setRenaming(null);
+                        } catch (error) {
+                          setRenameError(
+                            error instanceof Error
+                              ? error.message
+                              : String(error),
+                          );
+                        }
+                      }}
+                    >
+                      <label>
+                        {p.logical ? "論理名" : "物理名"}{" "}
+                        <input
+                          autoFocus
+                          aria-label={
+                            p.logical
+                              ? "図上で論理名を編集"
+                              : "図上で物理名を編集"
+                          }
+                          required={!p.logical}
+                          maxLength={80}
+                          value={renaming.value}
+                          onChange={(e) =>
+                            setRenaming({ ...renaming, value: e.target.value })
+                          }
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              setRenaming(null);
+                            }
+                            if (e.key === "Enter" && e.nativeEvent.isComposing)
+                              e.preventDefault();
+                          }}
+                        />
+                      </label>
+                      <small>Enterで確定・Escでキャンセル</small>
+                      {renameError && (
+                        <p role="alert" className="error">
+                          {renameError}
+                        </p>
+                      )}
+                    </form>
+                  </foreignObject>
+                )}
               </g>
             );
           })}
@@ -497,10 +692,10 @@ export function DiagramCanvas(p: Props) {
               )}
               <rect
                 x={h.x - 6}
-                y={h.y - 16}
+                y={h.y - 7}
                 width={12}
-                height={32}
-                rx={6}
+                height={14}
+                rx={2}
                 className="drag-handle"
                 tabIndex={0}
                 role="slider"

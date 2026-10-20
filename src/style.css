@@ -129,12 +129,15 @@ svg {
   pointer-events: none;
 }
 .port {
+  opacity: 0;
   fill: var(--surface);
   stroke: var(--line);
   stroke-width: 1.5;
 }
 .row:hover .port,
 .row.pending .port {
+  opacity: 1;
+  opacity: 0;
   fill: var(--accent);
   stroke: var(--accent);
 }
@@ -156,12 +159,6 @@ svg {
 }
 .edge:hover .edge-path {
   stroke: var(--accent);
-}
-.endpoint {
-  fill: var(--surface);
-  stroke: var(--line);
-  stroke-width: 1.5;
-  pointer-events: none;
 }
 .drag-guide {
   stroke: var(--accent);
@@ -606,13 +603,6 @@ summary {
   #table-editor .column-type-control {
     grid-column: 3;
   }
-}
-
-.row.non-key {
-  cursor: default;
-}
-.row.non-key:hover .row-bg {
-  fill: transparent;
 }
 
 .file-options {
@@ -1091,5 +1081,476 @@ main {
   }
   #table-form > .dialog-actions > .danger {
     font-size: 11px;
+  }
+}
+
+/* A single scrolling editor keeps column settings and definitions together. */
+#table-editor {
+  width: 1120px;
+  height: min(780px, calc(100dvh - 32px));
+  overflow: hidden;
+  --column-grid: 24px minmax(100px, 1fr) minmax(100px, 1fr) minmax(110px, 0.8fr)
+    48px 42px minmax(150px, 1.15fr) 32px;
+}
+.table-editor-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+}
+.table-editor-body .column-heading {
+  margin-bottom: 10px;
+}
+#table-editor .column-labels {
+  display: grid;
+  grid-template-columns: var(--column-grid);
+  gap: 8px;
+  padding: 6px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+#table-editor #column-editor {
+  overflow: visible;
+  border-top: 1px solid var(--border);
+  padding: 0;
+}
+#table-editor .column-check {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 36px;
+  gap: 6px;
+}
+#table-editor .column-check > span {
+  display: none;
+}
+#table-editor .column-check input[type="checkbox"] {
+  appearance: auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.column-references {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 4px 0;
+}
+#table-editor .reference-link {
+  background: transparent;
+  border-color: transparent;
+  padding: 3px 0;
+  color: var(--accent);
+  font-size: 12px;
+  text-align: left;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.reference-link small {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+#table-editor .reference-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+#table-editor .reference-link:disabled {
+  color: var(--muted);
+}
+.table-editor-body > .add-column {
+  margin: 8px 0;
+  border-color: transparent;
+  color: var(--accent);
+}
+.key-list {
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+.definition-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.definition-heading h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.key-list table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  text-align: left;
+  font-size: 13px;
+}
+.key-list th {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.key-list th,
+.key-list td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.key-list th:first-child {
+  width: 115px;
+}
+.key-list th:last-child {
+  width: 60px;
+}
+.empty-definitions {
+  color: var(--muted);
+  font-size: 12px;
+}
+.definition-editor {
+  margin: 16px 0 8px;
+  padding: 16px;
+  background: var(--selected);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.definition-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+.definition-field > select {
+  width: 100%;
+  min-width: 0;
+}
+.definition-editor > .definition-field {
+  max-width: 360px;
+}
+.column-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  padding: 16px 0 8px;
+}
+.column-picker label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.column-picker input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.selected-columns {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0;
+  margin: 8px 0;
+}
+.selected-columns li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 4px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.selected-columns button {
+  padding: 2px 4px;
+  border: 0;
+}
+.column-order {
+  color: var(--muted);
+  font-size: 12px;
+}
+.definition-name {
+  margin: 12px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.definition-name summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.definition-name input {
+  display: block;
+  margin-top: 8px;
+  width: min(100%, 360px);
+}
+.definition-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+.definition-actions > span {
+  flex: 1;
+}
+.definition-actions > .danger {
+  border-color: transparent;
+}
+.reference-tables {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr) 28px;
+  gap: 12px;
+  align-items: end;
+}
+.reference-tables strong {
+  overflow-wrap: anywhere;
+  padding-bottom: 8px;
+}
+.definition-editor .target-key-picker {
+  margin: 12px 40px 12px auto;
+  width: calc((100% - 84px) / 2);
+  max-width: none;
+}
+.mapping-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr) 28px;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 0;
+}
+.mapping-row select {
+  width: 100%;
+  min-width: 0;
+}
+.mapping-target {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.mapping-row > button {
+  padding: 4px;
+  border-color: transparent;
+}
+.pending-reference {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+.definition-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.inline-name {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 4px;
+  font-size: 12px;
+}
+.inline-name label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.inline-name input {
+  width: 100%;
+  min-width: 0;
+}
+.inline-name small {
+  display: block;
+}
+.migration-notice {
+  padding: 6px 16px;
+  font-size: 12px;
+}
+.table-title,
+.column-name {
+  pointer-events: auto;
+  cursor: text;
+}
+@media (max-width: 760px) {
+  #table-editor {
+    --column-grid: 22px minmax(0, 1fr) minmax(100px, 0.8fr) 32px;
+    padding: 12px;
+  }
+  #table-editor .column-labels {
+    display: none;
+  }
+  #table-editor .column-edit-row {
+    row-gap: 8px;
+    align-items: start;
+  }
+  #table-editor .column-names {
+    display: flex;
+    flex-direction: column;
+    grid-column: 2;
+    grid-row: 1;
+  }
+  #table-editor .column-type-control {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  #table-editor .reorder-handle {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  #table-editor .row-actions {
+    grid-column: 4;
+    grid-row: 1;
+  }
+  #table-editor .column-check > span {
+    display: inline;
+    font-size: 12px;
+  }
+  #table-editor .column-check {
+    justify-content: flex-start;
+    min-height: 28px;
+  }
+  #table-editor .primary-check {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  #table-editor .unique-check {
+    grid-column: 3;
+    grid-row: 2;
+  }
+  #table-editor .column-references {
+    grid-column: 2 / 4;
+    grid-row: 3;
+  }
+  .definition-editor {
+    padding: 10px;
+  }
+  .definition-actions {
+    gap: 4px;
+  }
+  .reference-tables,
+  .mapping-row {
+    gap: 6px;
+  }
+  .mapping-row {
+    grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) 22px;
+  }
+  .reference-tables {
+    grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) 22px;
+  }
+  .definition-editor .target-key-picker {
+    margin-right: 28px;
+    width: calc((100% - 56px) / 2);
+  }
+}
+
+.cardinality {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1.7;
+  pointer-events: none;
+}
+.cardinality circle {
+  fill: var(--bg);
+}
+.edge.selected .cardinality,
+.edge:hover .cardinality,
+.edge:focus-visible .cardinality {
+  stroke: var(--accent);
+}
+.relationship-label {
+  cursor: pointer;
+}
+.relationship-label rect {
+  fill: var(--bg);
+}
+.relationship-label text {
+  font-size: 12px;
+  fill: var(--text);
+}
+.edge.selected .relationship-label text {
+  fill: var(--accent);
+}
+.relationship-fields {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+}
+.cardinality-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.cardinality-value {
+  display: grid;
+  gap: 4px;
+  color: var(--text);
+}
+.cardinality-value > span {
+  overflow-wrap: anywhere;
+}
+.cardinality-value select {
+  min-width: 0;
+  width: 100%;
+}
+#selection button[aria-pressed="true"] {
+  background: var(--selected);
+  border-color: var(--accent);
+}
+@media (max-width: 560px) {
+  .cardinality-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+.issue-list {
+  max-height: 40vh;
+  overflow: auto;
+}
+.issue-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 5px 0;
+}
+.issue-row > span {
+  flex: 1;
+  min-width: 180px;
+  overflow-wrap: anywhere;
+}
+.issue-row button {
+  flex-shrink: 0;
+}
+.reference-impact {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: 12px;
+  max-height: 18vh;
+  overflow: auto;
+}
+.reference-impact p {
+  margin: 6px 0;
+}
+@media (max-width: 480px) {
+  .issue-counts {
+    display: none;
   }
 }

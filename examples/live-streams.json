@@ -1,0 +1,218 @@
+{
+  "format": "er-sketch",
+  "version": 2,
+  "schema": {
+    "tables": [
+      {
+        "id": "Users",
+        "name": "Users",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "Users-key",
+            "name": "",
+            "kind": "primary",
+            "columnIds": [
+              "Users-pk"
+            ]
+          }
+        ],
+        "foreignKeys": [],
+        "columns": [
+          {
+            "id": "Users-pk",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "Users-extra-0",
+            "name": "name",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "LiveStreams",
+        "name": "LiveStreams",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "LiveStreams-key",
+            "name": "",
+            "kind": "primary",
+            "columnIds": [
+              "LiveStreams-pk"
+            ]
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "LiveStreams-ref-0",
+            "name": "",
+            "columnIds": [
+              "LiveStreams-fk-0"
+            ],
+            "target": {
+              "tableId": "Users",
+              "columnIds": [
+                "Users-pk"
+              ]
+            },
+            "label": "配信する",
+            "cardinality": {
+              "parentMinimum": 1,
+              "childMinimum": 0
+            }
+          }
+        ],
+        "columns": [
+          {
+            "id": "LiveStreams-pk",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "LiveStreams-fk-0",
+            "name": "user_id",
+            "type": "uuid",
+            "logicalName": ""
+          }
+        ]
+      },
+      {
+        "id": "Comments",
+        "name": "Comments",
+        "logicalName": "",
+        "keys": [
+          {
+            "id": "Comments-key",
+            "name": "",
+            "kind": "primary",
+            "columnIds": [
+              "Comments-pk"
+            ]
+          }
+        ],
+        "foreignKeys": [
+          {
+            "id": "Comments-ref-0",
+            "name": "",
+            "columnIds": [
+              "Comments-fk-0"
+            ],
+            "target": {
+              "tableId": "LiveStreams",
+              "columnIds": [
+                "LiveStreams-pk"
+              ]
+            },
+            "label": "コメントが付く",
+            "cardinality": {
+              "parentMinimum": 1,
+              "childMinimum": 0
+            }
+          },
+          {
+            "id": "Comments-ref-1",
+            "name": "",
+            "columnIds": [
+              "Comments-fk-1"
+            ],
+            "target": {
+              "tableId": "Users",
+              "columnIds": [
+                "Users-pk"
+              ]
+            },
+            "label": "投稿する",
+            "cardinality": {
+              "parentMinimum": 1,
+              "childMinimum": 0
+            }
+          }
+        ],
+        "columns": [
+          {
+            "id": "Comments-pk",
+            "name": "id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "Comments-fk-0",
+            "name": "live_stream_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "Comments-fk-1",
+            "name": "user_id",
+            "type": "uuid",
+            "logicalName": ""
+          },
+          {
+            "id": "Comments-extra-0",
+            "name": "body",
+            "type": "text",
+            "logicalName": ""
+          },
+          {
+            "id": "Comments-extra-1",
+            "name": "posted_at",
+            "type": "text",
+            "logicalName": ""
+          }
+        ]
+      }
+    ]
+  },
+  "presentation": {
+    "tables": [
+      {
+        "tableId": "Users",
+        "x": 0,
+        "y": 0
+      },
+      {
+        "tableId": "LiveStreams",
+        "x": 380,
+        "y": 0
+      },
+      {
+        "tableId": "Comments",
+        "x": 760,
+        "y": 0
+      }
+    ],
+    "routes": [
+      {
+        "foreignKeyId": "LiveStreams-ref-0",
+        "columnId": "LiveStreams-fk-0",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "Comments-ref-0",
+        "columnId": "Comments-fk-0",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      },
+      {
+        "foreignKeyId": "Comments-ref-1",
+        "columnId": "Comments-fk-1",
+        "fromSide": "right",
+        "toSide": "left",
+        "trunk": null,
+        "manual": false
+      }
+    ]
+  },
+  "unresolvedEdges": []
+}

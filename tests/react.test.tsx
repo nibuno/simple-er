@@ -158,7 +158,7 @@ test("column reorder retains stable relation identities and manual routing", asy
     "ArrowDown",
   );
   await submit();
-  assert.equal(saved().tables[0].columns[1][0], "id");
+  assert.equal(saved().tables[0].columns[1].name, "id");
   assert.equal(saved().edges[0].from.row, 1);
   assert.equal(saved().edges[0].trunk, 395);
 });
@@ -172,11 +172,11 @@ test("custom type stays editable and cancellation does not persist draft", async
   });
   await type(byLabel("カラム2の独自の型"), "varchar(32)");
   await submit();
-  assert.equal(saved().tables[0].columns[1][1], "varchar(32)");
+  assert.equal(saved().tables[0].columns[1].type, "varchar(32)");
   await click(byLabel("usersを編集"));
   await type(byLabel("カラム2の物理名"), "changed");
   await click(byText("キャンセル"));
-  assert.equal(saved().tables[0].columns[1][0], "name");
+  assert.equal(saved().tables[0].columns[1].name, "name");
 });
 
 test("tidy, new diagram, undo and redo preserve the full diagram", async () => {
@@ -196,9 +196,38 @@ test("tidy, new diagram, undo and redo preserve the full diagram", async () => {
   assert.equal(byLabel("やり直す").disabled, true);
 });
 
+test("multiple relationships share one column attachment and remain individually selectable", async () => {
+  const { graph } = await import("./layout-fixtures.mjs");
+  await act(() => root.unmount());
+  localStorage.setItem(
+    storageKey,
+    encode(
+      graph([
+        ["users"],
+        ["orders", ["users"]],
+        ["comments", ["users", "orders"]],
+      ]),
+    ),
+  );
+  await mount();
+  await click(byText("整頓"));
+  const markers = [
+    ...byLabel("users.id を接続").querySelectorAll(".port"),
+  ].filter((el) => Number(el.getAttribute("cx")) > 0);
+  assert.equal(markers.length, 1);
+  assert.equal(
+    document.querySelectorAll('.cardinality[data-maximum="many"]').length,
+    3,
+  );
+  await click(byLabel("usersからordersへの接続線"));
+  assert.equal(document.querySelectorAll(".edge.selected").length, 1);
+  await click(byLabel("usersからcommentsへの接続線"));
+  assert.equal(document.querySelectorAll(".edge.selected").length, 1);
+});
+
 test("React can delete and manually reconnect a relation", async () => {
   await click(byLabel("usersからordersへの接続線"));
-  await click(byText("接続を削除"));
+  await click(byText("外部キーを削除"));
   assert.equal(saved().edges.length, 1);
   await click(byLabel("users.id を接続"));
   await click(byLabel("orders.user_id を接続"));
@@ -209,7 +238,7 @@ test("React can delete and manually reconnect a relation", async () => {
 
 test("automatic connection candidates apply and can be undone", async () => {
   await click(byLabel("usersからordersへの接続線"));
-  await click(byText("接続を削除"));
+  await click(byText("外部キーを削除"));
   await click(byText("自動で接続"));
   assert.match(
     document.querySelector("dialog").textContent,
@@ -314,6 +343,8 @@ test("table pointer drag commits once, undo restores position, cancellation does
 test("connection handle drag stays manual and undo restores its original route", async () => {
   const before = saved();
   await click(byLabel("usersからordersへの接続線"));
+  assert.equal(document.querySelector(".drag-handle"), null);
+  await click(byText("経路を調整"));
   const handle = byLabel("線の通り道を左右に調整"),
     svg = document.querySelector("#diagram");
   await pointer(handle, "pointerdown", 350, 250);
@@ -462,4 +493,456 @@ test("adding repeated columns focuses the new name and keeps edits as a cancella
   assert.deepEqual(saved(), before);
   await click(byText("キャンセル"));
   assert.deepEqual(saved(), before);
+});
+
+test("inline physical and logical rename supports cancel, validation, undo and redo", async () => {
+  const before = saved();
+  await key(byLabel("usersを移動。矢印キーで移動できます。"), "Enter");
+  await type(byLabel("図上で物理名を編集"), "members");
+  await submit();
+  assert.equal(saved().tables[0].name, "members");
+  assert.deepEqual(saved().edges, before.edges);
+  await click(byLabel("元に戻す"));
+  assert.equal(saved().tables[0].name, "users");
+  await click(byLabel("やり直す"));
+  assert.equal(saved().tables[0].name, "members");
+  await key(byLabel("members.id を接続"), "F2");
+  await type(byLabel("図上で物理名を編集"), "cancelled");
+  await key(byLabel("図上で物理名を編集"), "Escape");
+  assert.equal(saved().tables[0].columns[0].name, "id");
+  await click(document.querySelector('input[value="logical"]'));
+  await key(byLabel("members.id を接続"), "F2");
+  await type(byLabel("図上で論理名を編集"), "会員番号");
+  await submit();
+  assert.equal(saved().tables[0].columns[0].logicalName, "会員番号");
+  await key(byLabel("members.name を接続"), "F2");
+  await key(byLabel("図上で論理名を編集"), "Escape");
+});
+test("key list edits ordered indexes and line selection opens the same reference editor", async () => {
+  await click(byLabel("usersを編集"));
+  await click(byText("＋ 追加"));
+  await click(byLabel("emailを対象カラムに含める"));
+  await click(byLabel("nameを対象カラムに含める"));
+  await click(byText("完了"));
+  assert.match(document.querySelector(".key-list").textContent, /email, name/);
+  await submit();
+  assert.deepEqual(saved().tables[0].keys[1].columnIds, [
+    "users:column:2",
+    "users:column:1",
+  ]);
+  await click(byLabel("usersからordersへの接続線"));
+  await click(byText("外部キーを編集"));
+  assert.ok(byLabel("外部キー1の参照先テーブル"));
+  await click(byText("キャンセル"));
+});
+test("inline duplicate name keeps the editor open and does not change saved data", async () => {
+  const before = saved();
+  await key(byLabel("usersを移動。矢印キーで移動できます。"), "Enter");
+  await type(byLabel("図上で物理名を編集"), "orders");
+  await submit();
+  assert.match(
+    document.querySelector('.inline-name [role="alert"]').textContent,
+    /重複/,
+  );
+  assert.deepEqual(saved(), before);
+  await key(byLabel("図上で物理名を編集"), "Escape");
+});
+test("table deletion retains incoming foreign keys as unresolved and undo restores them", async () => {
+  const before = saved();
+  await click(byLabel("usersを編集"));
+  await click(byText("テーブルを削除"));
+  const orders = saved().tables.find((t) => t.id === "orders");
+  assert.equal(orders.foreignKeys.length, 1);
+  assert.equal(orders.foreignKeys[0].target, undefined);
+  assert.equal(saved().edges.length, 1);
+  await click(byLabel("元に戻す"));
+  assert.deepEqual(saved(), before);
+});
+test("legacy backup quota failure preserves the successfully loaded diagram", async () => {
+  await act(() => root.unmount());
+  const legacy = {
+    tables: [{ id: "custom", x: 0, y: 0, columns: [["id", "uuid", "PK"]] }],
+    edges: [],
+  };
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify({ format: "er-sketch", version: 1, diagram: legacy }),
+  );
+  const proto = Object.getPrototypeOf(localStorage),
+    original = proto.setItem;
+  proto.setItem = function (key, value) {
+    if (key.endsWith(".v1-backup")) throw new Error("quota");
+    return original.call(this, key, value);
+  };
+  try {
+    await mount();
+    assert.ok(byLabel("customを編集"));
+    assert.match(document.querySelector(".instruction").textContent, /退避先/);
+  } finally {
+    proto.setItem = original;
+  }
+});
+
+test("foreign-key editor chooses a composite target and shows each mapping on the same row", async () => {
+  await act(() => root.unmount());
+  const d = structuredClone(initial);
+  d.tables[0].keys[0].columnIds.push("users:column:1");
+  d.tables[1].foreignKeys = [];
+  localStorage.setItem(storageKey, encode(d));
+  await mount();
+  await click(byLabel("ordersを編集"));
+  await click(byLabel("user_idに参照先を追加"));
+  async function choose(label, value) {
+    await act(() => {
+      const select = byLabel(label);
+      select.value = value;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+  await choose("外部キー1の参照先テーブル", "users");
+  assert.equal(document.querySelectorAll(".mapping-row").length, 2);
+  await choose("外部キー1の参照元 1", "orders:column:0");
+  await choose("外部キー1の参照元 2", "orders:column:1");
+  assert.deepEqual(
+    [...document.querySelectorAll(".mapping-target")].map((e) => e.textContent),
+    ["id", "name"],
+  );
+  await click(byText("完了"));
+  await click(byLabel("user_idの参照先 users.nameを編集"));
+  assert.equal(byLabel("外部キー1の参照元 2").value, "orders:column:1");
+  await submit();
+  assert.doesNotMatch(
+    document.querySelector(".instruction").textContent,
+    /接続-\d|削除しました/,
+  );
+  const f = saved().tables[1].foreignKeys[0];
+  assert.deepEqual(f.columnIds, ["orders:column:0", "orders:column:1"]);
+  assert.deepEqual(f.target.columnIds, ["users:column:0", "users:column:1"]);
+  await click(byLabel("usersからordersへの接続線"));
+  assert.equal(document.querySelectorAll(".edge.selected").length, 2);
+  await click(byText("外部キーを削除"));
+  assert.equal(saved().tables[1].foreignKeys.length, 0);
+  await click(byLabel("元に戻す"));
+  assert.deepEqual(saved().tables[1].foreignKeys[0], f);
+});
+
+test("opening a second relationship expands its own settings", async () => {
+  await act(() => root.unmount());
+  const d = structuredClone(initial),
+    fk = d.tables[1].foreignKeys[0];
+  d.tables[1].foreignKeys.push({
+    ...structuredClone(fk),
+    id: "second-fk",
+    name: "second",
+    columnIds: ["orders:column:0"],
+  });
+  localStorage.setItem(storageKey, encode(d));
+  await mount();
+  const lines = document.querySelectorAll(".edge");
+  await click(lines[1]);
+  await click(byText("外部キーを編集"));
+  const expanded = document.querySelector(".definition-editor");
+  assert.match(expanded.querySelector("summary").textContent, /second/);
+  assert.equal(byLabel("外部キー2の名前").value, "second");
+  await click(byText("キャンセル"));
+});
+
+test("single-column FK can be entered source-first and target choices retain unique constraint identity", async () => {
+  await act(() => root.unmount());
+  const d = structuredClone(initial);
+  d.tables[0].keys.push({
+    id: "email-unique",
+    kind: "unique",
+    name: "email_unique",
+    columnIds: ["users:column:2"],
+  });
+  d.tables[1].foreignKeys = [];
+  localStorage.setItem(storageKey, encode(d));
+  await mount();
+  await click(byLabel("ordersを編集"));
+  await click(byLabel("user_idに参照先を追加"));
+  async function choose(label, value) {
+    await act(() => {
+      const select = byLabel(label);
+      select.value = value;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+  await choose("外部キー1の参照元 1", "orders:column:1");
+  await choose("外部キー1の参照先テーブル", "users");
+  assert.equal(byLabel("外部キー1の参照元 1").value, "orders:column:1");
+  assert.equal(
+    document.querySelectorAll(".reference-tables select, .mapping-grid select")
+      .length,
+    3,
+  );
+  assert.equal(byLabel("外部キー1の参照先キー").value, "");
+  await choose("外部キー1の参照先キー", "email-unique");
+  assert.equal(
+    document.querySelector(".mapping-target select").value,
+    "email-unique",
+  );
+  assert.equal(document.querySelectorAll(".mapping-row").length, 1);
+  assert.equal(
+    document.querySelector(".definition-editor .definition-name").open,
+    false,
+  );
+  await submit();
+  assert.deepEqual(saved().tables[1].foreignKeys[0].target, {
+    tableId: "users",
+    columnIds: ["users:column:2"],
+  });
+});
+
+test("column checks maintain one composite PK and independent single-column unique constraints", async () => {
+  const before = saved();
+  await click(byLabel("order_itemsを編集"));
+  assert.equal(document.querySelector(".editor-tabs"), null);
+  await click(byLabel("quantityを主キーに含める"));
+  await click(byLabel("product_nameの単独一意制約"));
+  await click(byLabel("quantityの単独一意制約"));
+  assert.match(document.querySelector(".key-list").textContent, /id, quantity/);
+  await click(byText("＋ 追加"));
+  await act(() => {
+    const select = byLabel("キーの種類");
+    select.value = "unique";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await click(byLabel("product_nameを対象カラムに含める"));
+  await click(byLabel("quantityを対象カラムに含める"));
+  await click(byText("完了"));
+  await click(byLabel("quantityの単独一意制約"));
+  await submit();
+  const table = saved().tables.find((t) => t.id === "order_items");
+  assert.deepEqual(
+    table.keys.filter((k) => k.kind === "primary").map((k) => k.columnIds),
+    [["order_items:column:0", "order_items:column:3"]],
+  );
+  assert.deepEqual(
+    table.keys.filter((k) => k.kind === "unique").map((k) => k.columnIds),
+    [
+      ["order_items:column:2"],
+      ["order_items:column:2", "order_items:column:3"],
+    ],
+  );
+  await click(byLabel("元に戻す"));
+  assert.deepEqual(saved(), before);
+});
+
+test("ordered key edits preserve the constraint ID and cancelling restores only that definition", async () => {
+  await click(byLabel("order_itemsを編集"));
+  await click(byLabel("quantityを主キーに含める"));
+  await submit();
+  const before = saved(),
+    pk = before.tables[2].keys.find((k) => k.kind === "primary");
+  await click(byLabel("order_itemsを編集"));
+  await click(byLabel("主キー id, quantityを編集"));
+  await click(byLabel("quantityを前へ"));
+  await click(byText("完了"));
+  await submit();
+  assert.deepEqual(
+    saved().tables[2].keys.find((k) => k.id === pk.id).columnIds,
+    ["order_items:column:3", "order_items:column:0"],
+  );
+  await click(byLabel("order_itemsを編集"));
+  await click(byLabel("主キー quantity, idを編集"));
+  await click(byLabel("idを前へ"));
+  await type(byLabel("カラム3の論理名"), "商品");
+  await click(byText("編集を取り消す"));
+  await submit();
+  assert.deepEqual(
+    saved().tables[2].keys.find((k) => k.id === pk.id).columnIds,
+    ["order_items:column:3", "order_items:column:0"],
+  );
+  assert.equal(saved().tables[2].columns[2].logicalName, "商品");
+});
+
+test("reference entry and line entry edit the same FK; cancelling new and existing references preserves other edits", async () => {
+  const before = saved();
+  await click(byLabel("ordersを編集"));
+  await click(byLabel("totalに参照先を追加"));
+  await click(byText("編集を取り消す"));
+  assert.ok(!document.querySelector(".definition-editor"));
+  await click(byLabel("user_idの参照先 users.idを編集"));
+  assert.equal(byLabel("外部キー1の参照先テーブル").value, "users");
+  await act(() => {
+    const select = byLabel("外部キー1の参照先テーブル");
+    select.value = "orders";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await type(byLabel("カラム2の論理名"), "会員ID");
+  await click(byText("編集を取り消す"));
+  await submit();
+  assert.deepEqual(saved().tables[1].foreignKeys, before.tables[1].foreignKeys);
+  assert.deepEqual(saved().edges, before.edges);
+  assert.equal(saved().tables[1].columns[1].logicalName, "会員ID");
+});
+
+test("an unfinished key cannot close or save silently and can be cancelled", async () => {
+  const before = saved();
+  await click(byLabel("usersを編集"));
+  await click(byText("＋ 追加"));
+  assert.equal(byText("完了").disabled, true);
+  await submit();
+  assert.ok(document.querySelector("dialog[open]"));
+  assert.deepEqual(saved(), before);
+  await click(byText("編集を取り消す"));
+  await submit();
+  assert.deepEqual(saved(), before);
+});
+
+test("relationship label and cardinality edits persist, render, undo and reload", async () => {
+  const before = saved();
+  await click(byLabel("usersからordersへの接続線"));
+  await click(byText("外部キーを編集"));
+  await type(byLabel("関係ラベル"), "注文する");
+  for (const [label, value] of [
+    ["参照先の件数", "1"],
+    ["参照元の件数", "0"],
+  ])
+    await act(() => {
+      const select = byLabel(label);
+      select.value = value;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  await click(byText("完了"));
+  await submit();
+  const next = saved(),
+    fk = next.tables[1].foreignKeys[0];
+  assert.equal(fk.label, "注文する");
+  assert.deepEqual(fk.cardinality, { parentMinimum: 1, childMinimum: 0 });
+  assert.equal(
+    document.querySelector(".relationship-label text").textContent,
+    "注文する",
+  );
+  const edge = byLabel("usersからordersへの接続線");
+  assert.ok(
+    edge.querySelector('.cardinality[data-maximum="one"][data-minimum="1"]'),
+  );
+  assert.ok(
+    edge.querySelector('.cardinality[data-maximum="many"][data-minimum="0"]'),
+  );
+  await click(byLabel("元に戻す"));
+  assert.deepEqual(saved(), before);
+  await click(byLabel("やり直す"));
+  assert.deepEqual(saved(), next);
+  await act(() => root.unmount());
+  await mount();
+  assert.equal(
+    document.querySelector(".relationship-label text").textContent,
+    "注文する",
+  );
+});
+
+test("returning a manually adjusted line to automatic routing is undoable", async () => {
+  await click(byLabel("usersからordersへの接続線"));
+  await click(byText("経路を調整"));
+  await key(byLabel("線の通り道を左右に調整"), "ArrowRight");
+  const manual = saved();
+  assert.equal(manual.edges[0].manual, true);
+  await click(byText("線を自動に戻す"));
+  assert.equal(saved().edges[0].trunk, null);
+  assert.equal(saved().edges[0].manual, false);
+  assert.equal(document.querySelector(".drag-handle"), null);
+  await click(byLabel("元に戻す"));
+  assert.deepEqual(saved(), manual);
+});
+
+test("legacy issue dismissal persists and undo restores it; pending FK opens its editor", async () => {
+  await act(() => root.unmount());
+  const d = validateDiagram(initial);
+  d.unresolvedEdges = [
+    {
+      id: "old",
+      from: { table: "users", row: 0, side: "right" },
+      to: { table: "orders", row: 1, side: "left" },
+      trunk: null,
+      manual: false,
+    },
+  ];
+  delete d.tables.find((t) => t.id === "orders").foreignKeys[0].target;
+  localStorage.setItem(storageKey, encode(d));
+  await mount();
+  assert.match(
+    document.querySelector(".migration-notice summary").textContent,
+    /要確認 2件/,
+  );
+  await click(byLabel("旧データの線1を破棄"));
+  assert.equal(saved().unresolvedEdges.length, 0);
+  await click(byLabel("元に戻す"));
+  assert.equal(saved().unresolvedEdges.length, 1);
+  await click(document.querySelector(".issue-row button"));
+  assert.ok(document.querySelector("#table-editor[open]"));
+  assert.match(document.querySelector("#table-editor").textContent, /参照先/);
+});
+
+test("removing a referenced primary key shows impact and preserves an editable pending FK", async () => {
+  await click(byLabel("usersを編集"));
+  const checkbox = document.querySelector(
+    'input[aria-label="idを主キーに含める"]',
+  );
+  assert.ok(checkbox);
+  await click(checkbox);
+  assert.match(
+    document.querySelector(".reference-impact").textContent,
+    /外部キー1件が参照先未設定/,
+  );
+  await submit();
+  assert.equal(
+    saved().tables.find((t) => t.id === "orders").foreignKeys[0].target,
+    undefined,
+  );
+  assert.match(
+    document.querySelector(".migration-notice").textContent,
+    /orders.user_id/,
+  );
+  await click(byLabel("元に戻す"));
+  assert.ok(
+    saved().tables.find((t) => t.id === "orders").foreignKeys[0].target,
+  );
+});
+
+test("another tab's write pauses ER autosave until the saved diagram is explicitly loaded", async () => {
+  const remote = saved();
+  remote.tables[0].name = "remote_users";
+  const raw = encode(remote);
+  localStorage.setItem(storageKey, raw);
+  await act(() =>
+    window.dispatchEvent(
+      new dom.window.StorageEvent("storage", {
+        key: storageKey,
+        newValue: raw,
+      }),
+    ),
+  );
+  assert.match(document.body.textContent, /自動保存を停止/);
+  await click(byLabel("usersを編集"));
+  await submit();
+  assert.equal(localStorage.getItem(storageKey), raw);
+  await click(byText("保存されている図を読み込む"));
+  assert.ok(byLabel("remote_usersを編集"));
+  assert.doesNotMatch(document.body.textContent, /自動保存を停止/);
+  assert.equal(byLabel("元に戻す").disabled, true);
+  assert.equal(saved().tables[0].name, "remote_users");
+});
+
+test("no-op and cancelled document-backed drag preserve undo and redo boundaries", async () => {
+  const raw = localStorage.getItem(storageKey);
+  const svg = document.querySelector("#diagram");
+  const header = () => byLabel("usersを移動。矢印キーで移動できます。");
+  await pointer(header(), "pointerdown", 100, 100);
+  await pointer(svg, "pointerup", 100, 100);
+  assert.equal(localStorage.getItem(storageKey), raw);
+  assert.equal(byLabel("元に戻す").disabled, true);
+  await pointer(header(), "pointerdown", 100, 100);
+  await pointer(svg, "pointermove", 120, 120);
+  await pointer(svg, "pointerup", 120, 120);
+  await click(byLabel("元に戻す"));
+  assert.equal(byLabel("やり直す").disabled, false);
+  await pointer(header(), "pointerdown", 100, 100);
+  await pointer(svg, "pointermove", 130, 130);
+  await pointer(svg, "pointercancel", 130, 130);
+  assert.equal(localStorage.getItem(storageKey), raw);
+  assert.equal(byLabel("元に戻す").disabled, true);
+  assert.equal(byLabel("やり直す").disabled, false);
 });
