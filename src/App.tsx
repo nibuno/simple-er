@@ -28,6 +28,8 @@ import { tidyDiagram } from "./layout.ts";
 import { historyReducer } from "./history.ts";
 import { DiagramCanvas } from "./DiagramCanvas.tsx";
 import { TableEditor, InferDialog } from "./Dialogs.tsx";
+import { Inspector, Sidebar } from "./Panels.tsx";
+import { Icon, Logo } from "./icons.tsx";
 
 const STORAGE = "er-sketch.local.v1";
 function restore() {
@@ -78,6 +80,11 @@ export function App() {
     [history.present],
   );
   const [selected, setSelected] = useState<string | null>(null);
+  const [focusedTable, setFocusedTable] = useState<string | null>(null);
+  const [revealRequest, setRevealRequest] = useState<{
+    id: string;
+    n: number;
+  } | null>(null);
   const [adjustingLine, setAdjustingLine] = useState(false);
   const [adjustable, setAdjustable] = useState(false);
   const [pending, setPending] = useState<Endpoint | null>(null);
@@ -150,6 +157,7 @@ export function App() {
   }
   function clear() {
     setSelected(null);
+    setFocusedTable(null);
     setAdjustingLine(false);
     setPending(null);
     setHint("");
@@ -165,12 +173,16 @@ export function App() {
     dispatch({ type: "undo" });
     save(history.past.at(-1)!);
     clear();
+    // Keep the inspected table open; it closes itself if the table disappears.
+    setFocusedTable(focusedTable);
   }
   function redo() {
     if (!history.future.length) return;
     dispatch({ type: "redo" });
     save(history.future.at(-1)!);
     clear();
+    // Keep the inspected table open; it closes itself if the table disappears.
+    setFocusedTable(focusedTable);
   }
   useEffect(() => {
     const click = (e: MouseEvent) => {
@@ -195,6 +207,16 @@ export function App() {
       )
         return;
       if (e.key === "Escape") clear();
+      if (
+        e.key.toLowerCase() === "t" &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !(e.target instanceof Element && e.target.closest("[contenteditable]"))
+      ) {
+        e.preventDefault();
+        open();
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -401,6 +423,13 @@ export function App() {
       .map((fk) => ({ table, fk })),
   );
   const edge = state.edges.find((e) => e.id === selected);
+  const inspected = state.tables.find((t) => t.id === focusedTable);
+  function selectTable(id: string) {
+    setSelected(null);
+    setAdjustingLine(false);
+    setPending(null);
+    setFocusedTable(id);
+  }
   const selectedTable =
     edge && state.tables.find((t) => t.id === edge.to.table);
   const selectedFk = selectedTable?.foreignKeys?.find(
@@ -421,7 +450,10 @@ export function App() {
     <>
       <header className="editor-header">
         <div className="document-menu">
-          <h1>SimpleER</h1>
+          <h1>
+            <Logo />
+            SimpleER
+          </h1>
           <details
             ref={options}
             className="file-options"
@@ -445,6 +477,16 @@ export function App() {
               <button onClick={download}>ファイルに保存</button>
             </div>
           </details>
+          <span
+            className={`save-indicator${saveError || storageConflict ? " error" : ""}`}
+            title={
+              saveError || storageConflict
+                ? "自動保存は停止中です"
+                : "このブラウザに自動保存しています"
+            }
+          >
+            {saveError || storageConflict ? "自動保存停止中" : "自動保存"}
+          </span>
           <input
             ref={file}
             type="file"
@@ -475,7 +517,7 @@ export function App() {
                 key={kind}
                 id={kind}
                 className="history-button"
-                title={i ? "やり直す" : "元に戻す"}
+                title={i ? "やり直す (⇧⌘Z)" : "元に戻す (⌘Z)"}
                 aria-label={i ? "やり直す" : "元に戻す"}
                 disabled={i ? !history.future.length : !history.past.length}
                 onClick={i ? redo : undo}
@@ -501,10 +543,22 @@ export function App() {
               </button>
             ))}
           </div>
-          <button className="primary" onClick={() => open()}>
+          <button
+            className="primary"
+            data-shortcut="T"
+            title="テーブルを追加 (T)"
+            onClick={() => open()}
+          >
+            <Icon name="plus" size={14} />
             テーブルを追加
           </button>
-          <button onClick={() => setInfer(true)}>自動で接続</button>
+          <button
+            title="名前から外部キーの候補を探す"
+            onClick={() => setInfer(true)}
+          >
+            <Icon name="link" size={15} />
+            自動で接続
+          </button>
           <button
             disabled={state.tables.length < 2}
             title="テーブルの配置と間隔を整える"
@@ -520,6 +574,7 @@ export function App() {
               }
             }}
           >
+            <Icon name="tidy" size={15} />
             整頓
           </button>
         </nav>
@@ -688,85 +743,132 @@ export function App() {
             {saveError}
           </span>
         </div>
-        <DiagramCanvas
-          state={state}
-          selected={selected}
-          adjustingLine={adjustingLine}
-          onAdjustable={setAdjustable}
-          pending={pending}
-          displayTable={displayTable}
-          displayColumn={displayColumn}
-          onEdit={open}
-          logical={logical}
-          onRename={(id, columnId, value) => {
-            const table = structuredClone(
-              state.tables.find((t) => t.id === id)!,
-            );
-            if (columnId)
-              table.columns.find((c) => c.id === columnId)![
-                logical ? "logicalName" : "name"
-              ] = value;
-            else if (logical) table.logicalName = value;
-            else table.name = value;
-            commit(editTable(state, table));
-          }}
-          onConnect={connect}
-          onSelect={(id) => {
-            clear();
-            setSelected(id);
-          }}
-          onClear={clear}
-          onHint={setHint}
-          onCommit={commit}
-          onPreview={(next) =>
-            dispatch({ type: "preview", next: documentFromDiagram(next) })
-          }
-          fitRequest={fitRequest}
-          viewRef={view}
-        >
-          <div id="selection" hidden={!edge}>
-            <span id="edge-label">{edgeLabel}</span>
-            <button
-              aria-pressed={adjustingLine}
-              disabled={!adjustable}
-              onClick={() => setAdjustingLine((v) => !v)}
-            >
-              経路を調整
-            </button>
-            <button
-              onClick={() => {
-                if (!edge) return;
-                const next = structuredClone(state);
-                for (const e of next.edges.filter(
-                  (e) => e.foreignKeyId === edge.foreignKeyId,
-                )) {
-                  e.trunk = null;
-                  e.manual = false;
+        <div className="workspace">
+          <Sidebar
+            state={state}
+            selectedTable={focusedTable}
+            selectedForeignKey={edge?.foreignKeyId}
+            displayTable={displayTable}
+            displayColumn={displayColumn}
+            onAdd={() => open()}
+            onSelectTable={(id) => {
+              selectTable(id);
+              setRevealRequest((r) => ({ id, n: (r?.n ?? 0) + 1 }));
+            }}
+            onSelectEdge={(id) => {
+              clear();
+              setSelected(id);
+              const target = state.edges.find((e) => e.id === id)?.to.table;
+              if (target)
+                setRevealRequest((r) => ({ id: target, n: (r?.n ?? 0) + 1 }));
+            }}
+          />
+          <DiagramCanvas
+            state={state}
+            selected={selected}
+            selectedTable={focusedTable}
+            onSelectTable={selectTable}
+            revealRequest={revealRequest}
+            adjustingLine={adjustingLine}
+            onAdjustable={setAdjustable}
+            pending={pending}
+            displayTable={displayTable}
+            displayColumn={displayColumn}
+            onEdit={open}
+            logical={logical}
+            onRename={(id, columnId, value) => {
+              const table = structuredClone(
+                state.tables.find((t) => t.id === id)!,
+              );
+              if (columnId)
+                table.columns.find((c) => c.id === columnId)![
+                  logical ? "logicalName" : "name"
+                ] = value;
+              else if (logical) table.logicalName = value;
+              else table.name = value;
+              commit(editTable(state, table));
+            }}
+            onConnect={connect}
+            onSelect={(id) => {
+              clear();
+              setSelected(id);
+            }}
+            onClear={clear}
+            onHint={setHint}
+            onCommit={commit}
+            onPreview={(next) =>
+              dispatch({ type: "preview", next: documentFromDiagram(next) })
+            }
+            fitRequest={fitRequest}
+            viewRef={view}
+          >
+            <div id="selection" hidden={!edge}>
+              <span id="edge-label">{edgeLabel}</span>
+              <button
+                aria-pressed={adjustingLine}
+                disabled={!adjustable}
+                onClick={() => setAdjustingLine((v) => !v)}
+              >
+                経路を調整
+              </button>
+              <button
+                onClick={() => {
+                  if (!edge) return;
+                  const next = structuredClone(state);
+                  for (const e of next.edges.filter(
+                    (e) => e.foreignKeyId === edge.foreignKeyId,
+                  )) {
+                    e.trunk = null;
+                    e.manual = false;
+                  }
+                  setAdjustingLine(false);
+                  commit(next);
+                }}
+              >
+                線を自動に戻す
+              </button>
+              <button
+                onClick={() =>
+                  edge && open(edge.to.table, true, edge.foreignKeyId)
                 }
-                setAdjustingLine(false);
-                commit(next);
+              >
+                外部キーを編集
+              </button>
+              <button
+                id="remove"
+                onClick={() =>
+                  edge?.foreignKeyId &&
+                  replace(removeForeignKey(state, edge.foreignKeyId))
+                }
+              >
+                外部キーを削除
+              </button>
+            </div>
+          </DiagramCanvas>
+          {inspected && (
+            <Inspector
+              key={inspected.id}
+              table={inspected}
+              state={state}
+              logical={logical}
+              displayTable={displayTable}
+              displayColumn={displayColumn}
+              onRename={(field, value) => {
+                const table = structuredClone(inspected);
+                table[field] = value;
+                commit(editTable(state, table));
               }}
-            >
-              線を自動に戻す
-            </button>
-            <button
-              onClick={() =>
-                edge && open(edge.to.table, true, edge.foreignKeyId)
-              }
-            >
-              外部キーを編集
-            </button>
-            <button
-              id="remove"
-              onClick={() =>
-                edge?.foreignKeyId &&
-                replace(removeForeignKey(state, edge.foreignKeyId))
-              }
-            >
-              外部キーを削除
-            </button>
-          </div>
-        </DiagramCanvas>
+              onOpenEditor={() => open(inspected.id)}
+              onClose={clear}
+              onSelectForeignKey={(id) => {
+                const target = state.edges.find((e) => e.foreignKeyId === id);
+                if (!target) return;
+                clear();
+                setSelected(target.id);
+              }}
+            />
+          )}
+        </div>
       </main>
       {draft && (
         <TableEditor
