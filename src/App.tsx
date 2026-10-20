@@ -309,9 +309,20 @@ export function App() {
       setHint("");
       return;
     }
+    link(pending, { table, row });
+  }
+  /** Register a foreign key between two columns (key side is detected). */
+  function link(source: Endpoint, { table, row }: Endpoint) {
+    if (source.table === table) {
+      setPending(null);
+      setHint(
+        "同じテーブル内の参照（自己参照）は、テーブル編集の「参照先」から設定してください。",
+      );
+      return;
+    }
     if (
-      !canConnect(state, pending, { table, row }) &&
-      !canConnect(state, { table, row }, pending)
+      !canConnect(state, source, { table, row }) &&
+      !canConnect(state, { table, row }, source)
     ) {
       setHint(
         "参照先の主キー・一意制約と参照元カラムを選んでください。複合キーは編集画面で設定できます。",
@@ -321,12 +332,12 @@ export function App() {
     if (
       state.edges.some(
         (e) =>
-          (e.from.table === pending.table &&
-            e.from.row === pending.row &&
+          (e.from.table === source.table &&
+            e.from.row === source.row &&
             e.to.table === table &&
             e.to.row === row) ||
-          (e.to.table === pending.table &&
-            e.to.row === pending.row &&
+          (e.to.table === source.table &&
+            e.to.row === source.row &&
             e.from.table === table &&
             e.from.row === row),
       )
@@ -341,7 +352,7 @@ export function App() {
     }
     const next = structuredClone(state);
     try {
-      const edge = makeEdge(next, pending, { table, row });
+      const edge = makeEdge(next, source, { table, row });
       commit({ ...next, edges: [...next.edges, edge] });
       clear();
       setSelected(edge.id);
@@ -824,6 +835,7 @@ export function App() {
               commit(editTable(state, table));
             }}
             onConnect={connect}
+            onLink={link}
             onSelect={(id) => {
               clear();
               setSelected(id);

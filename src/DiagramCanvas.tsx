@@ -33,6 +33,7 @@ interface Props {
   displayColumn: (c: Column) => string;
   onEdit: (id: string) => void;
   onConnect: (table: string, row: number) => void;
+  onLink?: (from: Endpoint, to: Endpoint) => void;
   onSelect: (id: string) => void;
   onClear: () => void;
   onHint: (hint: string) => void;
@@ -61,7 +62,8 @@ type Drag =
       before: Diagram;
       pointer: number;
     }
-  | { kind: "pan"; start: Point; view: View; pointer: number };
+  | { kind: "pan"; start: Point; view: View; pointer: number }
+  | { kind: "link"; from: Endpoint; origin: Point; pointer: number };
 const steps = [25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 400];
 export function DiagramCanvas(p: Props) {
   const [renaming, setRenaming] = useState<{
@@ -88,6 +90,26 @@ export function DiagramCanvas(p: Props) {
 
   const svg = useRef<SVGSVGElement>(null),
     drag = useRef<Drag | null>(null);
+  const [linking, setLinking] = useState<{
+    from: Endpoint;
+    origin: Point;
+    to: Point;
+    target: Endpoint | null;
+  } | null>(null);
+  /** The column row under a diagram point, if any. */
+  function rowAt(pos: Point): Endpoint | null {
+    for (const t of latest.current.state.tables) {
+      const i = Math.floor((pos.y - t.y - HEADER) / ROW);
+      if (
+        pos.x >= t.x &&
+        pos.x <= t.x + tableWidth(t) &&
+        i >= 0 &&
+        i < t.columns.length
+      )
+        return { table: t.id, row: i };
+    }
+    return null;
+  }
   useEffect(() => {
     // Blank SVG areas do not consistently move focus in browsers.
     // Release the old diagram control before the clicked control takes focus.
@@ -326,8 +348,18 @@ export function DiagramCanvas(p: Props) {
       });
       return;
     }
-    const pos = point(e),
-      next = structuredClone(p.state);
+    const pos = point(e);
+    if (d.kind === "link") {
+      const hit = rowAt(pos);
+      setLinking({
+        from: d.from,
+        origin: d.origin,
+        to: pos,
+        target: hit && hit.table !== d.from.table ? hit : null,
+      });
+      return;
+    }
+    const next = structuredClone(p.state);
     if (d.kind === "table") {
       const t = next.tables.find((t) => t.id === d.id)!;
       t.x = d.x + pos.x - d.start.x;
@@ -354,6 +386,12 @@ export function DiagramCanvas(p: Props) {
     drag.current = null;
     if (svg.current!.hasPointerCapture(d.pointer))
       svg.current!.releasePointerCapture(d.pointer);
+    if (d.kind === "link") {
+      const target = linking?.target;
+      setLinking(null);
+      if (!cancel && target) p.onLink?.(d.from, target);
+      return;
+    }
     if (d.kind === "table" && !d.moved) {
       if (!cancel) p.onSelectTable?.(d.id);
       return;
@@ -385,7 +423,7 @@ export function DiagramCanvas(p: Props) {
     p.onCommit(next);
   }
   return (
-    <div id="canvas">
+    <div id="canvas" className={linking ? "linking" : undefined}>
       <svg
         ref={svg}
         id="diagram"
@@ -599,11 +637,11 @@ export function DiagramCanvas(p: Props) {
                   return (
                     <g
                       key={c.id}
-                      className={`row${!c.key ? " non-key" : ""}${p.pending?.table === t.id && p.pending.row === i ? " pending" : ""}${related.has(`${t.id}:${i}`) ? " related" : ""}`}
+                      className={`row${!c.key ? " non-key" : ""}${p.pending?.table === t.id && p.pending.row === i ? " pending" : ""}${related.has(`${t.id}:${i}`) ? " related" : ""}${linking && ((linking.from.table === t.id && linking.from.row === i) || (linking.target?.table === t.id && linking.target.row === i)) ? " link-end" : ""}`}
                       tabIndex={0}
                       role="button"
                       aria-label={`${p.displayTable(t)}.${p.displayColumn(c)} を接続`}
-                      onClick={() => p.onConnect(t.id, i)}
+                      onClick={() => p.onSelectTable?.(t.id)}
                       onDoubleClick={() => beginRename(t, c)}
                       onKeyDown={(e) => {
                         if (e.key === "F2") {
@@ -645,12 +683,7 @@ export function DiagramCanvas(p: Props) {
                           </text>
                         </g>
                       )}
-                      <text
-                        x={41}
-                        y={y + 24}
-                        className="column-name"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      <text x={41} y={y + 24} className="column-name">
                         {p.displayColumn(c)}
                       </text>
                       <text
@@ -661,16 +694,46 @@ export function DiagramCanvas(p: Props) {
                       >
                         {c.type}
                       </text>
-                      {c.key &&
-                        (["left", "right"] as const).map((side) => (
+                      {(["left", "right"] as const).map((side) => (
+                        <g key={side}>
                           <circle
-                            key={side}
                             cx={side === "left" ? 0 : width}
                             cy={y + ROW / 2}
-                            r={3.5}
+                            r={4}
                             className="port"
                           />
-                        ))}
+                          <circle
+                            cx={side === "left" ? 0 : width}
+                            cy={y + ROW / 2}
+                            r={10}
+                            className="port-hit"
+                            onClick={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => {
+                              const origin = {
+                                x: t.x + (side === "left" ? 0 : width),
+                                y: t.y + y + ROW / 2,
+                              };
+                              capture(e, {
+                                kind: "link",
+                                from: { table: t.id, row: i },
+                                origin,
+                                pointer: e.pointerId,
+                              });
+                              if (drag.current?.kind === "link")
+                                setLinking({
+                                  from: { table: t.id, row: i },
+                                  origin,
+                                  to: origin,
+                                  target: null,
+                                });
+                            }}
+                          >
+                            <title>
+                              ドラッグして別のテーブルのカラムへ接続
+                            </title>
+                          </circle>
+                        </g>
+                      ))}
                     </g>
                   );
                 })}
@@ -752,6 +815,12 @@ export function DiagramCanvas(p: Props) {
             );
           })}
         </g>
+        {linking && (
+          <path
+            className={`link-preview${linking.target ? " ready" : ""}`}
+            d={`M${linking.origin.x} ${linking.origin.y}L${linking.to.x} ${linking.to.y}`}
+          />
+        )}
         <g id="handles">
           {h && (
             <>

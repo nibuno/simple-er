@@ -229,8 +229,8 @@ test("React can delete and manually reconnect a relation", async () => {
   await click(byLabel("usersからordersへの接続線"));
   await click(byText("外部キーを削除"));
   assert.equal(saved().edges.length, 1);
-  await click(byLabel("users.id を接続"));
-  await click(byLabel("orders.user_id を接続"));
+  await key(byLabel("users.id を接続"), "Enter");
+  await key(byLabel("orders.user_id を接続"), "Enter");
   assert.equal(saved().edges.length, 2);
   await click(byLabel("元に戻す"));
   assert.equal(saved().edges.length, 1);
@@ -1002,25 +1002,37 @@ test("sidebar lists tables and relations and selects them", async () => {
   );
 });
 
-test("clicks within one table re-pick the connection source instead of connecting", async () => {
+test("clicking a column selects only; dragging from its dot connects tables", async () => {
+  await click(byLabel("usersからordersへの接続線"));
+  await click(byText("外部キーを削除"));
   const before = saved().edges.length;
-  await click(byLabel("users.id を接続"));
-  assert.match(
-    document.querySelector(".connect-hint").textContent,
-    /users\.id/,
-  );
-  await click(byLabel("users.name を接続"));
-  assert.equal(saved().edges.length, before);
-  assert.match(
-    document.querySelector(".connect-hint").textContent,
-    /users\.name/,
-  );
-  await click(byLabel("users.name を接続"));
+  await click(byLabel("users.email を接続"));
   assert.equal(document.querySelector(".connect-hint"), null);
-  await click(byLabel("users.id を接続"));
-  await key(document.body, "Escape");
-  assert.equal(document.querySelector(".connect-hint"), null);
+  assert.ok(byLabel("usersの詳細"));
   assert.equal(saved().edges.length, before);
+  const svg = document.querySelector("#diagram");
+  const users = saved().tables.find((t) => t.id === "users");
+  const orders = saved().tables.find((t) => t.id === "orders");
+  const port = byLabel("users.id を接続").querySelectorAll(".port-hit")[1];
+  const [vx, vy, vw, vh] = svg.getAttribute("viewBox").split(" ").map(Number);
+  const at = (t, row) => [
+    ((t.x + 40 - vx) * 1200) / vw,
+    ((t.y + 52 + 38 * (row + 0.5) - vy) * 720) / vh,
+  ];
+  // Inside the same table: no self-reference.
+  await pointer(port, "pointerdown", 0, 0);
+  await pointer(svg, "pointermove", ...at(users, 1));
+  assert.ok(document.querySelector(".link-preview"));
+  assert.equal(document.querySelector(".link-preview.ready"), null);
+  await pointer(svg, "pointerup", ...at(users, 1));
+  assert.equal(saved().edges.length, before);
+  // Onto orders.user_id (row 1): registers the foreign key.
+  await pointer(port, "pointerdown", 0, 0);
+  await pointer(svg, "pointermove", ...at(orders, 1));
+  assert.ok(document.querySelector(".link-preview.ready"));
+  await pointer(svg, "pointerup", ...at(orders, 1));
+  assert.equal(saved().edges.length, before + 1);
+  assert.equal(document.querySelector(".link-preview"), null);
 });
 
 test("Delete or Backspace removes the selected foreign key or table with undo", async () => {

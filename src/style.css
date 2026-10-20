@@ -2621,3 +2621,51 @@ dialog::backdrop {
     width: max-content;
   }
 }
+
+/* Connections start from a column's edge dot; clicking a row only selects. */
+.row {
+  cursor: default;
+}
+.port {
+  opacity: 0;
+  fill: var(--surface);
+  stroke: var(--faint);
+  stroke-width: 1.5;
+  pointer-events: none;
+  transition: opacity 0.1s;
+}
+.port-hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+.row:hover .port,
+.linking .row .port {
+  opacity: 1;
+}
+.row g:hover .port {
+  fill: var(--accent);
+  stroke: var(--accent);
+}
+.row.link-end .row-bg {
+  fill: var(--selected);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.link-preview {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.75;
+  stroke-dasharray: 4 4;
+  pointer-events: none;
+}
+.link-preview.ready {
+  stroke-dasharray: none;
+}
+.linking,
+.linking * {
+  cursor: crosshair !important;
+}
+/* Mouse focus on diagram controls shows no ring; keyboard focus keeps it. */
+#diagram [tabindex]:focus:not(:focus-visible) {
+  outline: none;
+}
