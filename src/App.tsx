@@ -29,7 +29,7 @@ import { tidyDiagram } from "./layout.ts";
 import { historyReducer } from "./history.ts";
 import { DiagramCanvas } from "./DiagramCanvas.tsx";
 import { TableEditor, InferDialog } from "./Dialogs.tsx";
-import { Inspector, Sidebar } from "./Panels.tsx";
+import { Sidebar } from "./Panels.tsx";
 import { Icon, Logo } from "./icons.tsx";
 
 const STORAGE = "er-sketch.local.v1";
@@ -82,6 +82,13 @@ export function App() {
   );
   const [selected, setSelected] = useState<string | null>(null);
   const [focusedTable, setFocusedTable] = useState<string | null>(null);
+  const [showSidebar, setShowSidebar] = useState(() => {
+    try {
+      return localStorage.getItem("er-sketch.sidebar") === "open";
+    } catch {
+      return false;
+    }
+  });
   const [revealRequest, setRevealRequest] = useState<{
     id: string;
     n: number;
@@ -174,7 +181,7 @@ export function App() {
     dispatch({ type: "undo" });
     save(history.past.at(-1)!);
     clear();
-    // Keep the inspected table open; it closes itself if the table disappears.
+    // Keep the table selection; it is ignored once the table disappears.
     setFocusedTable(focusedTable);
   }
   function redo() {
@@ -182,7 +189,7 @@ export function App() {
     dispatch({ type: "redo" });
     save(history.future.at(-1)!);
     clear();
-    // Keep the inspected table open; it closes itself if the table disappears.
+    // Keep the table selection; it is ignored once the table disappears.
     setFocusedTable(focusedTable);
   }
   useEffect(() => {
@@ -230,12 +237,12 @@ export function App() {
             removeForeignKey(state, edge.foreignKeyId),
             "外部キーを削除しました。「元に戻す」で復元できます。",
           );
-        } else if (inspected) {
+        } else if (focused) {
           e.preventDefault();
-          const { next, incoming } = removeTable(state, inspected.id);
+          const { next, incoming } = removeTable(state, focused.id);
           replace(
             next,
-            `${inspected.name || inspected.id}を削除しました。${incoming ? `外部キー${incoming}件は参照先未設定として「要確認」に残しています。` : ""}「元に戻す」で復元できます。`,
+            `${focused.name || focused.id}を削除しました。${incoming ? `外部キー${incoming}件は参照先未設定として「要確認」に残しています。` : ""}「元に戻す」で復元できます。`,
           );
         }
         return;
@@ -463,7 +470,7 @@ export function App() {
       .map((fk) => ({ table, fk })),
   );
   const edge = state.edges.find((e) => e.id === selected);
-  const inspected = state.tables.find((t) => t.id === focusedTable);
+  const focused = state.tables.find((t) => t.id === focusedTable);
   const pendingTable = pending
     ? state.tables.find((t) => t.id === pending.table)
     : undefined;
@@ -496,6 +503,23 @@ export function App() {
     <>
       <header className="editor-header">
         <div className="document-menu">
+          <button
+            className="icon-button sidebar-toggle"
+            aria-label="テーブル一覧"
+            aria-pressed={showSidebar}
+            title={showSidebar ? "テーブル一覧を閉じる" : "テーブル一覧を開く"}
+            onClick={() => {
+              setShowSidebar(!showSidebar);
+              try {
+                localStorage.setItem(
+                  "er-sketch.sidebar",
+                  showSidebar ? "closed" : "open",
+                );
+              } catch {}
+            }}
+          >
+            <Icon name="sidebar" />
+          </button>
           <h1>
             <Logo />
             SimpleER
@@ -523,16 +547,11 @@ export function App() {
               <button onClick={download}>ファイルに保存</button>
             </div>
           </details>
-          <span
-            className={`save-indicator${saveError || storageConflict ? " error" : ""}`}
-            title={
-              saveError || storageConflict
-                ? "自動保存は停止中です"
-                : "このブラウザに自動保存しています"
-            }
-          >
-            {saveError || storageConflict ? "自動保存停止中" : "自動保存"}
-          </span>
+          {(saveError || storageConflict) && (
+            <span className="save-indicator error" title="自動保存は停止中です">
+              自動保存停止中
+            </span>
+          )}
           <input
             ref={file}
             type="file"
@@ -591,7 +610,6 @@ export function App() {
           </div>
           <button
             className="primary"
-            data-shortcut="T"
             title="テーブルを追加 (T)"
             onClick={() => open()}
           >
@@ -790,25 +808,27 @@ export function App() {
           </span>
         </div>
         <div className="workspace">
-          <Sidebar
-            state={state}
-            selectedTable={focusedTable}
-            selectedForeignKey={edge?.foreignKeyId}
-            displayTable={displayTable}
-            displayColumn={displayColumn}
-            onAdd={() => open()}
-            onSelectTable={(id) => {
-              selectTable(id);
-              setRevealRequest((r) => ({ id, n: (r?.n ?? 0) + 1 }));
-            }}
-            onSelectEdge={(id) => {
-              clear();
-              setSelected(id);
-              const target = state.edges.find((e) => e.id === id)?.to.table;
-              if (target)
-                setRevealRequest((r) => ({ id: target, n: (r?.n ?? 0) + 1 }));
-            }}
-          />
+          {showSidebar && (
+            <Sidebar
+              state={state}
+              selectedTable={focusedTable}
+              selectedForeignKey={edge?.foreignKeyId}
+              displayTable={displayTable}
+              displayColumn={displayColumn}
+              onAdd={() => open()}
+              onSelectTable={(id) => {
+                selectTable(id);
+                setRevealRequest((r) => ({ id, n: (r?.n ?? 0) + 1 }));
+              }}
+              onSelectEdge={(id) => {
+                clear();
+                setSelected(id);
+                const target = state.edges.find((e) => e.id === id)?.to.table;
+                if (target)
+                  setRevealRequest((r) => ({ id: target, n: (r?.n ?? 0) + 1 }));
+              }}
+            />
+          )}
           <DiagramCanvas
             state={state}
             selected={selected}
@@ -904,29 +924,6 @@ export function App() {
               </button>
             </div>
           </DiagramCanvas>
-          {inspected && (
-            <Inspector
-              key={inspected.id}
-              table={inspected}
-              state={state}
-              logical={logical}
-              displayTable={displayTable}
-              displayColumn={displayColumn}
-              onRename={(field, value) => {
-                const table = structuredClone(inspected);
-                table[field] = value;
-                commit(editTable(state, table));
-              }}
-              onOpenEditor={() => open(inspected.id)}
-              onClose={clear}
-              onSelectForeignKey={(id) => {
-                const target = state.edges.find((e) => e.foreignKeyId === id);
-                if (!target) return;
-                clear();
-                setSelected(target.id);
-              }}
-            />
-          )}
         </div>
       </main>
       {draft && (

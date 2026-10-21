@@ -1,6 +1,7 @@
 /** Stroke icons drawn on a 16px grid; size follows the surrounding font. */
 const paths = {
   plus: "M8 3v10M3 8h10",
+  sidebar: "M2.5 3h11v10h-11zM6.5 3v10",
   link: "M6.5 9.5l3-3M7 4.5l1-1a2.8 2.8 0 014 4l-1 1M9 11.5l-1 1a2.8 2.8 0 01-4-4l1-1",
   tidy: "M2.5 2.5h4v4h-4zM9.5 2.5h4v4h-4zM2.5 9.5h4v4h-4zM9.5 9.5h4v4h-4z",
   table:
@@ -9,10 +10,7 @@ const paths = {
   fit: "M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10",
   minus: "M3.5 8h9",
   search: "M7 11.5a4.5 4.5 0 100-9 4.5 4.5 0 000 9zM10.3 10.3L14 14",
-  copy: "M5.5 5.5h8v8h-8zM3 10.5v-8h8",
   more: "",
-  external: "M9.5 2.5h4v4M13.5 2.5L8 8M6.5 3.5h-3v9h9v-3",
-  check: "M3 8.5l3 3 7-7",
 } as const;
 export type IconName = keyof typeof paths;
 export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {

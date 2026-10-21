@@ -950,7 +950,7 @@ test("no-op and cancelled document-backed drag preserve undo and redo boundaries
   assert.equal(byLabel("やり直す").disabled, false);
 });
 
-test("clicking a table header selects it and the inspector renames it with undo", async () => {
+test("clicking a table header selects it without editing history", async () => {
   const svg = document.querySelector("#diagram");
   await pointer(
     byLabel("ordersを移動。矢印キーで移動できます。"),
@@ -960,29 +960,24 @@ test("clicking a table header selects it and the inspector renames it with undo"
   );
   await pointer(svg, "pointerup", 101, 101);
   assert.ok(document.querySelector('[data-table="orders"].selected'));
-  await click(byLabel("詳細を閉じる"));
-  await click(document.querySelector('[data-table="orders"] .table-title'));
-  assert.ok(document.querySelector('[data-table="orders"].selected'));
   assert.ok(document.querySelector(".row.related"));
-  assert.equal(byLabel("元に戻す").disabled, true);
-  const inspector = byLabel("ordersの詳細");
-  assert.match(inspector.textContent, /user_id/);
-  assert.match(
-    inspector.querySelector(".ddl").textContent,
-    /CREATE TABLE orders/,
-  );
-  const name = byLabel("インスペクタで物理名を編集");
-  await type(name, "purchases");
-  await act(() => name.dispatchEvent(new Event("focusout", { bubbles: true })));
-  assert.equal(saved().tables.find((t) => t.id === "orders").name, "purchases");
-  assert.ok(byLabel("purchasesの詳細"));
-  await click(byLabel("元に戻す"));
-  assert.equal(saved().tables.find((t) => t.id === "orders").name, "orders");
-  await click(byLabel("詳細を閉じる"));
   assert.equal(document.querySelector(".inspector"), null);
+  assert.equal(byLabel("元に戻す").disabled, true);
+  await key(document.body, "Escape");
+  assert.equal(document.querySelector("[data-table].selected"), null);
+});
+
+test("table editor offers a collapsible DDL preview", async () => {
+  await click(byLabel("ordersを編集"));
+  const ddl = document.querySelector("#table-editor .ddl-section");
+  assert.equal(ddl.open, false);
+  assert.match(ddl.querySelector(".ddl").textContent, /CREATE TABLE orders/);
 });
 
 test("sidebar lists tables and relations and selects them", async () => {
+  assert.equal(document.querySelector(".sidebar"), null);
+  await click(byLabel("テーブル一覧"));
+  assert.equal(localStorage.getItem("er-sketch.sidebar"), "open");
   const items = [...document.querySelectorAll(".sidebar-item")];
   assert.deepEqual(
     items
@@ -991,10 +986,10 @@ test("sidebar lists tables and relations and selects them", async () => {
     ["users4", "orders4", "order_items4"],
   );
   await click(items.find((b) => b.textContent.startsWith("users")));
-  assert.ok(byLabel("usersの詳細"));
+  assert.ok(document.querySelector('[data-table="users"].selected'));
   await click(document.querySelector(".sidebar-item.relation"));
   assert.equal(document.querySelectorAll(".edge.selected").length, 1);
-  assert.equal(document.querySelector(".inspector"), null);
+  assert.equal(document.querySelector("[data-table].selected"), null);
   assert.ok(byText("外部キーを編集"));
   await type(byLabel("テーブルを絞り込む"), "item");
   assert.deepEqual(
@@ -1011,7 +1006,7 @@ test("clicking a column selects only; dragging from its dot connects tables", as
   const before = saved().edges.length;
   await click(byLabel("users.email を接続"));
   assert.equal(document.querySelector(".connect-hint"), null);
-  assert.ok(byLabel("usersの詳細"));
+  assert.ok(document.querySelector('[data-table="users"].selected'));
   assert.equal(saved().edges.length, before);
   const svg = document.querySelector("#diagram");
   const users = saved().tables.find((t) => t.id === "users");
@@ -1040,6 +1035,7 @@ test("clicking a column selects only; dragging from its dot connects tables", as
 
 test("Delete or Backspace removes the selected foreign key or table with undo", async () => {
   const edges = saved().edges.length;
+  await click(byLabel("テーブル一覧"));
   await click(document.querySelector(".sidebar-item.relation"));
   await key(document.body, "Delete");
   assert.equal(saved().edges.length, edges - 1);
@@ -1049,7 +1045,7 @@ test("Delete or Backspace removes the selected foreign key or table with undo", 
     b.textContent.startsWith("users"),
   );
   await click(users);
-  await key(byLabel("インスペクタで物理名を編集"), "Backspace");
+  await key(byLabel("テーブルを絞り込む"), "Backspace");
   assert.equal(saved().tables.length, 3);
   await key(document.body, "Backspace");
   assert.equal(saved().tables.length, 2);

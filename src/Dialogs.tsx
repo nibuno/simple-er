@@ -753,15 +753,14 @@ export function TableEditor({
                   />
                 </div>
               )}
+              <details className="ddl-section">
+                <summary>
+                  DDL プレビュー <span>PostgreSQL</span>
+                </summary>
+                <pre className="ddl">{tableDDL(draft, state)}</pre>
+              </details>
             </div>
           </div>
-          <aside className="editor-ddl" aria-label="DDL プレビュー">
-            <div className="ddl-tools">
-              <h3>DDL プレビュー</h3>
-              <span>PostgreSQL</span>
-            </div>
-            <pre className="ddl">{tableDDL(draft, state)}</pre>
-          </aside>
         </div>
         {impacts.length > 0 && (
           <details className="reference-impact">

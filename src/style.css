@@ -1557,7 +1557,7 @@ main {
 
 /* ------------------------------------------------------------------
  * Redesign (2026-10): neutral surfaces with one accent, denser controls,
- * hover/selection states, a table list and an inspector beside the canvas.
+ * hover/selection states, and an optional table list beside the canvas.
  * Later rules intentionally override the earlier layers above.
  * ------------------------------------------------------------------ */
 :root {
@@ -1659,8 +1659,7 @@ button .icon {
   background: transparent;
   color: var(--text-2);
 }
-.kbd,
-button[data-shortcut]::after {
+.kbd {
   display: inline-flex;
   align-items: center;
   height: 18px;
@@ -1675,15 +1674,7 @@ button[data-shortcut]::after {
     system-ui,
     sans-serif;
 }
-button[data-shortcut]::after {
-  content: attr(data-shortcut);
-  margin-left: 2px;
-}
-.primary[data-shortcut]::after {
-  background: rgb(255 255 255 / 14%);
-  border-color: rgb(255 255 255 / 28%);
-  color: #fff;
-}
+
 input,
 select {
   height: 32px;
@@ -1759,18 +1750,9 @@ select:focus {
   color: var(--muted);
   white-space: nowrap;
 }
-.save-indicator::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 3px;
-  background: #22a06b;
-}
+
 .save-indicator.error {
   color: var(--danger);
-}
-.save-indicator.error::before {
-  background: var(--danger);
 }
 .editing-tools {
   gap: 4px;
@@ -1821,7 +1803,7 @@ select:focus {
   box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
 }
 
-/* Workspace: list | canvas | inspector */
+/* Workspace: optional list | canvas */
 .workspace {
   display: flex;
   flex: 1;
@@ -1834,8 +1816,7 @@ select:focus {
   border: 0;
   background: var(--bg);
 }
-.sidebar,
-.inspector {
+.sidebar {
   display: flex;
   flex-direction: column;
   flex: none;
@@ -1872,23 +1853,20 @@ select:focus {
   background: transparent;
   box-shadow: none !important;
 }
-.sidebar-section,
-.inspector-section {
+.sidebar-section {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 12px 10px 4px;
 }
-.sidebar-section h2,
-.inspector-section h3 {
+.sidebar-section h2 {
   margin: 0;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--muted);
 }
-.sidebar-section h2 span,
-.inspector-section h3 span {
+.sidebar-section h2 span {
   font-weight: 500;
   margin-left: 2px;
 }
@@ -1947,168 +1925,7 @@ select:focus {
   font-size: 12px;
   color: var(--faint);
 }
-.inspector {
-  width: 320px;
-  border-left: 1px solid var(--border);
-}
-.inspector-heading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 48px;
-  padding: 0 8px 0 16px;
-  border-bottom: 1px solid var(--border-soft);
-  color: var(--accent);
-}
-.inspector-heading h2 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.inspector-kind {
-  font-size: 12px;
-  color: var(--muted);
-}
-.inspector-body {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 14px 8px 12px;
-}
-.inspector-names {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  padding: 0 8px;
-}
-.inspector-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-2);
-}
-.inspector-field input {
-  width: 100%;
-}
-.inspector-body > .error {
-  margin: 8px;
-  font-size: 12px;
-}
-.flag-legend {
-  display: flex;
-  gap: 4px;
-  font: 600 9.5px var(--mono);
-  color: var(--faint);
-}
-.flag-legend span,
-.inspector .flag {
-  width: 24px;
-  text-align: center;
-}
-.inspector-columns {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.inspector-columns li {
-  padding: 4px 8px;
-  border-radius: 6px;
-}
-.inspector-columns li:hover {
-  background: var(--surface-2);
-}
-.inspector-column {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 26px;
-}
-.column-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12.5px;
-  font-weight: 500;
-}
-.column-kind {
-  flex-shrink: 0;
-  max-width: 96px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11.5px;
-  color: var(--muted);
-}
-.inspector .flags {
-  display: flex;
-  gap: 4px;
-}
-.inspector .flag {
-  height: 18px;
-  border-radius: 4px;
-  background: var(--hover);
-  font: 600 10px/18px var(--mono);
-}
-.flag.pk {
-  background: var(--pk-bg);
-  color: var(--pk);
-}
-.flag.fk {
-  background: var(--fk-bg);
-  color: var(--fk);
-}
-.flag.uq {
-  background: var(--uq-bg);
-  color: var(--uq);
-}
-.inspector-reference {
-  height: 22px;
-  margin: 2px 0 2px 2px;
-  padding: 0 6px;
-  border-color: transparent;
-  background: transparent;
-  color: var(--fk);
-  font-size: 11.5px;
-  font-weight: 500;
-}
-.inspector-reference:hover:not(:disabled) {
-  background: var(--fk-bg);
-}
-.inspector-note {
-  margin: 8px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.inspector-ddl {
-  margin: 12px 8px 0;
-  color: var(--text-2);
-}
-.inspector-ddl summary {
-  font-size: 12px;
-  font-weight: 600;
-}
-.ddl-tools {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 8px 0 6px;
-  font-size: 11.5px;
-  color: var(--muted);
-}
-.ddl-tools h3 {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-2);
-}
+
 .ddl {
   margin: 0;
   padding: 12px;
@@ -2120,13 +1937,6 @@ select:focus {
   font: 11.5px/1.65 var(--mono);
   white-space: pre;
   tab-size: 2;
-}
-.inspector-footer {
-  padding: 12px 16px;
-  border-top: 1px solid var(--border-soft);
-}
-.inspector-footer button {
-  width: 100%;
 }
 
 /* Canvas */
@@ -2369,18 +2179,7 @@ dialog::backdrop {
   min-width: 0;
   padding: 16px 12px 0 20px;
 }
-.editor-ddl {
-  display: flex;
-  flex-direction: column;
-  flex: 0 0 320px;
-  min-height: 0;
-  padding: 4px 12px 12px;
-  background: var(--surface-2);
-  border-left: 1px solid var(--border-soft);
-}
-.editor-ddl .ddl {
-  flex: 1;
-}
+
 #table-form .table-names .field {
   gap: 6px;
   font-size: 12px;
@@ -2390,10 +2189,7 @@ dialog::backdrop {
 .table-editor-body .column-heading h3 {
   font-size: 13px;
 }
-#table-editor .column-labels {
-  font-size: 11.5px;
-  font-weight: 500;
-}
+
 #table-editor .column-edit-row {
   padding: 6px 0;
   border-bottom-color: var(--border-soft);
@@ -2537,11 +2333,6 @@ dialog::backdrop {
   margin-right: auto;
 }
 
-@media (max-width: 1100px) {
-  .editor-ddl {
-    display: none;
-  }
-}
 @media (max-width: 960px) {
   .sidebar {
     display: none;
@@ -2551,17 +2342,7 @@ dialog::backdrop {
   }
 }
 @media (max-width: 760px) {
-  .inspector {
-    position: absolute;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 4;
-    width: min(100%, 340px);
-    box-shadow: var(--shadow-lg);
-  }
-  .save-indicator,
-  button[data-shortcut]::after {
+  .save-indicator {
     display: none;
   }
   .editor-main {
@@ -2668,4 +2449,28 @@ dialog::backdrop {
 /* Mouse focus on diagram controls shows no ring; keyboard focus keeps it. */
 #diagram [tabindex]:focus:not(:focus-visible) {
   outline: none;
+}
+
+.ddl-section {
+  margin: 16px 0 12px;
+  color: var(--text-2);
+}
+.ddl-section summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ddl-section summary span {
+  margin-left: 6px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.ddl-section .ddl {
+  margin-top: 8px;
+  background: var(--surface-2);
+}
+.sidebar-toggle[aria-pressed="true"] {
+  background: var(--hover);
+  color: var(--text);
 }
