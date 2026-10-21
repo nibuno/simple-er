@@ -207,7 +207,9 @@ export function DiagramCanvas(p: Props) {
       setView((v) => {
         const w = (size.w * 100) / v.zoom,
           h = (size.h * 100) / v.zoom;
-        return { ...v, x: v.x + (v.w - w) / 2, y: v.y + (v.h - h) / 2, w, h };
+        // Keep the clicked title in place when the inspector changes the width,
+        // so the second click of a double-click still reaches the same table.
+        return { ...v, y: v.y + (v.h - h) / 2, w, h };
       });
     });
     observer.observe(svg.current!);
@@ -601,7 +603,10 @@ export function DiagramCanvas(p: Props) {
                     y={31}
                     className="table-title"
                     onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      p.onSelectTable?.(t.id);
+                    }}
                   >
                     {p.displayTable(t)}
                   </text>

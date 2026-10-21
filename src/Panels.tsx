@@ -148,7 +148,7 @@ export function Sidebar({
           </li>
         ))}
         {!relations.length && (
-          <li className="sidebar-empty">カラム同士をクリックして接続</li>
+          <li className="sidebar-empty">カラム端の点をドラッグして接続</li>
         )}
       </ul>
     </aside>

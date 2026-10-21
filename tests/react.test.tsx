@@ -960,6 +960,9 @@ test("clicking a table header selects it and the inspector renames it with undo"
   );
   await pointer(svg, "pointerup", 101, 101);
   assert.ok(document.querySelector('[data-table="orders"].selected'));
+  await click(byLabel("詳細を閉じる"));
+  await click(document.querySelector('[data-table="orders"] .table-title'));
+  assert.ok(document.querySelector('[data-table="orders"].selected'));
   assert.ok(document.querySelector(".row.related"));
   assert.equal(byLabel("元に戻す").disabled, true);
   const inspector = byLabel("ordersの詳細");
