@@ -61,7 +61,7 @@ cd simple-er
 
 ## SimpleCanvas
 
-同じ見た目で構成図とメモを扱う姉妹ツールです。`start-canvas.command` で起動します（http://127.0.0.1:8766/）。SimpleER とは画面・保存領域が別です。詳しくは [canvas/README.md](canvas/README.md) を参照してください。
+同じ見た目で構成図とメモを扱う姉妹ツールです。Web 版は https://nibuno.github.io/simple-er/canvas/ 、ローカル版は `start-canvas.command` で起動します（http://127.0.0.1:8766/）。SimpleER とは画面・保存領域が別です。詳しくは [canvas/README.md](canvas/README.md) を参照してください。
 
 ## ロードマップ
 

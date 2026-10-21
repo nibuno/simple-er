@@ -12,7 +12,7 @@ npm ci                # 依存関係のインストール
 npm run dev           # 開発サーバー: http://127.0.0.1:5173/
 npm run dev:canvas    # SimpleCanvas の開発サーバー: http://127.0.0.1:5174/
 npm run build         # 型チェックと dist/ の生成（SimpleER + SimpleCanvas）
-npm run build:pages   # GitHub Pages 用に SimpleER のみを dist-pages/ へ生成
+npm run build:pages   # GitHub Pages 用に dist-pages/ を生成（SimpleER + SimpleCanvas を /canvas/ に）
 npm run typecheck     # 型チェックのみ
 npm test              # テスト（保存・接続・整頓・履歴・React の操作）
 npm run format        # Prettier で整形
@@ -63,8 +63,8 @@ experiments/         配線アルゴリズムの比較実験
 ## Web 版の公開
 
 1. デフォルトブランチへ push する
-2. GitHub Actions の「Publish SimpleER」から「Run workflow」を実行する
-3. テストと型チェックが成功すると GitHub Pages へ配信される
+2. GitHub Actions の「Publish SimpleER and SimpleCanvas」から「Run workflow」を実行する
+3. テストと型チェックが成功すると GitHub Pages へ配信される（SimpleER はルート、SimpleCanvas は `/canvas/`）
 
 push だけでは公開内容は変わりません。リポジトリ設定で Pages の Source を「GitHub Actions」にしてください。公開方針は [Web公開方針](web-publishing-plan.md) を参照してください。
 

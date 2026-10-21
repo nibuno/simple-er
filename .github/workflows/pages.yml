@@ -1,4 +1,4 @@
-name: Publish SimpleER
+name: Publish SimpleER and SimpleCanvas
 
 on:
   workflow_dispatch:

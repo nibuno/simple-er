@@ -10,6 +10,12 @@
 
 初回の[GitHub Actions実行](https://github.com/nibuno/simple-er/actions/runs/39425678828)は成功し、[公開URL](https://nibuno.github.io/simple-er/)で画面の描画を確認した。独自ドメインは未設定。SafariとChromeの両方での操作確認、狭い画面での確認は今回の公開検証には含めていない。
 
+## SimpleCanvasの公開（2026-10-22）
+
+`npm run build:pages` でSimpleCanvasも `dist-pages/canvas/` に生成し、SimpleERと同じPagesサイトの `/canvas/` で配信する。同じオリジンになるが、保存キーはSimpleERが `er-sketch.*`、SimpleCanvasが `simple-canvas.*` で分かれており、互いの図を上書きしない。
+
+ローカルで `dist-pages/` を `/simple-er/` 配下に置いて配信し、`/simple-er/canvas/` のアセット読み込み、サンプル表示、メモ追加後の再読み込みでの復元、`/simple-er/` のSimpleERの表示を確認した。`er.nibuno.dev` へ移行する場合、Canvasは `er.nibuno.dev/canvas/` になる。`canvas.nibuno.dev` へ分ける場合は、保存データをJSONで移す。
+
 ## 推奨方針
 
 デザインと基本操作が整った段階で、GitHub Pagesへ静的サイトとして公開する。個人で試す間は `https://<account>.github.io/<repository>/` を使い、継続利用や人への案内を始める前に `er.nibuno.dev` へ切り替える。サブドメイン名は候補であり、未決定。
@@ -72,6 +78,6 @@ GitHub Actionsによる公開では、リポジトリ内の `CNAME` ファイル
 
 - 公開先アカウント、リポジトリ名、ソースコードの公開可否。GitHub Freeでは公開リポジトリが対象。非公開リポジトリを使う場合は対応プランを確認する。非公開リポジトリと閲覧制限付きサイトは別の条件であり、今回の計画は一般公開を前提とする。[GitHub Pagesの提供条件](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)
 - `er.nibuno.dev` の採用可否、DNSの管理先と既存レコード。今回DNSは調査・変更していない。
-- SimpleCanvasも同時公開するか。初回はSimpleERのみを提案する。
+- SimpleCanvasも同時公開するか。初回はSimpleERのみを提案した。2026-10-22に同じPagesサイトの `/canvas/` で公開することにした（下記）。
 
 次の作業は、デザインが整った時点で相対baseを設定し、ローカルのサブディレクトリ配信でアセット読み込みとJSON保存・復元を確認すること。その結果を確認してから公開用Actionsを追加する。今回は計画の作成のみで、ビルド設定・公開設定・DNSの変更やデプロイは行っていない。
