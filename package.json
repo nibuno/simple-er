@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc --noEmit && vite build && vite build --config vite.canvas.config.ts",
-    "build:pages": "tsc --noEmit && vite build --outDir dist-pages",
+    "build:pages": "tsc --noEmit && vite build --outDir dist-pages && vite build --config vite.canvas.config.ts --outDir ../dist-pages/canvas",
     "dev:canvas": "vite --config vite.canvas.config.ts --host 127.0.0.1 --port 5174",
     "build:canvas": "tsc --noEmit && vite build --config vite.canvas.config.ts",
     "typecheck": "tsc --noEmit",
