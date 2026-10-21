@@ -781,3 +781,25 @@ export function removeForeignKey(diagram: Diagram, id: string) {
     t.foreignKeys = t.foreignKeys?.filter((f) => f.id !== id);
   return validateDiagram(next);
 }
+/** Drop a table; foreign keys that pointed at it stay as pending references. */
+export function removeTable(diagram: Diagram, id: string) {
+  const incoming = diagram.tables
+    .filter((t) => t.id !== id)
+    .flatMap((t) => t.foreignKeys ?? [])
+    .filter((f) => f.target?.tableId === id).length;
+  const next: Diagram = {
+    ...diagram,
+    tables: diagram.tables
+      .filter((t) => t.id !== id)
+      .map((t) => ({
+        ...t,
+        foreignKeys: t.foreignKeys?.map((f) =>
+          f.target?.tableId === id ? { ...f, target: undefined } : f,
+        ),
+      })),
+    edges: diagram.edges.filter(
+      (e) => e.from.table !== id && e.to.table !== id,
+    ),
+  };
+  return { next, incoming };
+}

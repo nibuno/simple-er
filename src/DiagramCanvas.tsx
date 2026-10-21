@@ -12,6 +12,7 @@ import {
 import { RelationshipDecorations } from "./RelationshipDecorations.tsx";
 import { relationshipLabels } from "./relationships.ts";
 import { overlaps } from "./utils.ts";
+import { Icon } from "./icons.tsx";
 
 interface Props {
   logical?: boolean;
@@ -22,6 +23,9 @@ interface Props {
   ) => void;
   state: Diagram;
   selected: string | null;
+  selectedTable?: string | null;
+  onSelectTable?: (id: string) => void;
+  revealRequest?: { id: string; n: number } | null;
   adjustingLine?: boolean;
   onAdjustable?: (value: boolean) => void;
   pending: Endpoint | null;
@@ -29,6 +33,7 @@ interface Props {
   displayColumn: (c: Column) => string;
   onEdit: (id: string) => void;
   onConnect: (table: string, row: number) => void;
+  onLink?: (from: Endpoint, to: Endpoint) => void;
   onSelect: (id: string) => void;
   onClear: () => void;
   onHint: (hint: string) => void;
@@ -47,6 +52,7 @@ type Drag =
       y: number;
       before: Diagram;
       pointer: number;
+      moved?: boolean;
     }
   | {
       kind: "edge";
@@ -56,7 +62,8 @@ type Drag =
       before: Diagram;
       pointer: number;
     }
-  | { kind: "pan"; start: Point; view: View; pointer: number };
+  | { kind: "pan"; start: Point; view: View; pointer: number }
+  | { kind: "link"; from: Endpoint; origin: Point; pointer: number };
 const steps = [25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 400];
 export function DiagramCanvas(p: Props) {
   const [renaming, setRenaming] = useState<{
@@ -83,6 +90,26 @@ export function DiagramCanvas(p: Props) {
 
   const svg = useRef<SVGSVGElement>(null),
     drag = useRef<Drag | null>(null);
+  const [linking, setLinking] = useState<{
+    from: Endpoint;
+    origin: Point;
+    to: Point;
+    target: Endpoint | null;
+  } | null>(null);
+  /** The column row under a diagram point, if any. */
+  function rowAt(pos: Point): Endpoint | null {
+    for (const t of latest.current.state.tables) {
+      const i = Math.floor((pos.y - t.y - HEADER) / ROW);
+      if (
+        pos.x >= t.x &&
+        pos.x <= t.x + tableWidth(t) &&
+        i >= 0 &&
+        i < t.columns.length
+      )
+        return { table: t.id, row: i };
+    }
+    return null;
+  }
   useEffect(() => {
     // Blank SVG areas do not consistently move focus in browsers.
     // Release the old diagram control before the clicked control takes focus.
@@ -180,7 +207,9 @@ export function DiagramCanvas(p: Props) {
       setView((v) => {
         const w = (size.w * 100) / v.zoom,
           h = (size.h * 100) / v.zoom;
-        return { ...v, x: v.x + (v.w - w) / 2, y: v.y + (v.h - h) / 2, w, h };
+        // Keep the clicked title in place when the inspector changes the width,
+        // so the second click of a double-click still reaches the same table.
+        return { ...v, y: v.y + (v.h - h) / 2, w, h };
       });
     });
     observer.observe(svg.current!);
@@ -189,6 +218,28 @@ export function DiagramCanvas(p: Props) {
   useEffect(() => {
     if (p.fitRequest) fit();
   }, [p.fitRequest]);
+  useEffect(() => {
+    const t = p.revealRequest
+      ? latest.current.state.tables.find((t) => t.id === p.revealRequest!.id)
+      : undefined;
+    if (!t) return;
+    setView((v) => {
+      const w = tableWidth(t),
+        h = Math.min(height(t), v.h - 80),
+        margin = 40;
+      const inside =
+        t.x >= v.x + margin &&
+        t.y >= v.y + margin &&
+        t.x + w <= v.x + v.w - margin &&
+        t.y + h <= v.y + v.h - margin;
+      if (inside) return v;
+      return {
+        ...v,
+        x: t.x + w / 2 - v.w / 2,
+        y: t.y + Math.min(height(t), v.h) / 2 - v.h / 2,
+      };
+    });
+  }, [p.revealRequest]);
   useEffect(() => {
     const canvas = svg.current!;
     let gestureScale: number | null = null;
@@ -299,13 +350,26 @@ export function DiagramCanvas(p: Props) {
       });
       return;
     }
-    const pos = point(e),
-      next = structuredClone(p.state);
+    const pos = point(e);
+    if (d.kind === "link") {
+      const hit = rowAt(pos);
+      setLinking({
+        from: d.from,
+        origin: d.origin,
+        to: pos,
+        target: hit && hit.table !== d.from.table ? hit : null,
+      });
+      return;
+    }
+    const next = structuredClone(p.state);
     if (d.kind === "table") {
       const t = next.tables.find((t) => t.id === d.id)!;
       t.x = d.x + pos.x - d.start.x;
       t.y = d.y + pos.y - d.start.y;
       if (Math.abs(t.x) > 50000 || Math.abs(t.y) > 50000) return;
+      if (!d.moved && Math.hypot(pos.x - d.start.x, pos.y - d.start.y) < 3)
+        return;
+      d.moved = true;
       if (overlaps(t, next.tables)) {
         p.onHint("他のテーブルと重なる位置には移動できません。");
         return;
@@ -324,11 +388,29 @@ export function DiagramCanvas(p: Props) {
     drag.current = null;
     if (svg.current!.hasPointerCapture(d.pointer))
       svg.current!.releasePointerCapture(d.pointer);
+    if (d.kind === "link") {
+      const target = linking?.target;
+      setLinking(null);
+      if (!cancel && target) p.onLink?.(d.from, target);
+      return;
+    }
+    if (d.kind === "table" && !d.moved) {
+      if (!cancel) p.onSelectTable?.(d.id);
+      return;
+    }
     if (d.kind !== "pan") {
       if (cancel) p.onPreview(d.before);
       else p.onCommit(latest.current.state, d.before);
     }
   }
+  const focused = p.selectedTable ?? null;
+  const related = new Set<string>();
+  if (focused)
+    for (const e of p.state.edges)
+      if (e.from.table === focused || e.to.table === focused) {
+        related.add(`${e.from.table}:${e.from.row}`);
+        related.add(`${e.to.table}:${e.to.row}`);
+      }
   const selectedRoute = p.selected ? routes.get(p.selected) : undefined,
     h = p.adjustingLine ? selectedRoute?.handle : undefined;
   useEffect(() => {
@@ -343,7 +425,7 @@ export function DiagramCanvas(p: Props) {
     p.onCommit(next);
   }
   return (
-    <div id="canvas">
+    <div id="canvas" className={linking ? "linking" : undefined}>
       <svg
         ref={svg}
         id="diagram"
@@ -392,7 +474,7 @@ export function DiagramCanvas(p: Props) {
             return (
               <g
                 key={edge.id}
-                className={`edge${p.state.edges.find((e) => e.id === p.selected)?.foreignKeyId === edge.foreignKeyId ? " selected" : ""}`}
+                className={`edge${p.state.edges.find((e) => e.id === p.selected)?.foreignKeyId === edge.foreignKeyId ? " selected" : ""}${focused && (edge.from.table === focused || edge.to.table === focused) ? " related" : ""}`}
                 tabIndex={0}
                 role="button"
                 aria-label={`${p.displayTable(p.state.tables.find((t) => t.id === edge.from.table)!)}から${p.displayTable(p.state.tables.find((t) => t.id === edge.to.table)!)}への接続線`}
@@ -445,6 +527,7 @@ export function DiagramCanvas(p: Props) {
               <g
                 key={t.id}
                 data-table={t.id}
+                className={`table${focused === t.id ? " selected" : ""}`}
                 transform={`translate(${t.x} ${t.y})`}
               >
                 <rect
@@ -508,12 +591,22 @@ export function DiagramCanvas(p: Props) {
                   <path
                     d={`M9 0H${width - 9}Q${width} 0 ${width} 9V${HEADER}H0V9Q0 0 9 0`}
                   />
+                  <line
+                    x1={1}
+                    x2={width - 1}
+                    y1={HEADER - 0.5}
+                    y2={HEADER - 0.5}
+                    className="table-divider"
+                  />
                   <text
                     x={16}
                     y={31}
                     className="table-title"
                     onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      p.onSelectTable?.(t.id);
+                    }}
                   >
                     {p.displayTable(t)}
                   </text>
@@ -532,21 +625,28 @@ export function DiagramCanvas(p: Props) {
                     }
                   }}
                 >
-                  <rect x={width - 50} y={10} width={44} height={32} rx={4} />
-                  <text x={width - 28} y={30} textAnchor="middle">
-                    編集
-                  </text>
+                  <title>テーブルを編集</title>
+                  <rect x={width - 40} y={12} width={28} height={28} rx={6} />
+                  {[-5, 0, 5].map((dx) => (
+                    <circle
+                      key={dx}
+                      cx={width - 26 + dx}
+                      cy={26}
+                      r={1.4}
+                      className="edit-dot"
+                    />
+                  ))}
                 </g>
                 {t.columns.map((c, i) => {
                   const y = HEADER + i * ROW;
                   return (
                     <g
                       key={c.id}
-                      className={`row${!c.key ? " non-key" : ""}${p.pending?.table === t.id && p.pending.row === i ? " pending" : ""}`}
+                      className={`row${!c.key ? " non-key" : ""}${p.pending?.table === t.id && p.pending.row === i ? " pending" : ""}${related.has(`${t.id}:${i}`) ? " related" : ""}${linking && ((linking.from.table === t.id && linking.from.row === i) || (linking.target?.table === t.id && linking.target.row === i)) ? " link-end" : ""}`}
                       tabIndex={0}
                       role="button"
                       aria-label={`${p.displayTable(t)}.${p.displayColumn(c)} を接続`}
-                      onClick={() => p.onConnect(t.id, i)}
+                      onClick={() => p.onSelectTable?.(t.id)}
                       onDoubleClick={() => beginRename(t, c)}
                       onKeyDown={(e) => {
                         if (e.key === "F2") {
@@ -568,15 +668,27 @@ export function DiagramCanvas(p: Props) {
                         height={ROW}
                         className="row-bg"
                       />
-                      <text x={12} y={y + 24} className="column-key">
-                        {c.key === "PK,FK" ? "P/F" : c.key}
-                      </text>
-                      <text
-                        x={39}
-                        y={y + 24}
-                        className="column-name"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      {c.key && (
+                        <g
+                          className={`column-key ${c.key === "PK" ? "pk" : c.key === "FK" ? "fk" : "pkfk"}`}
+                        >
+                          <rect
+                            x={9}
+                            y={y + ROW / 2 - 8}
+                            width={c.key === "PK,FK" ? 26 : 24}
+                            height={16}
+                            rx={4}
+                          />
+                          <text
+                            x={c.key === "PK,FK" ? 22 : 21}
+                            y={y + ROW / 2 + 3.5}
+                            textAnchor="middle"
+                          >
+                            {c.key === "PK,FK" ? "P/F" : c.key}
+                          </text>
+                        </g>
+                      )}
+                      <text x={41} y={y + 24} className="column-name">
                         {p.displayColumn(c)}
                       </text>
                       <text
@@ -587,16 +699,46 @@ export function DiagramCanvas(p: Props) {
                       >
                         {c.type}
                       </text>
-                      {c.key &&
-                        (["left", "right"] as const).map((side) => (
+                      {(["left", "right"] as const).map((side) => (
+                        <g key={side}>
                           <circle
-                            key={side}
                             cx={side === "left" ? 0 : width}
                             cy={y + ROW / 2}
-                            r={3.5}
+                            r={4}
                             className="port"
                           />
-                        ))}
+                          <circle
+                            cx={side === "left" ? 0 : width}
+                            cy={y + ROW / 2}
+                            r={10}
+                            className="port-hit"
+                            onClick={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => {
+                              const origin = {
+                                x: t.x + (side === "left" ? 0 : width),
+                                y: t.y + y + ROW / 2,
+                              };
+                              capture(e, {
+                                kind: "link",
+                                from: { table: t.id, row: i },
+                                origin,
+                                pointer: e.pointerId,
+                              });
+                              if (drag.current?.kind === "link")
+                                setLinking({
+                                  from: { table: t.id, row: i },
+                                  origin,
+                                  to: origin,
+                                  target: null,
+                                });
+                            }}
+                          >
+                            <title>
+                              ドラッグして別のテーブルのカラムへ接続
+                            </title>
+                          </circle>
+                        </g>
+                      ))}
                     </g>
                   );
                 })}
@@ -678,6 +820,12 @@ export function DiagramCanvas(p: Props) {
             );
           })}
         </g>
+        {linking && (
+          <path
+            className={`link-preview${linking.target ? " ready" : ""}`}
+            d={`M${linking.origin.x} ${linking.origin.y}L${linking.to.x} ${linking.to.y}`}
+          />
+        )}
         <g id="handles">
           {h && (
             <>
@@ -727,7 +875,8 @@ export function DiagramCanvas(p: Props) {
       </svg>
       {p.children}
       <div className="zoom">
-        <button id="fit" onClick={() => fit()}>
+        <button id="fit" title="全体を表示" onClick={() => fit()}>
+          <Icon name="fit" size={15} />
           全体を表示
         </button>
         <button
@@ -737,7 +886,7 @@ export function DiagramCanvas(p: Props) {
             zoom([...steps].reverse().find((n) => n < view.zoom - 0.01) ?? 25)
           }
         >
-          −
+          <Icon name="minus" size={14} />
         </button>
         <button
           id="zoom-label"
@@ -752,7 +901,7 @@ export function DiagramCanvas(p: Props) {
           disabled={view.zoom >= 400}
           onClick={() => zoom(steps.find((n) => n > view.zoom + 0.01) ?? 400)}
         >
-          ＋
+          <Icon name="plus" size={14} />
         </button>
       </div>
     </div>

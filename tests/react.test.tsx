@@ -135,7 +135,7 @@ test("React restores legacy JSON, edits logical names, persists and undoes/redoe
   assert.equal(document.querySelectorAll("[data-table]").length, 3);
   await click(byLabel("usersを編集"));
   await type(
-    document.querySelector('input[placeholder="ユーザー"]'),
+    document.querySelector('input[placeholder="例: ユーザー"]'),
     "ユーザー",
   );
   await submit();
@@ -229,8 +229,8 @@ test("React can delete and manually reconnect a relation", async () => {
   await click(byLabel("usersからordersへの接続線"));
   await click(byText("外部キーを削除"));
   assert.equal(saved().edges.length, 1);
-  await click(byLabel("users.id を接続"));
-  await click(byLabel("orders.user_id を接続"));
+  await key(byLabel("users.id を接続"), "Enter");
+  await key(byLabel("orders.user_id を接続"), "Enter");
   assert.equal(saved().edges.length, 2);
   await click(byLabel("元に戻す"));
   assert.equal(saved().edges.length, 1);
@@ -253,7 +253,10 @@ test("automatic connection candidates apply and can be undone", async () => {
 test("validation keeps original diagram and modal open on duplicate name", async () => {
   const before = saved();
   await click(byLabel("usersを編集"));
-  await type(document.querySelector('input[placeholder="users"]'), "orders");
+  await type(
+    document.querySelector('input[placeholder="例: users"]'),
+    "orders",
+  );
   await submit();
   assert.match(document.querySelector('[role="alert"]').textContent, /重複/);
   assert.ok(document.querySelector("dialog[open]"));
@@ -945,4 +948,115 @@ test("no-op and cancelled document-backed drag preserve undo and redo boundaries
   assert.equal(localStorage.getItem(storageKey), raw);
   assert.equal(byLabel("元に戻す").disabled, true);
   assert.equal(byLabel("やり直す").disabled, false);
+});
+
+test("clicking a table header selects it and the inspector renames it with undo", async () => {
+  const svg = document.querySelector("#diagram");
+  await pointer(
+    byLabel("ordersを移動。矢印キーで移動できます。"),
+    "pointerdown",
+    100,
+    100,
+  );
+  await pointer(svg, "pointerup", 101, 101);
+  assert.ok(document.querySelector('[data-table="orders"].selected'));
+  await click(byLabel("詳細を閉じる"));
+  await click(document.querySelector('[data-table="orders"] .table-title'));
+  assert.ok(document.querySelector('[data-table="orders"].selected'));
+  assert.ok(document.querySelector(".row.related"));
+  assert.equal(byLabel("元に戻す").disabled, true);
+  const inspector = byLabel("ordersの詳細");
+  assert.match(inspector.textContent, /user_id/);
+  assert.match(
+    inspector.querySelector(".ddl").textContent,
+    /CREATE TABLE orders/,
+  );
+  const name = byLabel("インスペクタで物理名を編集");
+  await type(name, "purchases");
+  await act(() => name.dispatchEvent(new Event("focusout", { bubbles: true })));
+  assert.equal(saved().tables.find((t) => t.id === "orders").name, "purchases");
+  assert.ok(byLabel("purchasesの詳細"));
+  await click(byLabel("元に戻す"));
+  assert.equal(saved().tables.find((t) => t.id === "orders").name, "orders");
+  await click(byLabel("詳細を閉じる"));
+  assert.equal(document.querySelector(".inspector"), null);
+});
+
+test("sidebar lists tables and relations and selects them", async () => {
+  const items = [...document.querySelectorAll(".sidebar-item")];
+  assert.deepEqual(
+    items
+      .filter((b) => !b.classList.contains("relation"))
+      .map((b) => b.textContent),
+    ["users4", "orders4", "order_items4"],
+  );
+  await click(items.find((b) => b.textContent.startsWith("users")));
+  assert.ok(byLabel("usersの詳細"));
+  await click(document.querySelector(".sidebar-item.relation"));
+  assert.equal(document.querySelectorAll(".edge.selected").length, 1);
+  assert.equal(document.querySelector(".inspector"), null);
+  assert.ok(byText("外部キーを編集"));
+  await type(byLabel("テーブルを絞り込む"), "item");
+  assert.deepEqual(
+    [...document.querySelectorAll(".sidebar-item:not(.relation)")].map(
+      (b) => b.textContent,
+    ),
+    ["order_items4"],
+  );
+});
+
+test("clicking a column selects only; dragging from its dot connects tables", async () => {
+  await click(byLabel("usersからordersへの接続線"));
+  await click(byText("外部キーを削除"));
+  const before = saved().edges.length;
+  await click(byLabel("users.email を接続"));
+  assert.equal(document.querySelector(".connect-hint"), null);
+  assert.ok(byLabel("usersの詳細"));
+  assert.equal(saved().edges.length, before);
+  const svg = document.querySelector("#diagram");
+  const users = saved().tables.find((t) => t.id === "users");
+  const orders = saved().tables.find((t) => t.id === "orders");
+  const port = byLabel("users.id を接続").querySelectorAll(".port-hit")[1];
+  const [vx, vy, vw, vh] = svg.getAttribute("viewBox").split(" ").map(Number);
+  const at = (t, row) => [
+    ((t.x + 40 - vx) * 1200) / vw,
+    ((t.y + 52 + 38 * (row + 0.5) - vy) * 720) / vh,
+  ];
+  // Inside the same table: no self-reference.
+  await pointer(port, "pointerdown", 0, 0);
+  await pointer(svg, "pointermove", ...at(users, 1));
+  assert.ok(document.querySelector(".link-preview"));
+  assert.equal(document.querySelector(".link-preview.ready"), null);
+  await pointer(svg, "pointerup", ...at(users, 1));
+  assert.equal(saved().edges.length, before);
+  // Onto orders.user_id (row 1): registers the foreign key.
+  await pointer(port, "pointerdown", 0, 0);
+  await pointer(svg, "pointermove", ...at(orders, 1));
+  assert.ok(document.querySelector(".link-preview.ready"));
+  await pointer(svg, "pointerup", ...at(orders, 1));
+  assert.equal(saved().edges.length, before + 1);
+  assert.equal(document.querySelector(".link-preview"), null);
+});
+
+test("Delete or Backspace removes the selected foreign key or table with undo", async () => {
+  const edges = saved().edges.length;
+  await click(document.querySelector(".sidebar-item.relation"));
+  await key(document.body, "Delete");
+  assert.equal(saved().edges.length, edges - 1);
+  await click(byLabel("元に戻す"));
+  assert.equal(saved().edges.length, edges);
+  const users = [...document.querySelectorAll(".sidebar-item")].find((b) =>
+    b.textContent.startsWith("users"),
+  );
+  await click(users);
+  await key(byLabel("インスペクタで物理名を編集"), "Backspace");
+  assert.equal(saved().tables.length, 3);
+  await key(document.body, "Backspace");
+  assert.equal(saved().tables.length, 2);
+  assert.match(
+    document.querySelector(".instruction").textContent,
+    /usersを削除しました/,
+  );
+  await click(byLabel("元に戻す"));
+  assert.equal(saved().tables.length, 3);
 });

@@ -12,11 +12,14 @@ import type {
 import {
   referenceImpacts,
   editTable,
+  removeTable,
   inferConnections,
   makeEdge,
   uid,
 } from "./model.ts";
 import { messageOf, overlaps } from "./utils.ts";
+import { tableDDL } from "./ddl.ts";
+import { Icon } from "./icons.tsx";
 const TYPES = [
   "uuid",
   "integer",
@@ -417,308 +420,348 @@ export function TableEditor({
         }}
       >
         <div className="dialog-heading">
+          <Icon name="table" />
           <h2 id="editor-heading">テーブルを{creating ? "追加" : "編集"}</h2>
-          <button type="button" aria-label="編集を閉じる" onClick={onClose}>
-            ×
-          </button>
-        </div>
-        <div className="table-names">
-          <label className="field">
-            物理名
-            <input
-              autoFocus
-              required
-              maxLength={80}
-              autoComplete="off"
-              placeholder="users"
-              value={draft.name ?? draft.id}
-              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-            />
-          </label>
-          <label className="field">
-            論理名（任意）
-            <input
-              maxLength={80}
-              autoComplete="off"
-              placeholder="ユーザー"
-              value={draft.logicalName ?? ""}
-              onChange={(e) =>
-                setDraft({ ...draft, logicalName: e.target.value })
-              }
-            />
-          </label>
-        </div>
-        <div className="table-editor-body" ref={body}>
-          <div className="column-heading">
-            <h3>
-              カラム
-              <span id="column-count" aria-live="polite">
-                （{draft.columns.length}）
-              </span>
-            </h3>
-          </div>
-          <div className="column-labels" aria-hidden="true">
-            <span />
-            <span>物理名</span>
-            <span>
-              論理名 <small>（任意）</small>
-            </span>
-            <span>型</span>
-            <span>主キー</span>
-            <span>一意</span>
-            <span>参照先</span>
-            <span />
-          </div>
-          <div id="column-editor" ref={list}>
-            {draft.columns.map((c, i) => {
-              const otherIndex = draft.columns
-                .filter((x) => x.id !== dragging)
-                .findIndex((x) => x.id === c.id);
-              const marker =
-                dragging !== c.id &&
-                drop !== null &&
-                (otherIndex === drop
-                  ? " drop-before"
-                  : drop === draft.columns.length - 1 && otherIndex === drop - 1
-                    ? " drop-after"
-                    : "");
-              return (
-                <div
-                  key={c.id}
-                  data-column={c.id}
-                  className={`column-edit-row${dragging === c.id ? " reordering" : ""}${marker || ""}`}
-                >
-                  <button
-                    type="button"
-                    className="reorder-handle"
-                    aria-label={`カラム${i + 1}を並べ替え。ドラッグ、または上下矢印キーで移動`}
-                    title="ドラッグして並べ替え"
-                    onKeyDown={(e) => {
-                      if (!["ArrowUp", "ArrowDown"].includes(e.key)) return;
-                      e.preventDefault();
-                      move(c.id, i + (e.key === "ArrowUp" ? -1 : 1));
-                    }}
-                    onPointerDown={(e) => {
-                      if (e.button !== 0) return;
-                      e.preventDefault();
-                      reorder.current = {
-                        id: c.id,
-                        target: i,
-                        pointerY: e.clientY,
-                      };
-                      setDragging(c.id);
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      frame.current = requestAnimationFrame(paint);
-                    }}
-                    onPointerMove={(e) => {
-                      if (reorder.current) reorder.current.pointerY = e.clientY;
-                    }}
-                    onPointerUp={() => end()}
-                    onPointerCancel={() => end(true)}
-                    onLostPointerCapture={() => end(true)}
-                  >
-                    ⠿
-                  </button>
-                  <div className="column-names">
-                    <input
-                      aria-label={`カラム${i + 1}の物理名`}
-                      placeholder="物理名（user_id）"
-                      required
-                      maxLength={80}
-                      value={c.name}
-                      onChange={(e) => column(i, { name: e.target.value })}
-                    />
-                    <input
-                      aria-label={`カラム${i + 1}の論理名`}
-                      placeholder="論理名（ユーザーID）"
-                      maxLength={80}
-                      value={c.logicalName ?? ""}
-                      onChange={(e) =>
-                        column(i, { logicalName: e.target.value })
-                      }
-                    />
-                  </div>
-                  <TypeControl
-                    column={c}
-                    index={i}
-                    onChange={(value) => column(i, { type: value })}
-                  />
-                  <label className="column-check primary-check">
-                    <span>主キー</span>
-                    <input
-                      type="checkbox"
-                      aria-label={`${c.name}を主キーに含める`}
-                      disabled={editing?.kind === "key"}
-                      checked={
-                        draft.keys?.some(
-                          (k) =>
-                            k.kind === "primary" && k.columnIds.includes(c.id),
-                        ) ?? false
-                      }
-                      onChange={(e) =>
-                        toggleKey(c.id, "primary", e.target.checked)
-                      }
-                    />
-                  </label>
-                  <label className="column-check unique-check">
-                    <span>一意</span>
-                    <input
-                      type="checkbox"
-                      aria-label={`${c.name}の単独一意制約`}
-                      disabled={editing?.kind === "key"}
-                      checked={
-                        draft.keys?.some(
-                          (k) =>
-                            k.kind === "unique" &&
-                            k.columnIds.length === 1 &&
-                            k.columnIds[0] === c.id,
-                        ) ?? false
-                      }
-                      onChange={(e) =>
-                        toggleKey(c.id, "unique", e.target.checked)
-                      }
-                    />
-                  </label>
-                  <div className="column-references">
-                    {draft.foreignKeys
-                      ?.filter((f) => f.columnIds.includes(c.id))
-                      .map((f) => (
-                        <button
-                          key={f.id}
-                          type="button"
-                          className="reference-link"
-                          disabled={!!editing && editing.id !== f.id}
-                          aria-label={`${c.name}の参照先 ${referenceLabel(f, c.id)}を編集`}
-                          onClick={() => selectDefinition("foreign", f.id)}
-                        >
-                          {referenceLabel(f, c.id)} ↗
-                          {f.columnIds.length > 1 && <small>複合</small>}
-                        </button>
-                      ))}
-                    <button
-                      type="button"
-                      className="reference-link add-reference"
-                      disabled={!!editing}
-                      aria-label={`${c.name}に参照先を追加`}
-                      onClick={() => addReference(c.id)}
-                    >
-                      ＋ 参照先
-                    </button>
-                  </div>
-                  <div className="row-actions">
-                    <button
-                      type="button"
-                      className="delete-column"
-                      title="カラムを削除"
-                      aria-label={`カラム${i + 1}を削除`}
-                      disabled={draft.columns.length === 1 || !!editing}
-                      onClick={() =>
-                        setDraft({
-                          ...draft,
-                          keys: draft.keys?.filter(
-                            (k) => !k.columnIds.includes(c.id),
-                          ),
-                          foreignKeys: draft.foreignKeys?.filter(
-                            (f) => !f.columnIds.includes(c.id),
-                          ),
-                          columns: draft.columns.filter(
-                            (_, index) => index !== i,
-                          ),
-                        })
-                      }
-                    >
-                      <svg
-                        viewBox="0 0 24 24"
-                        aria-hidden="true"
-                        focusable="false"
-                        width="16"
-                        height="16"
-                      >
-                        <path
-                          d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          {!creating && (
+            <span className="dialog-subject mono">{initial.name}</span>
+          )}
+          <span className="spacer" />
+          <kbd className="kbd">Esc</kbd>
           <button
             type="button"
-            className="add-column"
-            disabled={draft.columns.length >= 60}
-            onClick={() => {
-              let i = 1;
-              while (draft.columns.some((c) => c.name === `column_${i}`)) i++;
-              const id = uid();
-              addedColumn.current = id;
-              setDraft({
-                ...draft,
-                columns: [
-                  ...draft.columns,
-                  {
-                    name: `column_${i}`,
-                    type: "text",
-                    key: "",
-                    id,
-                    logicalName: "",
-                  },
-                ],
-              });
-            }}
+            className="icon-button"
+            aria-label="編集を閉じる"
+            onClick={onClose}
           >
-            カラムを追加
+            <Icon name="close" />
           </button>
-          <KeyList
-            table={draft}
-            onEdit={(id) => selectDefinition("key", id)}
-            onAdd={() => {
-              const id = uid();
-              setDraft((d) => ({
-                ...d,
-                keys: [
-                  ...(d.keys ?? []),
-                  { id, name: "", kind: "index", columnIds: [] },
-                ],
-              }));
-              setEditing({ kind: "key", id });
-            }}
-            disabled={!!editing}
-          />
-          {editing && (
-            <div ref={definitionPanel}>
-              <DefinitionEditor
-                draft={draft}
-                state={state}
-                selection={editing}
-                onChange={setDraft}
-                onDone={() => setEditing(null)}
-                onCancel={cancelDefinition}
-                onDelete={() => {
-                  setDraft((d) =>
-                    editing.kind === "key"
-                      ? {
-                          ...d,
-                          keys: d.keys?.filter((k) => k.id !== editing.id),
-                        }
-                      : {
-                          ...d,
-                          foreignKeys: d.foreignKeys?.filter(
-                            (f) => f.id !== editing.id,
-                          ),
-                        },
-                  );
-                  setEditing(null);
-                }}
-              />
+        </div>
+        <div className="editor-layout">
+          <div className="editor-main">
+            <div className="table-names">
+              <label className="field">
+                物理名
+                <input
+                  autoFocus
+                  required
+                  maxLength={80}
+                  autoComplete="off"
+                  placeholder="例: users"
+                  value={draft.name ?? draft.id}
+                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                論理名（任意）
+                <input
+                  maxLength={80}
+                  autoComplete="off"
+                  placeholder="例: ユーザー"
+                  value={draft.logicalName ?? ""}
+                  onChange={(e) =>
+                    setDraft({ ...draft, logicalName: e.target.value })
+                  }
+                />
+              </label>
             </div>
-          )}
+            <div className="table-editor-body" ref={body}>
+              <div className="column-heading">
+                <h3>
+                  カラム
+                  <span id="column-count" aria-live="polite">
+                    （{draft.columns.length}）
+                  </span>
+                </h3>
+              </div>
+              <div className="column-labels" aria-hidden="true">
+                <span />
+                <span>物理名</span>
+                <span>
+                  論理名 <small>（任意）</small>
+                </span>
+                <span>型</span>
+                <span>主キー</span>
+                <span>一意</span>
+                <span>参照先</span>
+                <span />
+              </div>
+              <div id="column-editor" ref={list}>
+                {draft.columns.map((c, i) => {
+                  const otherIndex = draft.columns
+                    .filter((x) => x.id !== dragging)
+                    .findIndex((x) => x.id === c.id);
+                  const marker =
+                    dragging !== c.id &&
+                    drop !== null &&
+                    (otherIndex === drop
+                      ? " drop-before"
+                      : drop === draft.columns.length - 1 &&
+                          otherIndex === drop - 1
+                        ? " drop-after"
+                        : "");
+                  return (
+                    <div
+                      key={c.id}
+                      data-column={c.id}
+                      className={`column-edit-row${dragging === c.id ? " reordering" : ""}${marker || ""}`}
+                    >
+                      <button
+                        type="button"
+                        className="reorder-handle"
+                        aria-label={`カラム${i + 1}を並べ替え。ドラッグ、または上下矢印キーで移動`}
+                        title="ドラッグして並べ替え"
+                        onKeyDown={(e) => {
+                          if (!["ArrowUp", "ArrowDown"].includes(e.key)) return;
+                          e.preventDefault();
+                          move(c.id, i + (e.key === "ArrowUp" ? -1 : 1));
+                        }}
+                        onPointerDown={(e) => {
+                          if (e.button !== 0) return;
+                          e.preventDefault();
+                          reorder.current = {
+                            id: c.id,
+                            target: i,
+                            pointerY: e.clientY,
+                          };
+                          setDragging(c.id);
+                          e.currentTarget.setPointerCapture(e.pointerId);
+                          frame.current = requestAnimationFrame(paint);
+                        }}
+                        onPointerMove={(e) => {
+                          if (reorder.current)
+                            reorder.current.pointerY = e.clientY;
+                        }}
+                        onPointerUp={() => end()}
+                        onPointerCancel={() => end(true)}
+                        onLostPointerCapture={() => end(true)}
+                      >
+                        <svg
+                          viewBox="0 0 16 16"
+                          width="12"
+                          height="12"
+                          aria-hidden="true"
+                          focusable="false"
+                          fill="currentColor"
+                        >
+                          <circle cx="5.5" cy="3.5" r="1.3" />
+                          <circle cx="10.5" cy="3.5" r="1.3" />
+                          <circle cx="5.5" cy="8" r="1.3" />
+                          <circle cx="10.5" cy="8" r="1.3" />
+                          <circle cx="5.5" cy="12.5" r="1.3" />
+                          <circle cx="10.5" cy="12.5" r="1.3" />
+                        </svg>
+                      </button>
+                      <div className="column-names">
+                        <input
+                          aria-label={`カラム${i + 1}の物理名`}
+                          placeholder="例: user_id"
+                          required
+                          maxLength={80}
+                          value={c.name}
+                          onChange={(e) => column(i, { name: e.target.value })}
+                        />
+                        <input
+                          aria-label={`カラム${i + 1}の論理名`}
+                          placeholder="論理名"
+                          maxLength={80}
+                          value={c.logicalName ?? ""}
+                          onChange={(e) =>
+                            column(i, { logicalName: e.target.value })
+                          }
+                        />
+                      </div>
+                      <TypeControl
+                        column={c}
+                        index={i}
+                        onChange={(value) => column(i, { type: value })}
+                      />
+                      <label className="column-check primary-check">
+                        <span aria-hidden="true">PK</span>
+                        <input
+                          type="checkbox"
+                          aria-label={`${c.name}を主キーに含める`}
+                          disabled={editing?.kind === "key"}
+                          checked={
+                            draft.keys?.some(
+                              (k) =>
+                                k.kind === "primary" &&
+                                k.columnIds.includes(c.id),
+                            ) ?? false
+                          }
+                          onChange={(e) =>
+                            toggleKey(c.id, "primary", e.target.checked)
+                          }
+                        />
+                      </label>
+                      <label className="column-check unique-check">
+                        <span aria-hidden="true">UQ</span>
+                        <input
+                          type="checkbox"
+                          aria-label={`${c.name}の単独一意制約`}
+                          disabled={editing?.kind === "key"}
+                          checked={
+                            draft.keys?.some(
+                              (k) =>
+                                k.kind === "unique" &&
+                                k.columnIds.length === 1 &&
+                                k.columnIds[0] === c.id,
+                            ) ?? false
+                          }
+                          onChange={(e) =>
+                            toggleKey(c.id, "unique", e.target.checked)
+                          }
+                        />
+                      </label>
+                      <div className="column-references">
+                        {draft.foreignKeys
+                          ?.filter((f) => f.columnIds.includes(c.id))
+                          .map((f) => (
+                            <button
+                              key={f.id}
+                              type="button"
+                              className="reference-link"
+                              disabled={!!editing && editing.id !== f.id}
+                              aria-label={`${c.name}の参照先 ${referenceLabel(f, c.id)}を編集`}
+                              onClick={() => selectDefinition("foreign", f.id)}
+                            >
+                              → {referenceLabel(f, c.id)}
+                              {f.columnIds.length > 1 && <small>複合</small>}
+                            </button>
+                          ))}
+                        <button
+                          type="button"
+                          className="reference-link add-reference"
+                          disabled={!!editing}
+                          aria-label={`${c.name}に参照先を追加`}
+                          onClick={() => addReference(c.id)}
+                        >
+                          ＋ 参照先
+                        </button>
+                      </div>
+                      <div className="row-actions">
+                        <button
+                          type="button"
+                          className="delete-column"
+                          title="カラムを削除"
+                          aria-label={`カラム${i + 1}を削除`}
+                          disabled={draft.columns.length === 1 || !!editing}
+                          onClick={() =>
+                            setDraft({
+                              ...draft,
+                              keys: draft.keys?.filter(
+                                (k) => !k.columnIds.includes(c.id),
+                              ),
+                              foreignKeys: draft.foreignKeys?.filter(
+                                (f) => !f.columnIds.includes(c.id),
+                              ),
+                              columns: draft.columns.filter(
+                                (_, index) => index !== i,
+                              ),
+                            })
+                          }
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                            focusable="false"
+                            width="16"
+                            height="16"
+                          >
+                            <path
+                              d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                className="add-column"
+                disabled={draft.columns.length >= 60}
+                onClick={() => {
+                  let i = 1;
+                  while (draft.columns.some((c) => c.name === `column_${i}`))
+                    i++;
+                  const id = uid();
+                  addedColumn.current = id;
+                  setDraft({
+                    ...draft,
+                    columns: [
+                      ...draft.columns,
+                      {
+                        name: `column_${i}`,
+                        type: "text",
+                        key: "",
+                        id,
+                        logicalName: "",
+                      },
+                    ],
+                  });
+                }}
+              >
+                カラムを追加
+              </button>
+              <KeyList
+                table={draft}
+                onEdit={(id) => selectDefinition("key", id)}
+                onAdd={() => {
+                  const id = uid();
+                  setDraft((d) => ({
+                    ...d,
+                    keys: [
+                      ...(d.keys ?? []),
+                      { id, name: "", kind: "index", columnIds: [] },
+                    ],
+                  }));
+                  setEditing({ kind: "key", id });
+                }}
+                disabled={!!editing}
+              />
+              {editing && (
+                <div ref={definitionPanel}>
+                  <DefinitionEditor
+                    draft={draft}
+                    state={state}
+                    selection={editing}
+                    onChange={setDraft}
+                    onDone={() => setEditing(null)}
+                    onCancel={cancelDefinition}
+                    onDelete={() => {
+                      setDraft((d) =>
+                        editing.kind === "key"
+                          ? {
+                              ...d,
+                              keys: d.keys?.filter((k) => k.id !== editing.id),
+                            }
+                          : {
+                              ...d,
+                              foreignKeys: d.foreignKeys?.filter(
+                                (f) => f.id !== editing.id,
+                              ),
+                            },
+                      );
+                      setEditing(null);
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+          <aside className="editor-ddl" aria-label="DDL プレビュー">
+            <div className="ddl-tools">
+              <h3>DDL プレビュー</h3>
+              <span>PostgreSQL</span>
+            </div>
+            <pre className="ddl">{tableDDL(draft, state)}</pre>
+          </aside>
         </div>
         {impacts.length > 0 && (
           <details className="reference-impact">
@@ -760,23 +803,7 @@ export function TableEditor({
               className="danger"
               onClick={() => {
                 onApply(
-                  {
-                    ...state,
-                    tables: state.tables
-                      .filter((t) => t.id !== draft.id)
-                      .map((t) => ({
-                        ...t,
-                        foreignKeys: t.foreignKeys?.map((f) =>
-                          f.target?.tableId === draft.id
-                            ? { ...f, target: undefined }
-                            : f,
-                        ),
-                      })),
-                    edges: state.edges.filter(
-                      (e) =>
-                        e.from.table !== draft.id && e.to.table !== draft.id,
-                    ),
-                  },
+                  removeTable(state, draft.id).next,
                   `${draft.name || draft.id}を削除しました。${incomingCount ? `外部キー${incomingCount}件は参照先未設定として「要確認」に残しています。` : ""}「元に戻す」で復元できます。`,
                 );
                 onClose();
