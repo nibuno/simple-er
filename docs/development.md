@@ -27,8 +27,8 @@ src/
   App.tsx            図の状態・履歴・保存・ツールバー
   DiagramCanvas.tsx  SVG 描画、ドラッグ、拡大縮小
   Dialogs.tsx        テーブル編集と自動接続の候補
-  Panels.tsx         テーブル一覧と詳細パネル
-  ddl.ts             DDL プレビューの生成
+  Panels.tsx         テーブル一覧（サイドバー）
+  ddl.ts             編集画面の DDL プレビューの生成
   types.ts           テーブル・カラム・接続の型
   model.ts           保存形式の検証・編集・接続推測
   geometry.ts        線の経路計算
