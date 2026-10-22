@@ -252,7 +252,7 @@ export function App() {
       node.x -= node.w / 2;
       node.y -= node.h / 2;
     }
-    if (!point) placeInFreeSpace(node, next.nodes);
+    if (!point) placeInFreeSpace(node, next);
     draftRef.current = node;
     setDraftNode(node);
     clearPending();
@@ -1057,7 +1057,7 @@ export function App() {
         <dl>
           {[
             ["図形 / メモを追加", "B / N"],
-            ["図形の文字を編集", "文字をクリック / 選択して Enter"],
+            ["図形の文字を編集", "ダブルクリック / 選択して Enter"],
             ["メモ・囲みを編集", "ダブルクリック / 選択して Enter"],
             ["編集を確定 / 取り消し", "⌘ Enter / Esc"],
             ["接続元と接続先を選ぶ", "C（接続点のドラッグも可）"],

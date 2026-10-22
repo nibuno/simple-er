@@ -64,6 +64,11 @@ type Drag =
   | { kind: "pan"; pointer: number; start: Point; view: View }
   | { kind: "marquee"; pointer: number; start: Point; add: string[] }
   | { kind: "connect"; pointer: number; from: string };
+function textField(target: EventTarget): ShapeTextField | undefined {
+  const text = (target as Element).closest(".node-title,.node-description");
+  if (!text) return undefined;
+  return text.classList.contains("node-description") ? "description" : "title";
+}
 function readView(): View | null {
   try {
     const v = JSON.parse(localStorage.getItem(VIEW_KEY) || "null");
@@ -115,26 +120,70 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         : p.doc,
     [p.doc, p.editing, editedSize],
   );
-  const routes = useMemo(() => documentRoutes(displayedDoc), [displayedDoc]);
+  // A figure being added has no connections yet; leave it out of routing so
+  // existing lines do not detour around it before it is confirmed.
+  const routes = useMemo(
+    () =>
+      documentRoutes(
+        p.draftId
+          ? {
+              ...displayedDoc,
+              nodes: displayedDoc.nodes.filter((n) => n.id !== p.draftId),
+            }
+          : displayedDoc,
+      ),
+    [displayedDoc, p.draftId],
+  );
   const toWorld = (x: number, y: number) => {
     const r = stage.current!.getBoundingClientRect(),
       v = viewRef.current;
     return { x: (x - r.left - v.x) / v.zoom, y: (y - r.top - v.y) / v.zoom };
   };
-  function fit() {
-    if (!stage.current) return;
-    const b = sceneBounds(latest.current.doc),
-      w = stage.current.clientWidth,
-      h = stage.current.clientHeight;
-    const zoom = Math.max(
+  const fitZoom = (b: { w: number; h: number }, w: number, h: number) =>
+    Math.max(
       0.05,
       Math.min(1, (w - 100) / Math.max(b.w, 1), (h - 110) / Math.max(b.h, 1)),
     );
+  function fit() {
+    const el = stage.current;
+    // Without a size the zoom would clamp to 5% and then be stored.
+    if (!el?.clientWidth || !el.clientHeight) return;
+    const b = sceneBounds(latest.current.doc),
+      w = el.clientWidth,
+      h = el.clientHeight,
+      zoom = fitZoom(b, w, h);
     setView({
       zoom,
       x: (w - b.w * zoom) / 2 - b.x * zoom,
       y: (h - b.h * zoom) / 2 - b.y * zoom,
     });
+  }
+  // The first layout can happen before the stage has a size (a hidden pane),
+  // so the initial view is settled once it has one. A stored view is kept
+  // unless it hides the whole drawing or is far smaller than fitting it.
+  const initialView = useRef(true);
+  function settleInitialView() {
+    const el = stage.current;
+    if (!initialView.current || !el?.clientWidth || !el.clientHeight) return;
+    initialView.current = false;
+    const v = saved.current,
+      doc = latest.current.doc;
+    if (v && !doc.nodes.length) return;
+    if (v) {
+      const b = sceneBounds(doc),
+        visible = intersects(
+          {
+            x: b.x * v.zoom + v.x,
+            y: b.y * v.zoom + v.y,
+            w: Math.max(b.w * v.zoom, 1),
+            h: Math.max(b.h * v.zoom, 1),
+          },
+          { x: 0, y: 0, w: el.clientWidth, h: el.clientHeight },
+        );
+      if (visible && v.zoom >= fitZoom(b, el.clientWidth, el.clientHeight) / 4)
+        return;
+    }
+    fit();
   }
   useImperativeHandle(ref, () => ({
     fit,
@@ -180,8 +229,11 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     });
   }
   useLayoutEffect(() => {
-    if (!saved.current) fit();
-    const resize = new ResizeObserver(revealSelection);
+    settleInitialView();
+    const resize = new ResizeObserver(() => {
+      settleInitialView();
+      revealSelection();
+    });
     resize.observe(stage.current!);
     return () => resize.disconnect();
   }, []);
@@ -378,22 +430,20 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       return;
     }
     if (p.editing === node.id) return;
-    const textTarget =
-      !resize && !e.shiftKey && node.kind === "box"
-        ? (e.target as Element).closest(".node-title,.node-description")
-        : null;
-    const editField = textTarget
-      ? textTarget.classList.contains("node-description")
-        ? "description"
-        : "title"
-      : undefined;
     if (p.editing) {
       stage.current?.focus();
-      if (!editField) {
-        p.onSelect([node.id]);
-        return;
-      }
+      p.onSelect([node.id]);
+      return;
     }
+    // A click selects; clicking the text of the already selected figure, or
+    // double-clicking it, edits that field.
+    const editField =
+      !resize &&
+      !e.shiftKey &&
+      p.selection.length === 1 &&
+      p.selection[0] === node.id
+        ? textField(e.target)
+        : undefined;
     e.preventDefault();
     stage.current?.focus();
     const ids = e.shiftKey
@@ -631,7 +681,12 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
               aria-label={name + "を選択"}
               aria-pressed={selected}
               onPointerDown={(e) => startNode(e, node)}
-              onDoubleClick={() => p.onEdit(node.id)}
+              onDoubleClick={(e) => {
+                if (p.editing === node.id) return;
+                editTarget.current =
+                  (node.kind === "box" && textField(e.target)) || "title";
+                p.onEdit(node.id);
+              }}
               onClick={(e) => {
                 if (e.detail === 0) {
                   if (p.pending || p.tool === "connect") p.onConnect(node.id);

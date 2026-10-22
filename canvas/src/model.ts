@@ -12,6 +12,8 @@ import { boxTextArea, minimumBoxHeight, SHAPES, shapeLabels } from "./shapes";
 import { arrangeBoxes } from "./layout";
 import { validColor } from "./colors";
 import { bounds } from "./spatial";
+import type { Rect } from "./spatial";
+import { documentRoutes } from "./geometry";
 export { bounds } from "./spatial";
 import { wrapText } from "./text";
 export { wrapText } from "./text";
@@ -353,13 +355,39 @@ export const intersects = (
   a: { x: number; y: number; w: number; h: number },
   b: { x: number; y: number; w: number; h: number },
 ) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-export function placeInFreeSpace(node: CanvasNode, nodes: CanvasNode[]) {
+// Keep a new figure clear of other elements, lines and their labels, with
+// enough room around it for a line to pass.
+export function placeInFreeSpace(node: CanvasNode, doc: CanvasDocument) {
   const start = { x: node.x, y: node.y },
-    obstacles = nodes.filter((n) => n.id !== node.id && n.kind !== "group");
-  const free = (x: number, y: number) =>
-    !obstacles.some((n) =>
-      intersects({ x: x - 8, y: y - 8, w: node.w + 16, h: node.h + 16 }, n),
+    obstacles: Rect[] = doc.nodes.filter(
+      (n) => n.id !== node.id && n.kind !== "group",
     );
+  documentRoutes(doc).forEach((r) => {
+    r.points.slice(1).forEach((p, i) => {
+      const q = r.points[i];
+      obstacles.push({
+        x: Math.min(p.x, q.x),
+        y: Math.min(p.y, q.y),
+        w: Math.abs(p.x - q.x),
+        h: Math.abs(p.y - q.y),
+      });
+    });
+    if (r.labelLines.some(Boolean))
+      obstacles.push({
+        x: r.label.x - 110,
+        y: r.label.y - 22,
+        w: 220,
+        h: r.labelLines.length * 18 + 22,
+      });
+  });
+  const gap = 32,
+    free = (x: number, y: number) =>
+      !obstacles.some((n) =>
+        intersects(
+          { x: x - gap, y: y - gap, w: node.w + gap * 2, h: node.h + gap * 2 },
+          n,
+        ),
+      );
   if (free(start.x, start.y)) return node;
   for (let ring = 1; ring <= 40; ring++) {
     for (let i = -ring; i <= ring; i++) {
