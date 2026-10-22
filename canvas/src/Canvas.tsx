@@ -54,6 +54,7 @@ interface Props {
 type Drag =
   | {
       kind: "move" | "resize";
+      dir?: ResizeDir;
       pointer: number;
       start: Point;
       before: CanvasDocument;
@@ -66,6 +67,8 @@ type Drag =
   | { kind: "marquee"; pointer: number; start: Point; add: string[] }
   | { kind: "connect"; pointer: number; from: string; start: Point };
 const PORTS = ["top", "right", "bottom", "left"] as const;
+const RESIZE_DIRS = ["n", "ne", "e", "se", "s", "sw", "w", "nw"] as const;
+type ResizeDir = (typeof RESIZE_DIRS)[number];
 function textField(target: EventTarget): ShapeTextField | undefined {
   const text = (target as Element).closest(".node-title,.node-description");
   if (!text) return undefined;
@@ -422,7 +425,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     capture(e);
     setPanning(true);
   }
-  function startNode(e: ReactPointerEvent, node: CanvasNode, resize = false) {
+  function startNode(e: ReactPointerEvent, node: CanvasNode, dir?: ResizeDir) {
+    const resize = !!dir;
     if (e.button !== 0 && e.button !== 1) return;
     e.stopPropagation();
     if (e.button === 1 || space.current || p.tool === "pan") {
@@ -464,6 +468,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     if (!ids.includes(node.id)) return;
     drag.current = {
       kind: resize ? "resize" : "move",
+      dir,
       pointer: e.pointerId,
       start: toWorld(e.clientX, e.clientY),
       before: p.getDocument(),
@@ -570,9 +575,21 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     if (d.kind === "move") p.onPreview(moveNodes(d.before, d.ids, dx, dy));
     else {
       const next = clone(d.before),
-        n = next.nodes.find((n) => n.id === d.id)!;
-      n.w = Math.max(160, Math.min(4000, n.w + dx));
-      n.h = Math.max(minimumHeight(n, next), Math.min(20000, n.h + dy));
+        n = next.nodes.find((n) => n.id === d.id)!,
+        dir = d.dir || "se",
+        start = { x: n.x, y: n.y, w: n.w, h: n.h };
+      let w = dir.includes("e") ? n.w + dx : dir.includes("w") ? n.w - dx : n.w,
+        h = dir.includes("s") ? n.h + dy : dir.includes("n") ? n.h - dy : n.h;
+      // Shift keeps the proportions when resizing from a corner.
+      if (e.shiftKey && dir.length === 2) {
+        const scale = Math.max(w / start.w, h / start.h);
+        w = start.w * scale;
+        h = start.h * scale;
+      }
+      n.w = Math.max(160, Math.min(4000, Math.round(w)));
+      n.h = Math.max(minimumHeight(n, next), Math.min(20000, Math.round(h)));
+      if (dir.includes("w")) n.x = start.x + start.w - n.w;
+      if (dir.includes("n")) n.y = start.y + start.h - n.h;
       p.onPreview(next);
     }
   }
@@ -781,11 +798,21 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                 編集
               </button>
             )}
+            {selected &&
+              p.selection.length === 1 &&
+              RESIZE_DIRS.filter((dir) => dir !== "se").map((dir) => (
+                <span
+                  key={dir}
+                  className={"resize-handle " + dir}
+                  aria-hidden="true"
+                  onPointerDown={(e) => startNode(e, node, dir)}
+                />
+              ))}
             {selected && (
               <button
-                className="resize-handle"
+                className="resize-handle se"
                 aria-label="サイズを変更。矢印キーでも調整できます"
-                onPointerDown={(e) => startNode(e, node, true)}
+                onPointerDown={(e) => startNode(e, node, "se")}
                 onKeyDown={(e) => {
                   if (!e.key.startsWith("Arrow")) return;
                   e.stopPropagation();

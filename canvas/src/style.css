@@ -550,22 +550,57 @@ kbd {
 }
 .resize-handle {
   position: absolute;
-  right: -5px;
-  bottom: -5px;
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   padding: 0;
   min-height: 0;
   border: 1.5px solid var(--accent);
   border-radius: 2px;
   background: var(--surface);
-  cursor: nwse-resize;
   pointer-events: auto;
+  z-index: 2;
+}
+.resize-handle.n,
+.resize-handle.s {
+  left: calc(50% - 5px);
+  cursor: ns-resize;
+}
+.resize-handle.e,
+.resize-handle.w {
+  top: calc(50% - 5px);
+  cursor: ew-resize;
+}
+.resize-handle.n,
+.resize-handle.ne,
+.resize-handle.nw {
+  top: -5px;
+}
+.resize-handle.s,
+.resize-handle.se,
+.resize-handle.sw {
+  bottom: -5px;
+}
+.resize-handle.e,
+.resize-handle.ne,
+.resize-handle.se {
+  right: -5px;
+}
+.resize-handle.w,
+.resize-handle.nw,
+.resize-handle.sw {
+  left: -5px;
+}
+.resize-handle.nw,
+.resize-handle.se {
+  cursor: nwse-resize;
+}
+.resize-handle.ne,
+.resize-handle.sw {
+  cursor: nesw-resize;
 }
 .connection-port {
+  --port: 14px;
   position: absolute;
-  right: -7px;
-  top: calc(50% - 7px);
   width: 14px;
   height: 14px;
   min-height: 0;

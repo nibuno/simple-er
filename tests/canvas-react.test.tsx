@@ -760,3 +760,18 @@ test("dropping a line on empty space adds a connected figure as one undo step, o
   await click(label("元に戻す"));
   assert.deepEqual(saved(), before);
 });
+test("resizing from the top-left corner keeps the opposite corner in place", async () => {
+  await click(label("Workerを選択"));
+  const before = saved().nodes.find((n) => n.id === "worker"),
+    stage = label("設計キャンバス"),
+    handle = document.querySelector(
+      '[data-node-id="worker"] .resize-handle.nw',
+    );
+  await pointer(handle, "pointerdown", 300, 200);
+  await pointer(stage, "pointermove", 260, 160);
+  await pointer(stage, "pointerup", 260, 160);
+  const after = saved().nodes.find((n) => n.id === "worker");
+  assert.ok(after.w > before.w && after.h > before.h);
+  assert.equal(after.x + after.w, before.x + before.w);
+  assert.equal(after.y + after.h, before.y + before.h);
+});
