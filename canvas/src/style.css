@@ -351,6 +351,17 @@ kbd {
 .rail-button:focus-visible::after {
   opacity: 1;
 }
+/* The button under the pointer comes forward, so its hint is not covered
+   by the next button. In the shapes popover the hint goes below. */
+.rail-button:hover,
+.rail-button:focus-visible {
+  z-index: 1;
+}
+.rail-popover .rail-button::after {
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+}
 .history-bar {
   left: 12px;
   bottom: 12px;
