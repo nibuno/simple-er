@@ -14,6 +14,7 @@ const paths = {
   duplicate: "M8 8h12v12H8Z M4 16V4h12",
   close: "m6 6 12 12 M6 18 18 6",
   menu: "M4 7h16 M4 12h16 M4 17h16",
+  text: "M5 7V5h14v2 M12 5v14 M9 19h6",
   more: "M6 12h.01 M12 12h.01 M18 12h.01",
   label: "M4 7h11l5 5-5 5H4Z",
   dashed: "M3 12h3 M10 12h4 M18 12h3",

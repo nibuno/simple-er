@@ -620,7 +620,7 @@ export function App() {
           next.nodes.push(node);
           commit(next);
           select([node.id]);
-          notify("文章をメモとして貼り付けました。");
+          notify("文章をテキストとして貼り付けました。");
         }
       } catch (error) {
         setError(errorMessage(error));
@@ -686,6 +686,7 @@ export function App() {
           onEdit={edit}
           onPatch={patchNode}
           onAddNote={(point) => add("note", point)}
+          onAddBox={() => add("box")}
           onAddConnected={(from, point) => {
             const source = docRef.current.nodes.find((n) => n.id === from);
             add(
@@ -883,11 +884,11 @@ export function App() {
           <span className="rail-divider" />
           <button
             className="icon-button rail-button"
-            aria-label="メモを追加"
-            data-tip="メモ N"
+            aria-label="テキストを追加"
+            data-tip="テキスト N"
             onClick={() => add("note")}
           >
-            <Icon name="note" />
+            <Icon name="text" />
           </button>
           <button
             className="icon-button rail-button"
@@ -1089,9 +1090,9 @@ export function App() {
         </p>
         <dl>
           {[
-            ["図形 / メモを追加", "B / N"],
+            ["図形 / テキストを追加", "B / N"],
             ["図形の文字を編集", "ダブルクリック / 選択して Enter"],
-            ["メモ・囲みを編集", "ダブルクリック / 選択して Enter"],
+            ["テキスト・メモ・囲みを編集", "ダブルクリック / 選択して Enter"],
             ["編集を確定 / 取り消し", "⌘ Enter / Esc"],
             ["接続元と接続先を選ぶ", "C（接続点のドラッグも可）"],
             ["接続した図形を追加", "接続点を空いた場所へドラッグ"],

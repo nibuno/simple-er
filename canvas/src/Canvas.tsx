@@ -51,6 +51,7 @@ interface Props {
   onEdit: (id: string | null) => void;
   onPatch: (id: string, patch: Partial<CanvasNode>) => void;
   onAddNote: (point: Point) => void;
+  onAddBox: () => void;
   onAddConnected: (from: string, point: Point) => void;
   selectionBar?: ReactNode;
   onPreview: (doc: CanvasDocument) => void;
@@ -332,30 +333,9 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     }
     const n = p.doc.nodes.find((n) => n.id === p.editing);
     if (!n) return;
-    const el = stage.current;
-    if (n.kind === "box") {
-      const before = viewRef.current;
-      editView.current = { before, focused: before };
-      return;
-    }
-    setView((v) => {
-      const left = n.x * v.zoom + v.x,
-        right = left + Math.max(240, Math.min(320, n.w)),
-        top = n.y * v.zoom + v.y;
-      const dx =
-        left < 24
-          ? 24 - left
-          : right > el.clientWidth - 24
-            ? el.clientWidth - 24 - right
-            : 0;
-      const dy =
-        top < 40
-          ? 40 - top
-          : top > el.clientHeight - 260
-            ? Math.max(24, el.clientHeight - 260) - top
-            : 0;
-      return dx || dy ? { ...v, x: v.x + dx, y: v.y + dy } : v;
-    });
+    // Editing starts where the words are; the view stays where it is.
+    const before = viewRef.current;
+    editView.current = { before, focused: before };
   }, [p.editing]);
   useLayoutEffect(() => {
     const el = stage.current;
@@ -714,7 +694,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           ? shapeLabels[node.shape]
           : node.kind === "group"
             ? "囲み"
-            : "メモ");
+            : "テキスト");
     return (
       <div
         key={node.id}
@@ -724,6 +704,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         className={
           "canvas-node " +
           node.kind +
+          (node.attachedTo ? " attached" : "") +
           (selected ? " selected" : "") +
           (editing ? " editing" : "") +
           (expanded.has(node.id) ? " in-selection" : "") +
@@ -795,10 +776,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           <InlineEditor
             node={node}
             doc={p.doc}
-            isNew={p.draftId === node.id}
             onDirty={p.onDirty}
-            zoom={view.zoom}
-            maxHeight={Math.max(140, (stage.current?.clientHeight || 500) - 48)}
             onCancel={() => {
               p.onEdit(null);
               stage.current?.focus();
@@ -1215,15 +1193,22 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           <span className="empty-symbol">
             <Icon name="box" />
           </span>
-          <h2>キャンバスは空です</h2>
-          <p>上のボタンから図形やメモを追加できます。</p>
-          <button
-            className="primary"
-            onClick={() => p.onAddNote({ x: 100, y: 100 })}
-          >
-            メモを追加
-          </button>
-          <small>余白のダブルクリックでも書き始められます</small>
+          <h2>図形を置いて始める</h2>
+          <p>
+            箱を置いて名前を書き、接続点から次の図形をつなげます。理由はテキストで横に書き添えます。
+          </p>
+          <div className="empty-actions">
+            <button className="primary" onClick={p.onAddBox}>
+              箱を追加
+            </button>
+            <button
+              className="secondary"
+              onClick={() => p.onAddNote({ x: 100, y: 100 })}
+            >
+              テキストを追加
+            </button>
+          </div>
+          <small>余白をダブルクリックすると、その場にテキストを書けます</small>
         </div>
       )}
       <div className="canvas-controls" aria-label="表示操作">

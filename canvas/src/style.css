@@ -629,16 +629,21 @@ kbd {
   width: 12px;
   height: 12px;
 }
+/* Free text is plain writing on the paper. A figure's memo keeps a rule in
+   the accent color and a leader line to its figure, so the two never look
+   alike. */
 .note .node-face {
   border: 0;
-  border-left: 2px solid var(--node-stroke, var(--border));
+  border-left: 2px solid var(--node-stroke, transparent);
   border-radius: 0;
   background: var(--node-fill, transparent);
   padding: 8px 12px;
   gap: 10px;
 }
-.note .node-face:hover {
+.note.attached .node-face {
   border-left-color: var(--node-stroke, var(--accent));
+}
+.note .node-face:hover {
   background: var(--node-fill, var(--heading));
 }
 .note .node-face[aria-pressed="true"] {
@@ -814,9 +819,10 @@ kbd {
 }
 .attachment-wire {
   fill: none;
-  stroke: var(--border);
+  stroke: var(--accent);
+  stroke-opacity: 0.55;
   stroke-width: 1;
-  stroke-dasharray: 3 5;
+  stroke-dasharray: 3 4;
 }
 .pending-wire {
   fill: none;
@@ -896,6 +902,52 @@ kbd {
 .inline-editor button span {
   font-size: 10px;
   color: var(--muted);
+}
+.inline-editor.in-place {
+  inset: 0;
+  height: auto;
+  min-height: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface);
+  box-shadow: none;
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+  gap: 10px;
+  overflow: visible;
+}
+.inline-editor.in-place.attached,
+.attached > .inline-editor.in-place {
+  border-left: 2px solid var(--accent);
+}
+.inline-editor.in-place textarea,
+.inline-editor.in-place input {
+  border: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  color: var(--node-text, var(--text));
+}
+.inline-editor.in-place textarea {
+  font-size: 14px;
+  line-height: 24px;
+}
+.inline-editor.in-place.group {
+  inset: 0 0 auto;
+  min-height: 0;
+  height: 40px;
+  padding: 9px 17px;
+  background: transparent;
+  border-radius: 10px;
+}
+.inline-editor.in-place.group input {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
 }
 .inline-editor.shape-text-editor {
   inset: 0;
@@ -1016,6 +1068,11 @@ kbd {
 .empty-symbol svg {
   width: 32px;
   height: 32px;
+}
+.empty-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
 }
 .empty-canvas h2 {
   font-size: 20px;

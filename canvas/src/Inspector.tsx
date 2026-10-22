@@ -224,8 +224,7 @@ export function SelectionBar({
             </button>
           </>
         )}
-        {node &&
-          node.kind !== "group" &&
+        {node?.kind === "box" &&
           panelButton(
             "memo",
             "メモを開く",
@@ -369,7 +368,7 @@ export function SelectionBar({
                   箱にする
                 </button>
               )}
-              {node.kind === "group" && (
+              {(node.kind === "group" || (node.kind === "note" && !parent)) && (
                 <TextField
                   label="見出し"
                   value={node.title}
@@ -431,52 +430,33 @@ export function SelectionBar({
   );
 }
 
+// Text, a figure's memo, and a group's heading are written in place: one
+// field where the words appear, in the same type, without a form around it.
 export function InlineEditor({
   node,
   doc,
   onFinish,
   onCancel,
-  isNew = false,
   onDirty,
-  zoom,
-  maxHeight,
 }: {
   node: CanvasNode;
   doc: CanvasDocument;
   onFinish: (patch: Partial<CanvasNode>) => void;
   onCancel: () => void;
-  isNew?: boolean;
   onDirty: () => void;
-  zoom: number;
-  maxHeight: number;
 }) {
   const content = noteContent(node, doc),
     done = useRef(false),
-    composing = useRef(false);
+    composing = useRef(false),
+    field = node.kind === "group" ? "title" : "body";
   function finish(form: HTMLFormElement) {
     if (done.current) return;
     done.current = true;
-    const data = new FormData(form);
-    onFinish(
-      node.kind === "note"
-        ? {
-            title: String(data.get("title") || ""),
-            body: String(data.get("body") || ""),
-          }
-        : {
-            title: String(data.get("title") || ""),
-            description: String(data.get("description") || ""),
-          },
-    );
+    onFinish({ [field]: String(new FormData(form).get(field) || "") });
   }
   return (
     <form
-      className="inline-editor"
-      style={{
-        width: Math.max(240, Math.min(320, node.w)),
-        maxHeight,
-        transform: `scale(${1 / zoom})`,
-      }}
+      className={"inline-editor in-place " + node.kind}
       aria-label="図の上で編集"
       onSubmit={(e) => {
         e.preventDefault();
@@ -501,54 +481,45 @@ export function InlineEditor({
           done.current = true;
           onCancel();
         }
-        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        if (
+          e.key === "Enter" &&
+          (e.metaKey || e.ctrlKey || node.kind === "group")
+        ) {
           e.preventDefault();
           finish(e.currentTarget);
         }
       }}
     >
-      {!node.attachedTo && (
-        <label>
-          <span>{node.kind === "box" ? "名前" : "見出し（任意）"}</span>
-          <input
-            aria-label="見出しを直接編集"
-            name="title"
-            defaultValue={node.title}
-            maxLength={200}
-            autoFocus={node.kind !== "note"}
-          />
-        </label>
-      )}
-      {node.kind === "note" ? (
-        <label>
-          <span>メモ</span>
+      {node.kind === "group" ? (
+        <input
+          aria-label="見出しを直接編集"
+          name="title"
+          defaultValue={node.title}
+          placeholder="囲みの見出し"
+          maxLength={200}
+          autoFocus
+        />
+      ) : (
+        <>
+          {content.title && <span className="note-title">{content.title}</span>}
           <textarea
-            aria-label="メモを直接編集"
+            aria-label={
+              node.attachedTo ? "メモを直接編集" : "テキストを直接編集"
+            }
             name="body"
             defaultValue={content.body}
+            placeholder={node.attachedTo ? "メモを書く" : "テキストを書く"}
             maxLength={MAX_TEXT}
             autoFocus
-            rows={Math.max(
-              4,
-              Math.min(15, content.body.split("\n").length + 1),
-            )}
+            rows={Math.max(2, content.body.split("\n").length + 1)}
+            onInput={(e) => {
+              const area = e.currentTarget;
+              area.style.height = "auto";
+              area.style.height = area.scrollHeight + "px";
+            }}
           />
-        </label>
-      ) : node.kind === "box" ? (
-        <label>
-          <span>説明（任意）</span>
-          <textarea
-            aria-label="説明を直接編集"
-            name="description"
-            defaultValue={node.description}
-            maxLength={500}
-            rows={2}
-          />
-        </label>
-      ) : null}
-      <button type="submit">
-        {isNew ? "追加" : "完了"} <span>⌘ Enter</span>
-      </button>
+        </>
+      )}
     </form>
   );
 }
