@@ -132,6 +132,9 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   // A memo and its figure light up together while either is under the
   // pointer, which says which figure a memo belongs to.
   const [hovered, setHovered] = useState<string | null>(null);
+  // While the pointer is over a figure, only the port on the nearest side
+  // shows, so moving across the drawing does not light up every edge.
+  const [nearSide, setNearSide] = useState<(typeof PORTS)[number]>("right");
   const linked = useMemo(() => {
     const n = p.doc.nodes.find((n) => n.id === hovered);
     if (!n) return null;
@@ -734,6 +737,10 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       <div
         key={node.id}
         data-node-id={node.id}
+        // On the wrapper, so moving from the figure onto its port keeps
+        // the hover.
+        onPointerEnter={() => setHovered(node.id)}
+        onPointerLeave={() => setHovered((id) => (id === node.id ? null : id))}
         data-node-kind={node.kind}
         data-node-shape={node.shape}
         className={
@@ -830,10 +837,16 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
               aria-label={name + "を選択"}
               aria-pressed={selected}
               onPointerDown={(e) => startNode(e, node)}
-              onPointerEnter={() => setHovered(node.id)}
-              onPointerLeave={() =>
-                setHovered((id) => (id === node.id ? null : id))
-              }
+              onPointerMove={(e) => {
+                const r = e.currentTarget.getBoundingClientRect(),
+                  x = (e.clientX - r.left) / Math.max(r.width, 1),
+                  y = (e.clientY - r.top) / Math.max(r.height, 1),
+                  distance = { top: y, right: 1 - x, bottom: 1 - y, left: x },
+                  side = PORTS.reduce((a, b) =>
+                    distance[b] < distance[a] ? b : a,
+                  );
+                if (side !== nearSide) setNearSide(side);
+              }}
               onDoubleClick={(e) => {
                 if (p.editing === node.id) return;
                 editTarget.current =
@@ -966,7 +979,11 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
               freePorts(usedSides.get(node.id)).map((side, i) => (
                 <button
                   key={side}
-                  className={"connection-port " + side}
+                  className={
+                    "connection-port " +
+                    side +
+                    (hovered === node.id && nearSide === side ? " near" : "")
+                  }
                   aria-label={i ? undefined : name + "から接続"}
                   aria-hidden={i ? true : undefined}
                   tabIndex={i ? -1 : 0}

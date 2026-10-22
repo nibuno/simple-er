@@ -756,7 +756,10 @@ kbd {
 .resize-handle.sw {
   cursor: nesw-resize;
 }
-/* Ports point outward: an arrow says "a line goes from here". */
+/* Ports point outward: an arrow says "a line goes from here". They stay
+   quiet: a muted arrow on the nearest side only, shown after a short pause
+   so passing over a figure does not flash them. A selected figure shows
+   all four at once. */
 .connection-port {
   --port: 20px;
   position: absolute;
@@ -765,10 +768,11 @@ kbd {
   min-height: 0;
   padding: 0;
   background: var(--surface);
-  border: 1.5px solid var(--accent);
+  border: 0;
   border-radius: 50%;
-  color: var(--accent);
-  pointer-events: auto;
+  box-shadow: 0 0 0 1px var(--border);
+  color: var(--muted);
+  pointer-events: none;
   cursor: pointer;
   opacity: 0;
   z-index: 3;
@@ -776,17 +780,34 @@ kbd {
 .connection-port > svg {
   width: 12px;
   height: 12px;
-  stroke-width: 2.2;
+  stroke-width: 2;
 }
 .connection-port:hover {
   background: var(--accent);
+  box-shadow: none;
   color: var(--surface);
 }
-.canvas-node:hover .connection-port,
+.canvas-node:hover .connection-port.near,
+.connection-port:hover,
 .canvas-node.selected .connection-port,
 .tool-connect .connection-port,
 .connection-port:focus-visible {
   opacity: 1;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .connection-port {
+    transition: opacity 0.12s;
+  }
+  .canvas-node:hover .connection-port.near {
+    transition: opacity 0.15s 0.2s;
+  }
+  .connection-port::before {
+    transition: opacity 0.1s;
+  }
+  .connection-port:hover::before {
+    transition: opacity 0.12s 0.6s;
+  }
 }
 .connection-port.top {
   top: calc(-18px - var(--port) / 2);

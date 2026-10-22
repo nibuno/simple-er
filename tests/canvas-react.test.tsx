@@ -975,3 +975,14 @@ test("clicking a port adds a connected figure on that side, clear of others", as
         "does not overlap " + (n.title || n.id),
       );
 });
+test("pointing at a figure readies only the port on the nearest side", async () => {
+  const worker = label("Workerを選択");
+  await act(() =>
+    worker.dispatchEvent(new MouseEvent("pointerover", { bubbles: true })),
+  );
+  assert.equal(
+    document.querySelectorAll('[data-node-id="worker"] .connection-port.near')
+      .length,
+    1,
+  );
+});
