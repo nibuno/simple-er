@@ -35,7 +35,8 @@ import {
 import { downloadFile, exportPng, filename, toSvg } from "./export";
 import { Canvas } from "./Canvas";
 import type { CanvasHandle } from "./Canvas";
-import { Inspector, TextField } from "./Inspector";
+import { SelectionBar, TextField } from "./Inspector";
+import type { Panel } from "./Inspector";
 import { Icon } from "./Icons";
 import { SHAPES, shapeIcons, shapeLabels } from "./shapes";
 
@@ -54,8 +55,8 @@ function boot() {
       doc: emptyDocument(),
       saved: raw,
       error: raw
-        ? "保存済みのデータを読み込めませんでした。元のデータは上書きせずに保持しています。"
-        : "このブラウザでは自動保存を利用できません。ファイルに保存して作業を残してください。",
+        ? "保存データを読み込めませんでした。元のデータは上書きしていません。"
+        : "このブラウザでは自動保存できません。作業はファイルに保存してください。",
       raw,
     };
   }
@@ -65,6 +66,11 @@ const isTyping = (target: EventTarget | null) =>
   !!target.closest("input,textarea,select,[contenteditable='true']");
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
+const SHORT_SAVE_STATES: Record<string, string> = {
+  このブラウザに保存済み: "保存済み",
+  自動保存を停止中: "保存停止中",
+  自動保存できません: "保存できません",
+};
 export function App() {
   const initial = useRef<ReturnType<typeof boot> | null>(null);
   if (!initial.current) initial.current = boot();
@@ -75,12 +81,22 @@ export function App() {
   });
   const [draftNode, setDraftNode] = useState<CanvasNode | null>(null),
     draftRef = useRef<CanvasNode | null>(null);
+  // A figure added by dropping a line on empty space keeps that line as part
+  // of the draft, so it is added or discarded together with the figure.
+  const [draftEdge, setDraftEdge] = useState<CanvasEdge | null>(null),
+    draftEdgeRef = useRef<CanvasEdge | null>(null);
   const doc = useMemo(
     () =>
       draftNode
-        ? { ...history.present, nodes: [...history.present.nodes, draftNode] }
+        ? {
+            ...history.present,
+            nodes: [...history.present.nodes, draftNode],
+            edges: draftEdge
+              ? [...history.present.edges, draftEdge]
+              : history.present.edges,
+          }
         : history.present,
-    [history.present, draftNode],
+    [history.present, draftNode, draftEdge],
   );
   const docRef = useRef(history.present);
   docRef.current = history.present;
@@ -97,6 +113,10 @@ export function App() {
     [status, setStatus] = useState(""),
     [error, setError] = useState(initial.current.error);
   const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [barRequest, setBarRequest] = useState<{
+    id: string;
+    panel: Panel;
+  } | null>(null);
   const [saveState, setSaveState] = useState(""),
     [dirty, setDirty] = useState(false),
     [paused, setPaused] = useState(!!initial.current.raw);
@@ -105,6 +125,11 @@ export function App() {
   const [recovery, setRecovery] = useState(initial.current.raw),
     [remote, setRemote] = useState<string | null>(null),
     [exporting, setExporting] = useState(false);
+  const saveText = paused
+    ? "自動保存を停止中"
+    : dirty || editing
+      ? "編集中"
+      : saveState;
   const canvas = useRef<CanvasHandle>(null),
     file = useRef<HTMLInputElement>(null),
     menu = useRef<HTMLDetailsElement>(null),
@@ -129,10 +154,15 @@ export function App() {
     )
       active.blur();
   }
+  function setDraft(node: CanvasNode | null, edge: CanvasEdge | null = null) {
+    draftRef.current = node;
+    draftEdgeRef.current = edge;
+    setDraftNode(node);
+    setDraftEdge(edge);
+  }
   function discardDraft() {
     const id = draftRef.current?.id;
-    draftRef.current = null;
-    setDraftNode(null);
+    setDraft(null);
     setEditing(null);
     setDirty(false);
     if (id) {
@@ -145,6 +175,7 @@ export function App() {
   function select(ids: string[]) {
     flushInput();
     setInspectorOpen(true);
+    setBarRequest(null);
     setSelection(ids);
     selectionRef.current = ids;
   }
@@ -155,6 +186,12 @@ export function App() {
   function notify(message: string) {
     setStatus(message);
   }
+  // Messages are short confirmations; they leave on their own.
+  useEffect(() => {
+    if (!status) return;
+    const timer = setTimeout(() => setStatus(""), 4000);
+    return () => clearTimeout(timer);
+  }, [status]);
   function commit(next: CanvasDocument, before?: CanvasDocument) {
     try {
       growNodes(next);
@@ -190,10 +227,8 @@ export function App() {
       }
       const next = clone(docRef.current);
       next.nodes.push(node);
-      if (commit(next)) {
-        draftRef.current = null;
-        setDraftNode(null);
-      }
+      if (draftEdgeRef.current) next.edges.push(draftEdgeRef.current);
+      if (commit(next)) setDraft(null);
       return;
     }
     const next = clone(docRef.current),
@@ -238,23 +273,36 @@ export function App() {
     setDirty(!!id);
     if (id) select([id]);
   }
-  function add(kind: "box" | "note", point?: Point, nodeShape = shape) {
+  function add(
+    kind: "box" | "note",
+    point?: Point,
+    nodeShape = shape,
+    from?: string,
+    place = false,
+  ) {
     flushInput();
     discardDraft();
     const next = clone(docRef.current);
     if (next.nodes.length >= MAX_NODES) {
-      setError("要素は150個まで追加できます。");
+      setError("追加できるのは150個までです");
+      return;
+    }
+    if (from && next.edges.length >= MAX_EDGES) {
+      setError("線は400本までです");
       return;
     }
     const center = point || canvas.current?.center() || { x: 100, y: 100 },
       node = makeNode(kind, center, nodeShape);
-    if (!point) {
-      node.x -= node.w / 2;
-      node.y -= node.h / 2;
+    // A dropped line places the figure centered on the drop point.
+    if (!point || from) {
+      node.x = Math.round((node.x - node.w / 2) / 8) * 8;
+      node.y = Math.round((node.y - node.h / 2) / 8) * 8;
     }
-    if (!point) placeInFreeSpace(node, next.nodes);
-    draftRef.current = node;
-    setDraftNode(node);
+    if (!point || place) placeInFreeSpace(node, next);
+    setDraft(
+      node,
+      from ? { id: uid(), from, to: node.id, label: "", dashed: false } : null,
+    );
     clearPending();
     setTool("select");
     select([node.id]);
@@ -263,7 +311,7 @@ export function App() {
   function connect(id: string, fromOverride?: string) {
     flushInput();
     if (docRef.current.nodes.find((n) => n.id === id)?.kind === "group") {
-      notify("図形またはメモを選んでください。");
+      notify("図形かテキストを選択してください");
       return;
     }
     const from = fromOverride ?? pendingRef.current;
@@ -271,21 +319,21 @@ export function App() {
       pendingRef.current = id;
       setPending(id);
       select([id]);
-      notify("接続先を選んでください。Escで取り消せます。");
+      notify("接続先を選択（Escでやめる）");
       return;
     }
     if (from === id) {
       clearPending();
-      notify("接続を取り消しました。");
+      notify("接続をやめました");
       return;
     }
     if (docRef.current.edges.some((e) => e.from === from && e.to === id)) {
       clearPending();
-      notify("この向きの接続線はすでにあります。");
+      notify("同じ向きの線がすでにあります");
       return;
     }
     if (docRef.current.edges.length >= MAX_EDGES) {
-      setError("接続線は400本まで追加できます。");
+      setError("線は400本までです");
       clearPending();
       return;
     }
@@ -296,7 +344,7 @@ export function App() {
     clearPending();
     setTool("select");
     select([edge.id]);
-    notify("接続しました。ラベルも付けられます。");
+    notify("接続しました");
   }
   function remove() {
     flushInput();
@@ -305,7 +353,7 @@ export function App() {
     select([]);
     edit(null);
     clearPending();
-    notify("削除しました。元に戻せます。");
+    notify("削除しました");
   }
   function duplicate() {
     flushInput();
@@ -317,7 +365,7 @@ export function App() {
       );
       commit(result.doc);
       select(result.ids);
-      notify("複製しました。");
+      notify("複製しました");
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -328,7 +376,8 @@ export function App() {
       const result = groupSelection(docRef.current, selectionRef.current);
       commit(result.doc);
       select([result.id]);
-      notify("選んだ要素を囲みました。");
+      canvas.current?.reveal();
+      notify("囲みました");
     } catch (e) {
       notify(errorMessage(e));
     }
@@ -346,7 +395,7 @@ export function App() {
     setEditing(null);
     setDirty(false);
     clearPending();
-    notify("元に戻しました。");
+    notify("元に戻しました");
   }
   function redo() {
     if (draftRef.current) {
@@ -361,7 +410,7 @@ export function App() {
     setEditing(null);
     setDirty(false);
     clearPending();
-    notify("やり直しました。");
+    notify("やり直しました");
   }
   function save() {
     flushInput();
@@ -369,7 +418,7 @@ export function App() {
       encode(docRef.current),
       filename(docRef.current.title) + ".simplecanvas.json",
     );
-    notify("ファイルを保存しました。");
+    notify("ファイルに保存しました");
   }
   function replace(next: CanvasDocument) {
     flushInput();
@@ -385,7 +434,7 @@ export function App() {
     flushInput();
     clearPending();
     setTool((old) => (old === "connect" ? "select" : "connect"));
-    notify("接続元、接続先の順に選んでください。");
+    notify("接続元を選択");
   }
   actions.current = {
     undo,
@@ -406,9 +455,7 @@ export function App() {
       if (stored !== lastSaved.current) {
         setPaused(true);
         setRemote(stored);
-        setError(
-          "別の画面でキャンバスが変更されました。自動保存を一時停止しています。",
-        );
+        setError("別のタブで変更されたため、自動保存を止めています。");
         return;
       }
       localStorage.setItem(STORAGE_KEY, value);
@@ -417,7 +464,7 @@ export function App() {
     } catch {
       setSaveState("自動保存できません");
       setError(
-        "ブラウザに保存できませんでした。ファイルに保存して作業を残してください。",
+        "ブラウザに保存できませんでした。作業はファイルに保存してください。",
       );
     }
   }, [history.past, history.future, paused]);
@@ -443,9 +490,7 @@ export function App() {
       (raw) => {
         setPaused(true);
         setRemote(raw);
-        setError(
-          "別の画面でキャンバスが変更されました。自動保存を一時停止しています。",
-        );
+        setError("別のタブで変更されたため、自動保存を止めています。");
       },
     );
   }, []);
@@ -537,7 +582,7 @@ export function App() {
       e.preventDefault();
       e.clipboardData?.setData("text/plain", encode(fragment));
       if (e.type === "cut") actions.current.remove();
-      else notify("選んだ要素をコピーしました。");
+      else notify("コピーしました");
     };
     const paste = (e: ClipboardEvent) => {
       if (isTyping(e.target) || help.current?.open) return;
@@ -564,12 +609,11 @@ export function App() {
           });
           commit(result.doc);
           select(result.ids);
-          notify("貼り付けました。");
+          notify("貼り付けました");
         } else {
-          if (text.length > 6000)
-            throw new Error("一つのメモは6000文字までです。");
+          if (text.length > 6000) throw new Error("テキストは6000文字までです");
           if (docRef.current.nodes.length >= MAX_NODES)
-            throw new Error("要素は150個まで追加できます。");
+            throw new Error("追加できるのは150個までです");
           const next = clone(docRef.current),
             node = makeNode(
               "note",
@@ -579,7 +623,7 @@ export function App() {
           next.nodes.push(node);
           commit(next);
           select([node.id]);
-          notify("文章をメモとして貼り付けました。");
+          notify("テキストとして貼り付けました");
         }
       } catch (error) {
         setError(errorMessage(error));
@@ -630,110 +674,281 @@ export function App() {
       : undefined;
   return (
     <div className="app">
-      <header className="app-header">
-        <h1>SimpleCanvas</h1>
-        <details
-          className="file-menu"
-          ref={menu}
-          onClick={(e) => {
-            if ((e.target as HTMLElement).closest("button"))
-              menu.current!.open = false;
+      <main className="workspace">
+        <Canvas
+          ref={canvas}
+          doc={doc}
+          selection={selection}
+          tool={tool}
+          pending={pending}
+          editing={editing}
+          draftId={draftNode?.id}
+          getDocument={() => docRef.current}
+          onSelect={select}
+          onConnect={connect}
+          onEdit={edit}
+          onPatch={patchNode}
+          onAddNote={(point) => add("note", point)}
+          onAddBox={() => add("box")}
+          onEditEdge={(id) => {
+            select([id]);
+            setBarRequest({ id, panel: "label" });
           }}
-        >
-          <summary>
-            ファイル <span aria-hidden="true">⌄</span>
-          </summary>
-          <div className="file-popover">
-            <button
-              onClick={() => {
-                replace(emptyDocument());
-                notify("新しいキャンバスを開きました。元に戻せます。");
-              }}
-            >
-              新しいキャンバス
-            </button>
-            <button onClick={() => file.current?.click()}>
-              ファイルを開く…
-            </button>
-            <button onClick={save}>
-              ファイルに保存 <kbd>⌘ S</kbd>
-            </button>
-            <hr />
-            <button
-              disabled={!doc.nodes.length}
-              onClick={() => {
-                downloadFile(
-                  toSvg(docRef.current),
-                  filename(docRef.current.title) + ".svg",
-                  "image/svg+xml",
-                );
-                notify("SVGを保存しました。");
-              }}
-            >
-              SVGで保存
-            </button>
-            <button
-              disabled={!doc.nodes.length || exporting}
-              onClick={async () => {
-                setExporting(true);
-                try {
-                  await exportPng(docRef.current);
-                  notify("PNGを保存しました。");
-                } catch (e) {
-                  setError(errorMessage(e));
-                } finally {
-                  setExporting(false);
-                }
-              }}
-            >
-              {exporting ? "PNGに変換中…" : "PNGで保存"}
-            </button>
-            <hr />
-            <button
-              onClick={() => {
-                replace(growNodes(sampleDocument()));
-                notify("サンプルを開きました。前の内容へは元に戻せます。");
-              }}
-            >
-              サンプルを開く
-            </button>
-          </div>
-        </details>
-        <TextField
-          className="document-title"
-          label="キャンバス名"
-          value={doc.title}
-          onCommit={(title) =>
-            commit({
-              ...docRef.current,
-              title: title.trim() || "無題のキャンバス",
-            })
+          onAddConnected={(from, point, place) => {
+            const source = docRef.current.nodes.find((n) => n.id === from);
+            add(
+              source?.kind === "note" ? "note" : "box",
+              point,
+              source?.kind === "box" ? source.shape : shape,
+              from,
+              place,
+            );
+          }}
+          onPreview={(next) => {
+            docRef.current = next;
+            historyRef.current = historyReducer(historyRef.current, {
+              type: "preview",
+              next,
+            });
+            dispatch({ type: "preview", next });
+            setDirty(true);
+          }}
+          onCommit={commit}
+          selectionBar={
+            inspectorOpen && (
+              <SelectionBar
+                doc={doc}
+                node={node}
+                edge={edge}
+                count={selection.length}
+                selection={selection}
+                onColors={patchColors}
+                onPatch={patchNode}
+                onEdge={patchEdge}
+                onDelete={remove}
+                onDuplicate={duplicate}
+                onGroup={group}
+                onAttach={(id) => {
+                  try {
+                    flushInput();
+                    const result = attachNote(docRef.current, id);
+                    commit(result.doc);
+                    select([result.id]);
+                    canvas.current?.reveal();
+                  } catch (e) {
+                    setError(errorMessage(e));
+                  }
+                }}
+                onFitGroup={(id) => commit(fitGroup(clone(docRef.current), id))}
+                onSelect={select}
+                onDirty={() => setDirty(true)}
+                request={barRequest}
+              />
+            )
           }
+          onStatus={notify}
           onDirty={() => setDirty(true)}
         />
-        <span
-          className={
-            "save-status" +
-            (paused || saveState === "自動保存できません" ? " unsaved" : "")
-          }
+        <div className="floating doc-bar">
+          <details
+            className="file-menu"
+            ref={menu}
+            onClick={(e) => {
+              if ((e.target as HTMLElement).closest("button"))
+                menu.current!.open = false;
+            }}
+          >
+            <summary aria-label="メニュー" title="メニュー">
+              <Icon name="menu" />
+            </summary>
+            <div className="file-popover">
+              <button
+                onClick={() => {
+                  replace(emptyDocument());
+                  notify("新しいキャンバスを作成しました（⌘Z で戻る）");
+                }}
+              >
+                <span>
+                  新しいキャンバス
+                  <small className="menu-note">現在の図を閉じます</small>
+                </span>
+              </button>
+              <button onClick={() => file.current?.click()}>
+                ファイルを開く…
+              </button>
+              <button onClick={save}>
+                ファイルに保存 <kbd>⌘ S</kbd>
+              </button>
+              <hr />
+              <button
+                disabled={!doc.nodes.length}
+                onClick={() => {
+                  downloadFile(
+                    toSvg(docRef.current),
+                    filename(docRef.current.title) + ".svg",
+                    "image/svg+xml",
+                  );
+                  notify("SVGで保存しました");
+                }}
+              >
+                SVGで保存
+              </button>
+              <button
+                disabled={!doc.nodes.length || exporting}
+                onClick={async () => {
+                  setExporting(true);
+                  try {
+                    await exportPng(docRef.current);
+                    notify("PNGで保存しました");
+                  } catch (e) {
+                    setError(errorMessage(e));
+                  } finally {
+                    setExporting(false);
+                  }
+                }}
+              >
+                {exporting ? "PNGに変換中…" : "PNGで保存"}
+              </button>
+              <hr />
+              <button
+                onClick={() => {
+                  replace(growNodes(sampleDocument()));
+                  notify("サンプルを開きました");
+                }}
+              >
+                サンプルを開く
+              </button>
+              <hr />
+              <button onClick={() => help.current?.showModal()}>
+                使い方 <kbd>?</kbd>
+              </button>
+            </div>
+          </details>
+          <TextField
+            className="document-title"
+            label="キャンバス名"
+            value={doc.title}
+            onCommit={(title) =>
+              commit({
+                ...docRef.current,
+                title: title.trim() || "無題のキャンバス",
+              })
+            }
+            onDirty={() => setDirty(true)}
+          />
+          <span
+            className={
+              "save-status" +
+              (paused || saveState === "自動保存できません" ? " unsaved" : "")
+            }
+          >
+            <span className="save-long">{saveText}</span>
+            {/* Narrow screens keep a short form instead of hiding the state. */}
+            <span className="save-short" aria-hidden="true">
+              {SHORT_SAVE_STATES[saveText] ?? saveText}
+            </span>
+          </span>
+        </div>
+        <div
+          className="floating tool-rail"
+          role="toolbar"
+          aria-label="図の編集"
+          aria-orientation="vertical"
         >
-          {paused
-            ? "自動保存を停止中"
-            : dirty || editing
-              ? "編集中"
-              : saveState}
-        </span>
-        <button
-          className="icon-button help-button"
-          aria-label="使い方"
-          title="使い方 (?)"
-          onClick={() => help.current?.showModal()}
-        >
-          <Icon name="help" />
-        </button>
-      </header>
-      <div className="toolbar" role="toolbar" aria-label="図の編集">
-        <div className="tool-group">
+          <button
+            className="icon-button rail-button"
+            aria-label="選択ツール"
+            data-tip="選択 V"
+            aria-pressed={tool === "select"}
+            onClick={() => {
+              setTool("select");
+              clearPending();
+            }}
+          >
+            <Icon name="select" />
+          </button>
+          <button
+            className="icon-button rail-button"
+            aria-label="移動ツール"
+            data-tip="手のひら H"
+            aria-pressed={tool === "pan"}
+            onClick={() => {
+              setTool("pan");
+              clearPending();
+            }}
+          >
+            <Icon name="pan" />
+          </button>
+          <span className="rail-divider" />
+          {SHAPES.map((option) => (
+            <button
+              key={option}
+              className="icon-button rail-button"
+              aria-label={shapeLabels[option] + "を追加"}
+              data-tip={shapeLabels[option] + (option === shape ? " B" : "")}
+              onClick={() => {
+                setShape(option);
+                add("box", undefined, option);
+              }}
+            >
+              <Icon name={shapeIcons[option]} />
+            </button>
+          ))}
+          <span className="rail-divider" />
+          <button
+            className="icon-button rail-button"
+            aria-label="テキストを追加"
+            data-tip="テキスト N"
+            onClick={() => add("note")}
+          >
+            <Icon name="text" />
+          </button>
+          <button
+            className="icon-button rail-button"
+            aria-label="接続"
+            data-tip="接続 C"
+            aria-pressed={tool === "connect"}
+            onClick={connectMode}
+          >
+            <Icon name="connect" />
+          </button>
+          <button
+            className="icon-button rail-button"
+            aria-label="囲む"
+            data-tip="囲む ⌘G"
+            onClick={group}
+          >
+            <Icon name="group" />
+          </button>
+          <button
+            className="icon-button rail-button"
+            aria-label="整頓"
+            data-tip="整頓"
+            onClick={() => {
+              try {
+                flushInput();
+                const before = docRef.current,
+                  next = arrange(before, selectionRef.current),
+                  moved = next.nodes.filter((n) => {
+                    const old = before.nodes.find((o) => o.id === n.id);
+                    return old && (old.x !== n.x || old.y !== n.y);
+                  }).length;
+                // Say what changed: the moves are often only a few pixels.
+                if (!moved) {
+                  notify("整頓する図形はありません");
+                  return;
+                }
+                commit(next);
+                notify(moved + "個の図形を整頓しました");
+              } catch (e) {
+                notify(errorMessage(e));
+              }
+            }}
+          >
+            <Icon name="arrange" />
+          </button>
+        </div>
+        <div className="floating history-bar">
           <button
             className="icon-button"
             aria-label="元に戻す"
@@ -753,259 +968,100 @@ export function App() {
             <Icon name="redo" />
           </button>
         </div>
-        <div className="tool-group">
-          <button
-            className="icon-button"
-            aria-label="選択ツール"
-            title="選択 (V)"
-            aria-pressed={tool === "select"}
-            onClick={() => {
-              setTool("select");
-              clearPending();
-            }}
-          >
-            <Icon name="select" />
-          </button>
-          <button
-            className="icon-button"
-            aria-label="移動ツール"
-            title="キャンバスを移動 (H)"
-            aria-pressed={tool === "pan"}
-            onClick={() => {
-              setTool("pan");
-              clearPending();
-            }}
-          >
-            <Icon name="pan" />
-          </button>
-        </div>
-        <div
-          className="tool-group shape-tools"
-          role="group"
-          aria-label="図形の追加"
-        >
-          <span className="tool-group-label" aria-hidden="true">
-            図形
-          </span>
-          {SHAPES.map((option) => (
-            <button
-              key={option}
-              className="icon-button shape-tool"
-              aria-label={shapeLabels[option] + "を追加"}
-              aria-describedby={"shape-tip-" + option}
-              onClick={() => {
-                setShape(option);
-                add("box", undefined, option);
-              }}
-            >
-              <Icon name={shapeIcons[option]} />
-              <span
-                className="tool-tip"
-                role="tooltip"
-                id={"shape-tip-" + option}
-              >
-                {shapeLabels[option]}
-                {option === shape && <kbd>B</kbd>}
-              </span>
-            </button>
-          ))}
-        </div>
-        <button onClick={() => add("note")} title="メモを追加 (N)">
-          <Icon name="note" />
-          メモ
-        </button>
-        <button
-          aria-pressed={tool === "connect"}
-          onClick={connectMode}
-          title="接続 (C)"
-        >
-          <Icon name="connect" />
-          接続
-        </button>
-        <button onClick={group} title="選んだ要素を囲む (⌘ G)">
-          <Icon name="group" />
-          囲む
-        </button>
-        <button
-          onClick={() => {
-            try {
-              flushInput();
-              commit(arrange(docRef.current, selectionRef.current));
-              notify("図形と線を整えました。");
-            } catch (e) {
-              notify(errorMessage(e));
-            }
-          }}
-          title="今の配置を保ちながら図形と線を整える"
-        >
-          <Icon name="arrange" />
-          整頓
-        </button>
-        {!!selection.length && (
-          <span className="selection-count">{selection.length}個を選択</span>
-        )}
-      </div>
-      {error && (
-        <div className="notice" role="alert">
-          <span>{error}</span>
-          {recovery !== null && (
-            <button
-              onClick={() =>
-                downloadFile(
-                  recovery,
-                  "simplecanvas-recovery.txt",
-                  "text/plain",
-                )
-              }
-            >
-              元のデータを保存
-            </button>
-          )}
-          {paused && remote !== null && (
-            <span>
-              開く前にこの画面の内容をファイルに保存できます。開くと編集履歴はリセットされます。
-            </span>
-          )}
-          {paused && remote !== null && (
-            <button
-              onClick={() => {
-                try {
-                  const raw = localStorage.getItem(STORAGE_KEY);
-                  if (!raw)
-                    throw new Error(
-                      "保存データが削除されています。この画面の内容をファイルに保存してください。",
-                    );
-                  const next = decode(raw);
-                  replace(next);
-                  const reset = { type: "reset" as const, next };
-                  historyRef.current = historyReducer(
-                    historyRef.current,
-                    reset,
-                  );
-                  dispatch(reset);
-                  lastSaved.current = raw;
-                  setPaused(false);
-                  setRemote(null);
-                  setRecovery(null);
-                  setError("");
-                  requestAnimationFrame(() =>
-                    document
-                      .querySelector<HTMLElement>(
-                        'button[aria-label="全体を表示"]',
-                      )
-                      ?.focus(),
-                  );
-                } catch (e) {
-                  setError(errorMessage(e));
-                }
-              }}
-            >
-              最新の内容を開く
-            </button>
-          )}
-          {paused && (
-            <button
-              onClick={() => {
-                if (recovery)
+        {error && (
+          <div className="notice" role="alert">
+            <span>{error}</span>
+            {recovery !== null && (
+              <button
+                onClick={() =>
                   downloadFile(
                     recovery,
                     "simplecanvas-recovery.txt",
                     "text/plain",
-                  );
-                lastSaved.current = localStorage.getItem(STORAGE_KEY);
-                setRecovery(null);
-                setRemote(null);
-                setPaused(false);
-                setError("");
-              }}
-            >
-              この画面の内容で保存を再開
-            </button>
-          )}
-          {!paused && (
-            <button
-              className="icon-button"
-              aria-label="通知を閉じる"
-              onClick={() => setError("")}
-            >
-              <Icon name="close" />
-            </button>
+                  )
+                }
+              >
+                元のデータを保存
+              </button>
+            )}
+            {paused && remote !== null && (
+              <span>
+                開く前にこの画面の内容をファイルに保存できます。開くと編集履歴はリセットされます。
+              </span>
+            )}
+            {paused && remote !== null && (
+              <button
+                onClick={() => {
+                  try {
+                    const raw = localStorage.getItem(STORAGE_KEY);
+                    if (!raw)
+                      throw new Error(
+                        "保存データが見つかりません。この画面の内容をファイルに保存してください。",
+                      );
+                    const next = decode(raw);
+                    replace(next);
+                    const reset = { type: "reset" as const, next };
+                    historyRef.current = historyReducer(
+                      historyRef.current,
+                      reset,
+                    );
+                    dispatch(reset);
+                    lastSaved.current = raw;
+                    setPaused(false);
+                    setRemote(null);
+                    setRecovery(null);
+                    setError("");
+                    requestAnimationFrame(() =>
+                      document
+                        .querySelector<HTMLElement>(
+                          'button[aria-label="全体を表示"]',
+                        )
+                        ?.focus(),
+                    );
+                  } catch (e) {
+                    setError(errorMessage(e));
+                  }
+                }}
+              >
+                最新の内容を開く
+              </button>
+            )}
+            {paused && (
+              <button
+                onClick={() => {
+                  if (recovery)
+                    downloadFile(
+                      recovery,
+                      "simplecanvas-recovery.txt",
+                      "text/plain",
+                    );
+                  lastSaved.current = localStorage.getItem(STORAGE_KEY);
+                  setRecovery(null);
+                  setRemote(null);
+                  setPaused(false);
+                  setError("");
+                }}
+              >
+                この画面の内容で保存を再開
+              </button>
+            )}
+            {!paused && (
+              <button
+                className="icon-button"
+                aria-label="通知を閉じる"
+                onClick={() => setError("")}
+              >
+                <Icon name="close" />
+              </button>
+            )}
+          </div>
+        )}
+        <div className="toast" role="status" aria-live="polite">
+          {(status || pending) && (
+            <span>{status || "接続先を選択（Escでやめる）"}</span>
           )}
         </div>
-      )}
-      <main className="workspace">
-        <Canvas
-          ref={canvas}
-          doc={doc}
-          selection={selection}
-          tool={tool}
-          pending={pending}
-          editing={editing}
-          draftId={draftNode?.id}
-          getDocument={() => docRef.current}
-          onSelect={select}
-          onConnect={connect}
-          onEdit={edit}
-          onPatch={patchNode}
-          onAddNote={(point) => add("note", point)}
-          onPreview={(next) => {
-            docRef.current = next;
-            historyRef.current = historyReducer(historyRef.current, {
-              type: "preview",
-              next,
-            });
-            dispatch({ type: "preview", next });
-            setDirty(true);
-          }}
-          onCommit={commit}
-          onStatus={notify}
-          onDirty={() => setDirty(true)}
-        />
-        {!editing && inspectorOpen && (
-          <Inspector
-            doc={doc}
-            node={node}
-            edge={edge}
-            count={selection.length}
-            selection={selection}
-            onColors={patchColors}
-            onPatch={patchNode}
-            onEdge={patchEdge}
-            onClose={() => select([])}
-            onDelete={remove}
-            onDuplicate={duplicate}
-            onAttach={(id) => {
-              try {
-                flushInput();
-                const result = attachNote(docRef.current, id);
-                commit(result.doc);
-                select([result.id]);
-              } catch (e) {
-                setError(errorMessage(e));
-              }
-            }}
-            onFitGroup={(id) => commit(fitGroup(clone(docRef.current), id))}
-            onSelect={select}
-            onEdit={edit}
-            onDirty={() => setDirty(true)}
-          />
-        )}
       </main>
-      <footer className="statusbar">
-        <span role="status" aria-live="polite">
-          {status ||
-            (pending
-              ? "接続先を選択 · Escで取り消し"
-              : tool === "pan"
-                ? "ドラッグでキャンバスを移動"
-                : "余白をダブルクリックでメモ · Shiftで複数選択 · Space＋ドラッグで移動")}
-        </span>
-        <span>
-          {history.present.nodes.filter((n) => n.kind === "box").length} 図形{" "}
-          <span className="status-separator">/</span>{" "}
-          {history.present.nodes.filter((n) => n.kind === "note").length} メモ
-        </span>
-      </footer>
       <input
         ref={file}
         type="file"
@@ -1019,12 +1075,12 @@ export function App() {
             if (selected.size > 2000000)
               throw new Error("ファイルの上限は2MBです。");
             replace(decode(await selected.text()));
-            notify("ファイルを開きました。読み込み前の内容へも元に戻せます。");
+            notify("ファイルを開きました");
           } catch (error) {
             setError(
               "読み込めませんでした：" +
                 errorMessage(error) +
-                " 現在の内容は保持しています。",
+                "（今の図はそのままです）",
             );
           } finally {
             input.value = "";
@@ -1049,27 +1105,28 @@ export function App() {
           </button>
         </div>
         <p>
-          上部の図形アイコンから、箱・楕円・ひし形・円柱を選べます。名前や説明を入力せずに閉じると、図形は追加されません。
+          左のツール列から図形を置き、矢印で次の図形につなげます。図の横には理由をテキストで書き添えられます。
         </p>
         <p>
-          変更はこのブラウザに自動保存されます。別の端末で編集する場合は「ファイルに保存」を使ってください。
+          変更はこのブラウザに自動保存されます。ほかの端末で使うときは「ファイルに保存」してください。
         </p>
         <dl>
           {[
-            ["図形 / メモを追加", "B / N"],
-            ["図形の文字を編集", "文字をクリック / 選択して Enter"],
-            ["メモ・囲みを編集", "ダブルクリック / 選択して Enter"],
-            ["編集を確定 / 取り消し", "⌘ Enter / Esc"],
-            ["接続元と接続先を選ぶ", "C（接続点のドラッグも可）"],
+            ["図形 / テキストを追加", "B / N"],
+            ["文字を編集", "ダブルクリック / Enter"],
+            ["編集を確定", "Esc / ⌘ Enter"],
+            ["線のラベル", "線をダブルクリック"],
+            ["接続", "C / 矢印をドラッグ"],
+            ["つながった図形を追加", "矢印をクリック"],
             ["複数選択", "Shift＋クリック / 余白をドラッグ"],
             ["囲む", "⌘ G"],
-            ["選択した要素を移動", "矢印キー / Shiftで大きく移動"],
+            ["選択中のものを移動", "矢印キー（Shiftで大きく）"],
             ["複製 / コピー / 貼り付け", "⌘ D / ⌘ C / ⌘ V"],
             ["キャンバスを移動", "2本指スクロール / Space＋ドラッグ"],
             ["拡大・縮小", "ピンチ / Ctrl＋ホイール"],
             ["全体を表示", "1"],
             ["元に戻す / やり直す", "⌘ Z / ⌘ Shift Z"],
-            ["編集できるファイルを保存", "⌘ S"],
+            ["ファイルに保存", "⌘ S"],
           ].map(([label, value]) => (
             <div key={label}>
               <dt>{label}</dt>
@@ -1078,7 +1135,7 @@ export function App() {
           ))}
         </dl>
         <p className="field-help">
-          Windowsでは⌘の代わりにCtrlを使います。囲みを消しても中の要素は残ります。図形を消すと接続線も消えます。図に置いたメモは残ります。
+          Windowsでは⌘をCtrlに読み替えてください。囲みを解除しても中身は残ります。図形を削除するとつながった線も消えます。
         </p>
         <button className="primary" onClick={() => help.current?.close()}>
           閉じる

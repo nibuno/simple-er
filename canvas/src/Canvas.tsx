@@ -7,7 +7,11 @@ import {
   useRef,
   useState,
 } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react";
 import type { CanvasDocument, CanvasNode, Point, Tool, View } from "./types";
 import {
   bounds,
@@ -19,7 +23,9 @@ import {
   noteContent,
   VIEW_KEY,
 } from "./model";
-import { documentRoutes, routeEdge, sceneBounds } from "./geometry";
+import { documentRoutes, sceneBounds } from "./geometry";
+import { snapToGuides } from "./spatial";
+import type { Guide } from "./spatial";
 import { Icon } from "./Icons";
 import { InlineEditor } from "./Inspector";
 import { ShapeTextEditor } from "./ShapeTextEditor";
@@ -31,6 +37,7 @@ export interface CanvasHandle {
   fit: () => void;
   center: () => Point;
   focus: () => void;
+  reveal: () => void;
 }
 interface Props {
   doc: CanvasDocument;
@@ -45,6 +52,11 @@ interface Props {
   onEdit: (id: string | null) => void;
   onPatch: (id: string, patch: Partial<CanvasNode>) => void;
   onAddNote: (point: Point) => void;
+  onAddBox: () => void;
+  onEditEdge: (id: string) => void;
+  // `place` asks for a free spot near the point rather than the exact point.
+  onAddConnected: (from: string, point: Point, place?: boolean) => void;
+  selectionBar?: ReactNode;
   onPreview: (doc: CanvasDocument) => void;
   onCommit: (doc: CanvasDocument, before?: CanvasDocument) => void;
   onStatus: (value: string) => void;
@@ -53,6 +65,7 @@ interface Props {
 type Drag =
   | {
       kind: "move" | "resize";
+      dir?: ResizeDir;
       pointer: number;
       start: Point;
       before: CanvasDocument;
@@ -63,7 +76,29 @@ type Drag =
     }
   | { kind: "pan"; pointer: number; start: Point; view: View }
   | { kind: "marquee"; pointer: number; start: Point; add: string[] }
-  | { kind: "connect"; pointer: number; from: string };
+  | {
+      kind: "connect";
+      pointer: number;
+      from: string;
+      start: Point;
+      side: (typeof PORTS)[number];
+    };
+const PORTS = ["top", "right", "bottom", "left"] as const;
+const SIDE_NAMES = { top: "上", right: "右", bottom: "下", left: "左" };
+// The first free port is the one reachable by keyboard.
+const freePorts = (used?: Set<(typeof PORTS)[number]>) => {
+  const free = PORTS.filter((side) => !used?.has(side));
+  return free.length
+    ? free.sort((a, b) => +(b === "right") - +(a === "right"))
+    : PORTS;
+};
+const RESIZE_DIRS = ["n", "ne", "e", "se", "s", "sw", "w", "nw"] as const;
+type ResizeDir = (typeof RESIZE_DIRS)[number];
+function textField(target: EventTarget): ShapeTextField | undefined {
+  const text = (target as Element).closest(".node-title,.node-description");
+  if (!text) return undefined;
+  return text.classList.contains("node-description") ? "description" : "title";
+}
 function readView(): View | null {
   try {
     const v = JSON.parse(localStorage.getItem(VIEW_KEY) || "null");
@@ -94,6 +129,19 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     h: number;
   } | null>(null);
   const [wire, setWire] = useState<{ from: string; end: Point } | null>(null);
+  const [guides, setGuides] = useState<Guide[]>([]);
+  const [moving, setMoving] = useState(false);
+  // A memo and its figure light up together while either is under the
+  // pointer, which says which figure a memo belongs to.
+  const [hovered, setHovered] = useState<string | null>(null);
+  // While the pointer is over a figure, only the port on the nearest side
+  // shows, so moving across the drawing does not light up every edge.
+  const [nearSide, setNearSide] = useState<(typeof PORTS)[number]>("right");
+  const linked = useMemo(() => {
+    const n = p.doc.nodes.find((n) => n.id === hovered);
+    if (!n) return null;
+    return n.attachedTo || p.doc.nodes.find((m) => m.attachedTo === n.id)?.id;
+  }, [hovered, p.doc.nodes]);
   const [editedSize, setEditedSize] = useState<{
     id: string;
     h: number;
@@ -115,26 +163,122 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         : p.doc,
     [p.doc, p.editing, editedSize],
   );
-  const routes = useMemo(() => documentRoutes(displayedDoc), [displayedDoc]);
+  // A figure being added without a line is left out of routing, so existing
+  // lines do not detour around it before it is confirmed.
+  const routes = useMemo(
+    () =>
+      documentRoutes(
+        p.draftId &&
+          !displayedDoc.edges.some(
+            (e) => e.from === p.draftId || e.to === p.draftId,
+          )
+          ? {
+              ...displayedDoc,
+              nodes: displayedDoc.nodes.filter((n) => n.id !== p.draftId),
+            }
+          : displayedDoc,
+      ),
+    [displayedDoc, p.draftId],
+  );
+  // The selection bar sits centered above the selection, or below it when
+  // the selection is near the top of the window.
+  const barAnchor = (() => {
+    const el = stage.current;
+    if (!el || !p.selection.length) return null;
+    const rects = [
+      ...displayedDoc.nodes.filter((n) => p.selection.includes(n.id)),
+      ...displayedDoc.edges
+        .filter((e) => p.selection.includes(e.id))
+        .flatMap((e) => routes.get(e.id)?.points || [])
+        .map((point) => ({ ...point, w: 0, h: 0 })),
+    ];
+    if (!rects.length) return null;
+    const b = bounds(rects),
+      top = b.y * view.zoom + view.y,
+      bottom = (b.y + b.h) * view.zoom + view.y,
+      width = el.clientWidth || 800,
+      x = Math.max(
+        180,
+        Math.min(width - 180, (b.x + b.w / 2) * view.zoom + view.x),
+      ),
+      below = top < 120;
+    // Clear of the connection ports, which sit 18px outside the figure.
+    return { x, y: below ? bottom + 44 : top - 44, below };
+  })();
+  // Sides where a line already meets a figure; a port there would cover it.
+  const usedSides = useMemo(() => {
+    const nodes = new Map(displayedDoc.nodes.map((n) => [n.id, n])),
+      used = new Map<string, Set<(typeof PORTS)[number]>>();
+    const mark = (id: string, point: Point | undefined) => {
+      const n = nodes.get(id);
+      if (!n || !point) return;
+      const distance = {
+        top: Math.abs(point.y - n.y),
+        right: Math.abs(point.x - n.x - n.w),
+        bottom: Math.abs(point.y - n.y - n.h),
+        left: Math.abs(point.x - n.x),
+      };
+      const side = PORTS.reduce((a, b) => (distance[b] < distance[a] ? b : a));
+      if (!used.has(id)) used.set(id, new Set());
+      used.get(id)!.add(side);
+    };
+    displayedDoc.edges.forEach((edge) => {
+      const points = routes.get(edge.id)?.points;
+      mark(edge.from, points?.[0]);
+      mark(edge.to, points?.at(-1));
+    });
+    return used;
+  }, [displayedDoc, routes]);
   const toWorld = (x: number, y: number) => {
     const r = stage.current!.getBoundingClientRect(),
       v = viewRef.current;
     return { x: (x - r.left - v.x) / v.zoom, y: (y - r.top - v.y) / v.zoom };
   };
-  function fit() {
-    if (!stage.current) return;
-    const b = sceneBounds(latest.current.doc),
-      w = stage.current.clientWidth,
-      h = stage.current.clientHeight;
-    const zoom = Math.max(
+  const fitZoom = (b: { w: number; h: number }, w: number, h: number) =>
+    Math.max(
       0.05,
       Math.min(1, (w - 100) / Math.max(b.w, 1), (h - 110) / Math.max(b.h, 1)),
     );
+  function fit() {
+    const el = stage.current;
+    // Without a size the zoom would clamp to 5% and then be stored.
+    if (!el?.clientWidth || !el.clientHeight) return;
+    const b = sceneBounds(latest.current.doc),
+      w = el.clientWidth,
+      h = el.clientHeight,
+      zoom = fitZoom(b, w, h);
     setView({
       zoom,
       x: (w - b.w * zoom) / 2 - b.x * zoom,
       y: (h - b.h * zoom) / 2 - b.y * zoom,
     });
+  }
+  // The first layout can happen before the stage has a size (a hidden pane),
+  // so the initial view is settled once it has one. A stored view is kept
+  // unless it hides the whole drawing or is far smaller than fitting it.
+  const initialView = useRef(true);
+  function settleInitialView() {
+    const el = stage.current;
+    if (!initialView.current || !el?.clientWidth || !el.clientHeight) return;
+    initialView.current = false;
+    const v = saved.current,
+      doc = latest.current.doc;
+    if (v && !doc.nodes.length) return;
+    if (v) {
+      const b = sceneBounds(doc),
+        visible = intersects(
+          {
+            x: b.x * v.zoom + v.x,
+            y: b.y * v.zoom + v.y,
+            w: Math.max(b.w * v.zoom, 1),
+            h: Math.max(b.h * v.zoom, 1),
+          },
+          { x: 0, y: 0, w: el.clientWidth, h: el.clientHeight },
+        );
+      if (visible && v.zoom >= fitZoom(b, el.clientWidth, el.clientHeight) / 4)
+        return;
+    }
+    fit();
   }
   useImperativeHandle(ref, () => ({
     fit,
@@ -146,6 +290,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           stage.current!.clientHeight / 2,
       ),
     focus: () => stage.current?.focus(),
+    // After a memo or group is placed, bring it into view once it renders.
+    reveal: () => requestAnimationFrame(revealSelection),
   }));
   function revealSelection() {
     const el = stage.current,
@@ -180,8 +326,11 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     });
   }
   useLayoutEffect(() => {
-    if (!saved.current) fit();
-    const resize = new ResizeObserver(revealSelection);
+    settleInitialView();
+    const resize = new ResizeObserver(() => {
+      settleInitialView();
+      revealSelection();
+    });
     resize.observe(stage.current!);
     return () => resize.disconnect();
   }, []);
@@ -207,30 +356,9 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     }
     const n = p.doc.nodes.find((n) => n.id === p.editing);
     if (!n) return;
-    const el = stage.current;
-    if (n.kind === "box") {
-      const before = viewRef.current;
-      editView.current = { before, focused: before };
-      return;
-    }
-    setView((v) => {
-      const left = n.x * v.zoom + v.x,
-        right = left + Math.max(240, Math.min(320, n.w)),
-        top = n.y * v.zoom + v.y;
-      const dx =
-        left < 24
-          ? 24 - left
-          : right > el.clientWidth - 24
-            ? el.clientWidth - 24 - right
-            : 0;
-      const dy =
-        top < 40
-          ? 40 - top
-          : top > el.clientHeight - 260
-            ? Math.max(24, el.clientHeight - 260) - top
-            : 0;
-      return dx || dy ? { ...v, x: v.x + dx, y: v.y + dy } : v;
-    });
+    // Editing starts where the words are; the view stays where it is.
+    const before = viewRef.current;
+    editView.current = { before, focused: before };
   }, [p.editing]);
   useLayoutEffect(() => {
     const el = stage.current;
@@ -340,6 +468,22 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       window.removeEventListener("blur", blur);
     };
   }, []);
+  // The stage is focused from code after pointer actions, which browsers may
+  // treat as keyboard focus; show its focus ring only after moving focus with
+  // Tab. Typing words or shortcuts does not count.
+  useEffect(() => {
+    const el = stage.current!,
+      pointer = () => (el.dataset.input = "pointer"),
+      keyboard = (e: KeyboardEvent) => {
+        if (e.key === "Tab") el.dataset.input = "keyboard";
+      };
+    window.addEventListener("pointerdown", pointer, true);
+    window.addEventListener("keydown", keyboard, true);
+    return () => {
+      window.removeEventListener("pointerdown", pointer, true);
+      window.removeEventListener("keydown", keyboard, true);
+    };
+  }, []);
   useEffect(() => {
     const escape = (e: KeyboardEvent) => {
       if (e.key === "Escape" && drag.current) {
@@ -365,7 +509,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     capture(e);
     setPanning(true);
   }
-  function startNode(e: ReactPointerEvent, node: CanvasNode, resize = false) {
+  function startNode(e: ReactPointerEvent, node: CanvasNode, dir?: ResizeDir) {
+    const resize = !!dir;
     if (e.button !== 0 && e.button !== 1) return;
     e.stopPropagation();
     if (e.button === 1 || space.current || p.tool === "pan") {
@@ -378,22 +523,20 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       return;
     }
     if (p.editing === node.id) return;
-    const textTarget =
-      !resize && !e.shiftKey && node.kind === "box"
-        ? (e.target as Element).closest(".node-title,.node-description")
-        : null;
-    const editField = textTarget
-      ? textTarget.classList.contains("node-description")
-        ? "description"
-        : "title"
-      : undefined;
     if (p.editing) {
       stage.current?.focus();
-      if (!editField) {
-        p.onSelect([node.id]);
-        return;
-      }
+      p.onSelect([node.id]);
+      return;
     }
+    // A click selects; clicking the text of the already selected figure, or
+    // double-clicking it, edits that field.
+    const editField =
+      !resize &&
+      !e.shiftKey &&
+      p.selection.length === 1 &&
+      p.selection[0] === node.id
+        ? textField(e.target)
+        : undefined;
     e.preventDefault();
     stage.current?.focus();
     const ids = e.shiftKey
@@ -409,6 +552,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     if (!ids.includes(node.id)) return;
     drag.current = {
       kind: resize ? "resize" : "move",
+      dir,
       pointer: e.pointerId,
       start: toWorld(e.clientX, e.clientY),
       before: p.getDocument(),
@@ -419,6 +563,24 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     };
     capture(e);
   }
+  // A click on a port adds a figure of the same size on that side, one
+  // gap away, connected from this one.
+  function addBeside(id: string, side: (typeof PORTS)[number]) {
+    const n = latest.current.doc.nodes.find((n) => n.id === id);
+    if (!n) return;
+    const gap = 96,
+      cx = n.x + n.w / 2,
+      cy = n.y + n.h / 2;
+    const point =
+      side === "right"
+        ? { x: n.x + n.w + gap + n.w / 2, y: cy }
+        : side === "left"
+          ? { x: n.x - gap - n.w / 2, y: cy }
+          : side === "bottom"
+            ? { x: cx, y: n.y + n.h + gap + n.h / 2 }
+            : { x: cx, y: n.y - gap - n.h / 2 };
+    latest.current.onAddConnected(id, point, true);
+  }
   function cancel() {
     const d = drag.current;
     if (d && (d.kind === "move" || d.kind === "resize"))
@@ -426,6 +588,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     drag.current = null;
     setMarquee(null);
     setWire(null);
+    setGuides([]);
+    setMoving(false);
     setPanning(false);
     if (d && stage.current?.hasPointerCapture(d.pointer))
       stage.current.releasePointerCapture(d.pointer);
@@ -454,14 +618,27 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       latest.current.onSelect([...new Set([...d.add, ...ids])]);
     }
     if (d.kind === "connect") {
-      const target = document
-        .elementFromPoint(e.clientX, e.clientY)
-        ?.closest<HTMLElement>("[data-node-id]")?.dataset.nodeId;
+      const hit = document.elementFromPoint(e.clientX, e.clientY),
+        target = hit?.closest<HTMLElement>("[data-node-id]")?.dataset.nodeId,
+        point = toWorld(e.clientX, e.clientY),
+        dragged =
+          Math.hypot(point.x - d.start.x, point.y - d.start.y) *
+            viewRef.current.zoom >
+          24;
       if (target && target !== d.from) latest.current.onConnect(target, d.from);
+      else if (
+        !target &&
+        dragged &&
+        !hit?.closest(".canvas-controls,.empty-canvas,.edge-control")
+      )
+        latest.current.onAddConnected(d.from, point);
+      else if (!dragged) addBeside(d.from, d.side);
       else latest.current.onConnect(d.from);
     }
     setMarquee(null);
     setWire(null);
+    setGuides([]);
+    setMoving(false);
     setPanning(false);
     if (stage.current?.hasPointerCapture(d.pointer))
       stage.current.releasePointerCapture(d.pointer);
@@ -497,17 +674,46 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       dy = point.y - d.start.y;
     if (!d.moved && Math.hypot(dx, dy) * viewRef.current.zoom < 4) return;
     if (!d.moved && d.editField) p.onSelect(d.ids);
+    if (!d.moved) setMoving(true);
     d.moved = true;
-    if (!e.altKey) {
-      dx = Math.round(dx / 8) * 8;
-      dy = Math.round(dy / 8) * 8;
-    }
-    if (d.kind === "move") p.onPreview(moveNodes(d.before, d.ids, dx, dy));
-    else {
+    const grid = (v: number) => (e.altKey ? v : Math.round(v / 8) * 8);
+    if (d.kind === "move") {
+      // Alt moves freely. Otherwise an axis aligned with a nearby figure
+      // follows that figure, and the other axis follows the 8px grid.
+      if (!e.altKey) {
+        const moved = expandedIds(d.before, d.ids),
+          box = bounds(d.before.nodes.filter((n) => d.ids.includes(n.id))),
+          snap = snapToGuides(
+            { ...box, x: box.x + dx, y: box.y + dy },
+            d.before.nodes.filter(
+              (n) => n.kind !== "group" && !moved.has(n.id),
+            ),
+            6 / viewRef.current.zoom,
+          );
+        dx = snap.dx === null ? grid(dx) : dx + snap.dx;
+        dy = snap.dy === null ? grid(dy) : dy + snap.dy;
+        setGuides(snap.guides);
+      } else setGuides([]);
+      p.onPreview(moveNodes(d.before, d.ids, dx, dy));
+    } else {
+      dx = grid(dx);
+      dy = grid(dy);
       const next = clone(d.before),
-        n = next.nodes.find((n) => n.id === d.id)!;
-      n.w = Math.max(160, Math.min(4000, n.w + dx));
-      n.h = Math.max(minimumHeight(n, next), Math.min(20000, n.h + dy));
+        n = next.nodes.find((n) => n.id === d.id)!,
+        dir = d.dir || "se",
+        start = { x: n.x, y: n.y, w: n.w, h: n.h };
+      let w = dir.includes("e") ? n.w + dx : dir.includes("w") ? n.w - dx : n.w,
+        h = dir.includes("s") ? n.h + dy : dir.includes("n") ? n.h - dy : n.h;
+      // Shift keeps the proportions when resizing from a corner.
+      if (e.shiftKey && dir.length === 2) {
+        const scale = Math.max(w / start.w, h / start.h);
+        w = start.w * scale;
+        h = start.h * scale;
+      }
+      n.w = Math.max(160, Math.min(4000, Math.round(w)));
+      n.h = Math.max(minimumHeight(n, next), Math.min(20000, Math.round(h)));
+      if (dir.includes("w")) n.x = start.x + start.w - n.w;
+      if (dir.includes("n")) n.y = start.y + start.h - n.h;
       p.onPreview(next);
     }
   }
@@ -530,16 +736,22 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           ? shapeLabels[node.shape]
           : node.kind === "group"
             ? "囲み"
-            : "メモ");
+            : "テキスト");
     return (
       <div
         key={node.id}
         data-node-id={node.id}
+        // On the wrapper, so moving from the figure onto its port keeps
+        // the hover.
+        onPointerEnter={() => setHovered(node.id)}
+        onPointerLeave={() => setHovered((id) => (id === node.id ? null : id))}
         data-node-kind={node.kind}
         data-node-shape={node.shape}
         className={
           "canvas-node " +
           node.kind +
+          (node.attachedTo ? " attached" : "") +
+          (linked === node.id ? " linked" : "") +
           (selected ? " selected" : "") +
           (editing ? " editing" : "") +
           (expanded.has(node.id) ? " in-selection" : "") +
@@ -553,8 +765,9 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
             height: node.h,
             "--node-fill": node.fillColor,
             "--node-stroke": node.strokeColor,
-            "--node-text": colors.text,
-            "--node-muted": colors.muted,
+            // Without a chosen fill, text follows the light or dark theme.
+            "--node-text": colors.customBackground ? colors.text : undefined,
+            "--node-muted": colors.customBackground ? colors.muted : undefined,
           } as CSSProperties
         }
       >
@@ -591,12 +804,6 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                     : { id: node.id, h },
                 );
               }}
-              onCancel={() => {
-                editTarget.current = "title";
-                setEditedSize(null);
-                p.onEdit(null);
-                stage.current?.focus();
-              }}
               onFinish={(patch) => {
                 editTarget.current = "title";
                 setEditedSize(null);
@@ -610,14 +817,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           <InlineEditor
             node={node}
             doc={p.doc}
-            isNew={p.draftId === node.id}
             onDirty={p.onDirty}
-            zoom={view.zoom}
-            maxHeight={Math.max(140, (stage.current?.clientHeight || 500) - 48)}
-            onCancel={() => {
-              p.onEdit(null);
-              stage.current?.focus();
-            }}
             onFinish={(patch) => {
               p.onPatch(node.id, patch);
               p.onEdit(null);
@@ -631,7 +831,22 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
               aria-label={name + "を選択"}
               aria-pressed={selected}
               onPointerDown={(e) => startNode(e, node)}
-              onDoubleClick={() => p.onEdit(node.id)}
+              onPointerMove={(e) => {
+                const r = e.currentTarget.getBoundingClientRect(),
+                  x = (e.clientX - r.left) / Math.max(r.width, 1),
+                  y = (e.clientY - r.top) / Math.max(r.height, 1),
+                  distance = { top: y, right: 1 - x, bottom: 1 - y, left: x },
+                  side = PORTS.reduce((a, b) =>
+                    distance[b] < distance[a] ? b : a,
+                  );
+                if (side !== nearSide) setNearSide(side);
+              }}
+              onDoubleClick={(e) => {
+                if (p.editing === node.id) return;
+                editTarget.current =
+                  (node.kind === "box" && textField(e.target)) || "title";
+                p.onEdit(node.id);
+              }}
               onClick={(e) => {
                 if (e.detail === 0) {
                   if (p.pending || p.tool === "connect") p.onConnect(node.id);
@@ -671,26 +886,36 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                   </span>
                   {node.body && (
                     <span
-                      className="memo-indicator"
-                      aria-label="メモあり"
+                      className={
+                        "memo-indicator" +
+                        (node.shape === "rectangle" ? "" : " centered")
+                      }
+                      title={"メモ：" + node.body.split("\n")[0].slice(0, 60)}
                       style={
                         node.shape === "rectangle"
                           ? undefined
                           : {
-                              right: node.w / 2 - 6,
                               bottom:
                                 node.shape === "cylinder" ? 12 : area.y / 2 + 4,
                             }
                       }
                     >
                       <Icon name="note" />
+                      メモ
                     </span>
                   )}
                 </>
               ) : node.kind === "note" ? (
                 <>
-                  {text.title && (
-                    <span className="note-title">{text.title}</span>
+                  {node.attachedTo ? (
+                    <span className="note-title">
+                      <Icon name="note" />
+                      {text.title}
+                    </span>
+                  ) : (
+                    text.title && (
+                      <span className="note-title">{text.title}</span>
+                    )
                   )}
                   <span className="note-body">{text.body}</span>
                 </>
@@ -702,20 +927,21 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                 </>
               )}
             </button>
+            {selected &&
+              p.selection.length === 1 &&
+              RESIZE_DIRS.filter((dir) => dir !== "se").map((dir) => (
+                <span
+                  key={dir}
+                  className={"resize-handle " + dir}
+                  aria-hidden="true"
+                  onPointerDown={(e) => startNode(e, node, dir)}
+                />
+              ))}
             {selected && (
               <button
-                className="node-edit"
-                aria-label={name + "を編集"}
-                onClick={() => p.onEdit(node.id)}
-              >
-                編集
-              </button>
-            )}
-            {selected && (
-              <button
-                className="resize-handle"
-                aria-label="サイズを変更。矢印キーでも調整できます"
-                onPointerDown={(e) => startNode(e, node, true)}
+                className="resize-handle se"
+                aria-label="サイズを変更"
+                onPointerDown={(e) => startNode(e, node, "se")}
                 onKeyDown={(e) => {
                   if (!e.key.startsWith("Arrow")) return;
                   e.stopPropagation();
@@ -743,31 +969,44 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                 }}
               />
             )}
-            {node.kind !== "group" && (
-              <button
-                className="connection-port"
-                aria-label={name + "から接続"}
-                title="ドラッグ、またはクリックして接続先を選択"
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  stage.current?.focus();
-                  drag.current = {
-                    kind: "connect",
-                    pointer: e.pointerId,
-                    from: node.id,
-                  };
-                  setWire({
-                    from: node.id,
-                    end: toWorld(e.clientX, e.clientY),
-                  });
-                  capture(e);
-                }}
-                onClick={(e) => {
-                  if (e.detail === 0) p.onConnect(node.id);
-                }}
-              />
-            )}
+            {node.kind !== "group" &&
+              freePorts(usedSides.get(node.id)).map((side, i) => (
+                <button
+                  key={side}
+                  className={
+                    "connection-port " +
+                    side +
+                    (hovered === node.id && nearSide === side ? " near" : "")
+                  }
+                  aria-label={i ? undefined : name + "から接続"}
+                  aria-hidden={i ? true : undefined}
+                  tabIndex={i ? -1 : 0}
+                  data-tip={SIDE_NAMES[side] + "に追加（ドラッグで接続）"}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    stage.current?.focus();
+                    const start = toWorld(e.clientX, e.clientY);
+                    drag.current = {
+                      kind: "connect",
+                      pointer: e.pointerId,
+                      from: node.id,
+                      start,
+                      side,
+                    };
+                    setWire({
+                      from: node.id,
+                      end: toWorld(e.clientX, e.clientY),
+                    });
+                    capture(e);
+                  }}
+                  onClick={(e) => {
+                    if (e.detail === 0) addBeside(node.id, side);
+                  }}
+                >
+                  <Icon name="arrow" />
+                </button>
+              ))}
           </>
         )}
       </div>
@@ -784,7 +1023,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         if (e.button !== 0 && e.button !== 1) return;
         if (
           (e.target as Element).closest(
-            ".canvas-node,.edge-control,.canvas-controls,.empty-canvas",
+            ".canvas-node,.edge-control,.canvas-controls,.empty-canvas,.selection-anchor",
           )
         )
           return;
@@ -793,7 +1032,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           return;
         }
         if (p.tool === "connect") {
-          p.onStatus("接続元の図形またはメモを選んでください。");
+          p.onStatus("接続元を選択");
           return;
         }
         stage.current?.focus();
@@ -814,11 +1053,24 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       }}
       onDoubleClick={(e) => {
         if (
-          !(e.target as Element).closest(
-            ".canvas-node,.edge-control,.canvas-controls,.empty-canvas",
+          (e.target as Element).closest(
+            ".canvas-node,.edge-control,.canvas-controls,.empty-canvas,.selection-anchor",
           )
         )
-          p.onAddNote(toWorld(e.clientX, e.clientY));
+          return;
+        // Pressing a figure captures the pointer on the stage, so its
+        // double-click arrives here; edit whatever is under the pointer.
+        const hit = document.elementFromPoint?.(e.clientX, e.clientY),
+          id = hit?.closest<HTMLElement>("[data-node-id]")?.dataset.nodeId,
+          node = p.doc.nodes.find((n) => n.id === id);
+        if (node) {
+          if (p.editing === node.id) return;
+          editTarget.current =
+            (node.kind === "box" && hit && textField(hit)) || "title";
+          p.onEdit(node.id);
+          return;
+        }
+        p.onAddNote(toWorld(e.clientX, e.clientY));
       }}
     >
       <div
@@ -867,26 +1119,6 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
             "translate(" + view.x + "," + view.y + ") scale(" + view.zoom + ")"
           }
         >
-          {p.doc.nodes
-            .filter((n) => n.attachedTo)
-            .map((n) => (
-              <path
-                key={n.id}
-                className="attachment-wire"
-                d={
-                  routeEdge(
-                    {
-                      id: n.id,
-                      from: n.attachedTo!,
-                      to: n.id,
-                      label: "",
-                      dashed: true,
-                    },
-                    p.doc.nodes,
-                  ).path
-                }
-              />
-            ))}
           {p.doc.edges.map((edge) => {
             const route = routes.get(edge.id)!;
             return (
@@ -907,6 +1139,10 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                   "への接続線"
                 }
                 onPointerDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  p.onEditEdge(edge.id);
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   p.onSelect(
@@ -989,20 +1225,45 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       >
         {p.doc.nodes.filter((n) => n.kind !== "group").map(renderNode)}
       </div>
+      {p.selectionBar && !moving && !p.editing && barAnchor && (
+        <div
+          className={"selection-anchor" + (barAnchor.below ? " below" : "")}
+          style={{ left: barAnchor.x, top: barAnchor.y }}
+        >
+          {p.selectionBar}
+        </div>
+      )}
+      {guides.length > 0 && (
+        <svg className="snap-guides" aria-hidden="true">
+          {guides.map((g, i) => (
+            <line
+              key={i}
+              x1={g.x1 * view.zoom + view.x}
+              y1={g.y1 * view.zoom + view.y}
+              x2={g.x2 * view.zoom + view.x}
+              y2={g.y2 * view.zoom + view.y}
+            />
+          ))}
+        </svg>
+      )}
       {!p.doc.nodes.length && (
         <div className="empty-canvas">
           <span className="empty-symbol">
             <Icon name="box" />
           </span>
-          <h2>キャンバスは空です</h2>
-          <p>上のボタンから図形やメモを追加できます。</p>
-          <button
-            className="primary"
-            onClick={() => p.onAddNote({ x: 100, y: 100 })}
-          >
-            メモを追加
-          </button>
-          <small>余白のダブルクリックでも書き始められます</small>
+          <h2>空のキャンバス</h2>
+          <div className="empty-actions">
+            <button className="primary" onClick={p.onAddBox}>
+              箱を追加
+            </button>
+            <button
+              className="secondary"
+              onClick={() => p.onAddNote({ x: 100, y: 100 })}
+            >
+              テキストを追加
+            </button>
+          </div>
+          <small>余白をダブルクリックすると文字を書けます</small>
         </div>
       )}
       <div className="canvas-controls" aria-label="表示操作">

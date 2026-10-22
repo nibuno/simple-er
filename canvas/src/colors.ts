@@ -17,13 +17,14 @@ export const DEFAULT_COLORS = {
   background: "#f8faf9",
   fill: "#ffffff",
   frame: "#eff4f080",
-  stroke: "#d5ddd9",
+  stroke: "#9eaca6",
   line: "#84998e",
   text: "#263b35",
   muted: "#68766f",
   white: "#ffffff",
   black: "#1e1e1e",
   strongText: "#000000",
+  memo: "#eef2ef",
 } as const;
 
 export const validColor = (value: unknown) =>
@@ -82,6 +83,11 @@ export function nodeAppearance(node: CanvasNode, doc: CanvasDocument) {
         : DEFAULT_COLORS.strongText;
   return {
     fill,
+    // Text sits on a color the user chose, rather than the theme's surface.
+    customBackground:
+      validColor(node.fillColor) && node.fillColor !== "transparent"
+        ? true
+        : fill === "transparent" && background !== DEFAULT_COLORS.background,
     stroke: safeColor(node.strokeColor, DEFAULT_COLORS.stroke),
     text,
     muted:

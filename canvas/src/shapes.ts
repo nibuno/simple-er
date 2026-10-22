@@ -72,5 +72,5 @@ export function boxTextArea({ shape, w, h }: CanvasNode) {
       centered: true,
     };
   }
-  return { x: 16, y: 20, w: w - 32, h: h - 40, centered: false };
+  return { x: 16, y: 20, w: w - 32, h: h - 40, centered: true };
 }

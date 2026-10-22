@@ -12,6 +12,8 @@ import { boxTextArea, minimumBoxHeight, SHAPES, shapeLabels } from "./shapes";
 import { arrangeBoxes } from "./layout";
 import { validColor } from "./colors";
 import { bounds } from "./spatial";
+import type { Rect } from "./spatial";
+import { documentRoutes } from "./geometry";
 export { bounds } from "./spatial";
 import { wrapText } from "./text";
 export { wrapText } from "./text";
@@ -54,7 +56,7 @@ export function makeNode(
       kind === "group"
         ? 280
         : kind === "note"
-          ? 180
+          ? 50
           : shape === "diamond"
             ? 180
             : shape === "cylinder"
@@ -140,8 +142,9 @@ export function minimumHeight(node: CanvasNode, doc: CanvasDocument) {
     return minimumBoxHeight(node.shape, textHeight);
   }
   const text = noteContent(node, doc);
+  // 50 is the smallest height a saved file accepts.
   return Math.max(
-    90,
+    50,
     24 +
       (text.title
         ? wrapText(text.title, node.w - 28, 13).length * 22 + 10
@@ -149,9 +152,12 @@ export function minimumHeight(node: CanvasNode, doc: CanvasDocument) {
       wrapText(text.body || "メモを書く", node.w - 28, 14).length * 24,
   );
 }
+// Figures and groups grow to fit their text; text and memos are exactly as
+// tall as their words, so their frame never runs past them.
 export function growNodes(doc: CanvasDocument) {
   doc.nodes.forEach((n) => {
-    n.h = Math.max(n.h, minimumHeight(n, doc));
+    const fit = minimumHeight(n, doc);
+    n.h = n.kind === "note" ? fit : Math.max(n.h, fit);
   });
   return doc;
 }
@@ -316,11 +322,9 @@ export function groupSelection(doc: CanvasDocument, ids: string[]) {
     (n) => expanded.has(n.id) && n.kind !== "group",
   );
   if (!members.length)
-    throw new Error(
-      "囲みたい箱やメモを選んでください。Shiftを押しながら複数選択できます。",
-    );
+    throw new Error("囲む図形を2つ以上選択してください（Shift＋クリック）");
   if (next.nodes.length >= MAX_NODES)
-    throw new Error("要素は150個まで追加できます。");
+    throw new Error("追加できるのは150個までです");
   const group = makeNode("group", { x: 0, y: 0 });
   members.forEach((n) => (n.groupId = group.id));
   next.nodes.push(group);
@@ -331,21 +335,18 @@ export function attachNote(doc: CanvasDocument, id: string) {
   if (existing) return { doc, id: existing.id };
   const next = clone(doc),
     parent = next.nodes.find((n) => n.id === id);
-  if (!parent || parent.kind !== "box") throw new Error("箱を選んでください。");
+  if (!parent || parent.kind !== "box")
+    throw new Error("図形を選択してください");
   if (next.nodes.length >= MAX_NODES)
-    throw new Error("要素は150個まで追加できます。");
+    throw new Error("追加できるのは150個までです");
   const note = {
     ...makeNode("note", { x: parent.x + parent.w + 72, y: parent.y }),
     attachedTo: id,
     groupId: parent.groupId,
   };
-  // Prefer a nearby free position over placing the memo on an existing element.
-  for (
-    let i = 0;
-    i < 20 && next.nodes.some((n) => n.kind !== "group" && intersects(note, n));
-    i++
-  )
-    note.y += 120;
+  note.h = minimumHeight(note, next);
+  // Beside the figure if it is clear there, else the nearest free spot.
+  placeInFreeSpace(note, next);
   next.nodes.push(note);
   return { doc: growNodes(next), id: note.id };
 }
@@ -353,13 +354,39 @@ export const intersects = (
   a: { x: number; y: number; w: number; h: number },
   b: { x: number; y: number; w: number; h: number },
 ) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-export function placeInFreeSpace(node: CanvasNode, nodes: CanvasNode[]) {
+// Keep a new figure clear of other elements, lines and their labels, with
+// enough room around it for a line to pass.
+export function placeInFreeSpace(node: CanvasNode, doc: CanvasDocument) {
   const start = { x: node.x, y: node.y },
-    obstacles = nodes.filter((n) => n.id !== node.id && n.kind !== "group");
-  const free = (x: number, y: number) =>
-    !obstacles.some((n) =>
-      intersects({ x: x - 8, y: y - 8, w: node.w + 16, h: node.h + 16 }, n),
+    obstacles: Rect[] = doc.nodes.filter(
+      (n) => n.id !== node.id && n.kind !== "group",
     );
+  documentRoutes(doc).forEach((r) => {
+    r.points.slice(1).forEach((p, i) => {
+      const q = r.points[i];
+      obstacles.push({
+        x: Math.min(p.x, q.x),
+        y: Math.min(p.y, q.y),
+        w: Math.abs(p.x - q.x),
+        h: Math.abs(p.y - q.y),
+      });
+    });
+    if (r.labelLines.some(Boolean))
+      obstacles.push({
+        x: r.label.x - 110,
+        y: r.label.y - 22,
+        w: 220,
+        h: r.labelLines.length * 18 + 22,
+      });
+  });
+  const gap = 32,
+    free = (x: number, y: number) =>
+      !obstacles.some((n) =>
+        intersects(
+          { x: x - gap, y: y - gap, w: node.w + gap * 2, h: node.h + gap * 2 },
+          n,
+        ),
+      );
   if (free(start.x, start.y)) return node;
   for (let ring = 1; ring <= 40; ring++) {
     for (let i = -ring; i <= ring; i++) {
@@ -411,7 +438,7 @@ export function pasteDocument(
     doc.nodes.length + fragment.nodes.length > MAX_NODES ||
     doc.edges.length + fragment.edges.length > MAX_EDGES
   )
-    throw new Error("貼り付けると要素数の上限を超えます。");
+    throw new Error("貼り付けると上限の150個を超えます");
   const next = clone(doc),
     map = new Map(fragment.nodes.map((n) => [n.id, uid()]));
   const nodes = fragment.nodes.map((n) => ({
@@ -440,8 +467,7 @@ export function arrange(doc: CanvasDocument, selection: string[]) {
       selected.length >= 2
         ? selected
         : doc.nodes.filter((n) => n.kind === "box");
-  if (nodes.length < 2)
-    throw new Error("整頓するには図形を2つ以上追加してください。");
+  if (nodes.length < 2) throw new Error("整頓するには図形が2つ以上必要です");
   const next = clone(doc),
     allowed = new Set(nodes.map((n) => n.id));
   const positions = arrangeBoxes(doc, allowed),

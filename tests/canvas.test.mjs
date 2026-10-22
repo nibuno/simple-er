@@ -373,7 +373,7 @@ test("automatic routes follow boundaries and avoid a blocking box", () => {
   }
   assert.ok(route.path.startsWith("M "));
 });
-test("portable SVG is valid XML, escapes text and includes attached memo contents", () => {
+test("portable SVG is valid XML, escapes text and draws attached memos as cards", () => {
   const doc = growNodes(sampleDocument());
   doc.title = '構成 <A> & "B"';
   doc.nodes[0].title = "<script>alert(1)</script>\u0007";
@@ -392,8 +392,116 @@ test("portable SVG is valid XML, escapes text and includes attached memo content
     doc.edges.length,
   );
   assert.equal(documentRoutes(doc).size, doc.edges.length);
+  // A memo is a card headed by its figure's name, not a dotted leader line.
   assert.equal(
     parsed.window.document.querySelectorAll('[stroke-dasharray="3 5"]').length,
+    0,
+  );
+  assert.equal(
+    parsed.window.document.querySelectorAll('rect[rx="8"]').length,
     doc.nodes.filter((node) => node.attachedTo).length,
   );
+});
+test("a new figure is placed clear of figures, lines and labels", async () => {
+  const { placeInFreeSpace } = await import("../canvas/src/model.ts");
+  const doc = growNodes(sampleDocument()),
+    // Centered on the API → Queue line and its label.
+    node = makeNode("box", { x: 400, y: 190 });
+  placeInFreeSpace(node, doc);
+  const hit = (a, b) =>
+    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  assert.ok(
+    doc.nodes.every((n) => n.kind === "group" || !hit(node, n)),
+    "overlaps a figure",
+  );
+  for (const r of documentRoutes(doc).values())
+    r.points.slice(1).forEach((p, i) => {
+      const q = r.points[i];
+      const seg = {
+        x: Math.min(p.x, q.x),
+        y: Math.min(p.y, q.y),
+        w: Math.abs(p.x - q.x),
+        h: Math.abs(p.y - q.y),
+      };
+      assert.ok(!hit(node, seg), "crosses a line");
+    });
+});
+test("guides snap the nearest edge or center within the threshold on each axis", async () => {
+  const { snapToGuides } = await import("../canvas/src/spatial.ts");
+  const other = { x: 100, y: 100, w: 200, h: 80 };
+  const near = snapToGuides({ x: 104, y: 300, w: 120, h: 60 }, [other], 6);
+  assert.equal(near.dx, -4);
+  assert.equal(near.dy, null);
+  assert.deepEqual(near.guides, [{ x1: 100, x2: 100, y1: 100, y2: 360 }]);
+  const centered = snapToGuides({ x: 400, y: 107, w: 100, h: 60 }, [other], 6);
+  // Its center (137) is nearer to the other's center (140) than its top is.
+  assert.equal(centered.dy, 3);
+  assert.equal(
+    snapToGuides({ x: 120, y: 300, w: 120, h: 60 }, [other], 6).dx,
+    null,
+  );
+});
+test("a long line label is kept clear of the figures it would sit under", async () => {
+  const { labelBox } = await import("../canvas/src/geometry.ts");
+  const doc = emptyDocument(),
+    api = { ...makeNode("box", { x: 0, y: 0 }), id: "api", title: "API" },
+    queue = {
+      ...makeNode("box", { x: 330, y: 0 }),
+      id: "queue",
+      title: "Queue",
+    };
+  doc.nodes = [api, queue];
+  doc.edges = [
+    {
+      id: "e",
+      from: "api",
+      to: "queue",
+      label: "注文確定イベント（注文ID・送信先・メッセージ種別を含む）",
+      dashed: false,
+    },
+  ];
+  const route = documentRoutes(doc).get("e"),
+    box = labelBox(route.label, route.labelLines),
+    hit = (a, b) =>
+      a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  assert.ok(!hit(box, api) && !hit(box, queue), JSON.stringify(box));
+  assert.equal(route.labelLines.join(""), doc.edges[0].label);
+});
+test("only figures on a chosen color get a fixed text color; others follow the theme", () => {
+  const doc = sampleDocument(),
+    worker = doc.nodes.find((n) => n.id === "worker");
+  assert.equal(nodeAppearance(worker, doc).customBackground, false);
+  assert.equal(
+    nodeAppearance({ ...worker, fillColor: "transparent" }, doc)
+      .customBackground,
+    false,
+  );
+  assert.equal(
+    nodeAppearance({ ...worker, fillColor: "#1971c2" }, doc).customBackground,
+    true,
+  );
+  const group = {
+    ...makeNode("group", { x: 0, y: 0 }),
+    id: "g",
+    fillColor: "#343a40",
+  };
+  doc.nodes.push(group);
+  const note = doc.nodes.find((n) => n.kind === "note" && !n.attachedTo);
+  assert.equal(
+    nodeAppearance({ ...note, groupId: "g" }, doc).customBackground,
+    true,
+  );
+});
+test("text is exactly as tall as its words, and a placed memo avoids other elements", () => {
+  const doc = growNodes(sampleDocument()),
+    policy = doc.nodes.find((n) => n.title === "今回の方針");
+  // Heading + three lines.
+  assert.equal(policy.h, 24 + 32 + 3 * 24);
+  const result = attachNote(doc, "api"),
+    memo = result.doc.nodes.find((n) => n.id === result.id);
+  const hit = (a, b) =>
+    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  for (const n of result.doc.nodes)
+    if (n.id !== memo.id && n.kind !== "group")
+      assert.ok(!hit(memo, n), "overlaps " + (n.title || n.id));
 });

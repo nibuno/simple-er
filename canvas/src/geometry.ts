@@ -1,5 +1,5 @@
 import type { CanvasDocument, CanvasEdge, CanvasNode, Point } from "./types";
-import { bounds, connectionAxis } from "./spatial";
+import { bounds, connectionAxis, overlapArea } from "./spatial";
 import { textWidth, wrapText } from "./text";
 import {
   clearSegment,
@@ -232,23 +232,67 @@ export function routeEdge(
       if (path) accept(path, s, t);
     }
   }
-  let label: Point = center(from),
-    length = -1;
-  for (let i = 1; i < best.length; i++) {
-    const a = best[i - 1],
-      b = best[i],
-      size = Math.hypot(b.x - a.x, b.y - a.y) + (a.y === b.y ? 40 : 0);
-    if (size > length) {
-      length = size;
-      label = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-    }
-  }
+  const placed = placeLabel(edge.label, best, obstacles, center(from));
   return {
     points: best,
     path: rounded(best),
-    label,
-    labelLines: wrapText(edge.label, 200, 12),
+    label: placed.at,
+    labelLines: placed.lines,
   };
+}
+// The area a label's text covers when drawn centered at `at`.
+export function labelBox(at: Point, lines: string[]) {
+  const w = Math.max(0, ...lines.map((line) => textWidth(line, 12)));
+  return {
+    x: at.x - w / 2 - 4,
+    y: at.y - 21,
+    w: w + 8,
+    h: lines.length * 18 + 8,
+  };
+}
+// Prefer the middle of the longest segment, as before, but move a label that
+// would sit under a figure: narrow it to fit a horizontal gap, or set it
+// beside a vertical segment.
+function placeLabel(
+  text: string,
+  points: Point[],
+  obstacles: CanvasNode[],
+  fallback: Point,
+) {
+  let best = { at: fallback, lines: wrapText(text, 200, 12) },
+    bestScore = Infinity;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1],
+      b = points[i],
+      mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+      horizontal = a.y === b.y,
+      size = Math.hypot(b.x - a.x, b.y - a.y) + (horizontal ? 40 : 0);
+    const options: { at: Point; lines: string[]; cost: number }[] = [];
+    if (horizontal) {
+      for (const width of [200, Math.max(80, Math.abs(b.x - a.x) - 24)])
+        options.push({ at: mid, lines: wrapText(text, width, 12), cost: 0 });
+    } else {
+      const lines = wrapText(text, 200, 12),
+        half = labelBox(mid, lines).w / 2 + 6;
+      options.push({ at: mid, lines, cost: 0 });
+      for (const side of [1, -1])
+        options.push({
+          at: { x: mid.x + side * half, y: mid.y },
+          lines,
+          cost: 30,
+        });
+    }
+    for (const option of options) {
+      const box = labelBox(option.at, option.lines),
+        covered = obstacles.reduce((sum, n) => sum + overlapArea(box, n), 0),
+        score = covered * 100 - size + option.cost + option.lines.length * 4;
+      if (score < bestScore) {
+        bestScore = score;
+        best = option;
+      }
+    }
+  }
+  return best;
 }
 export function documentRoutes(doc: CanvasDocument) {
   const nodes = new Map(doc.nodes.map((n) => [n.id, n])),
