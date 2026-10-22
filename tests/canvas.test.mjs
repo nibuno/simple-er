@@ -436,3 +436,29 @@ test("guides snap the nearest edge or center within the threshold on each axis",
     null,
   );
 });
+test("a long line label is kept clear of the figures it would sit under", async () => {
+  const { labelBox } = await import("../canvas/src/geometry.ts");
+  const doc = emptyDocument(),
+    api = { ...makeNode("box", { x: 0, y: 0 }), id: "api", title: "API" },
+    queue = {
+      ...makeNode("box", { x: 330, y: 0 }),
+      id: "queue",
+      title: "Queue",
+    };
+  doc.nodes = [api, queue];
+  doc.edges = [
+    {
+      id: "e",
+      from: "api",
+      to: "queue",
+      label: "注文確定イベント（注文ID・送信先・メッセージ種別を含む）",
+      dashed: false,
+    },
+  ];
+  const route = documentRoutes(doc).get("e"),
+    box = labelBox(route.label, route.labelLines),
+    hit = (a, b) =>
+      a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  assert.ok(!hit(box, api) && !hit(box, queue), JSON.stringify(box));
+  assert.equal(route.labelLines.join(""), doc.edges[0].label);
+});
