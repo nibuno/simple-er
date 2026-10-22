@@ -272,6 +272,7 @@ export function App() {
     point?: Point,
     nodeShape = shape,
     from?: string,
+    place = false,
   ) {
     flushInput();
     discardDraft();
@@ -291,7 +292,7 @@ export function App() {
       node.x = Math.round((node.x - node.w / 2) / 8) * 8;
       node.y = Math.round((node.y - node.h / 2) / 8) * 8;
     }
-    if (!point) placeInFreeSpace(node, next);
+    if (!point || place) placeInFreeSpace(node, next);
     setDraft(
       node,
       from ? { id: uid(), from, to: node.id, label: "", dashed: false } : null,
@@ -687,13 +688,14 @@ export function App() {
           onPatch={patchNode}
           onAddNote={(point) => add("note", point)}
           onAddBox={() => add("box")}
-          onAddConnected={(from, point) => {
+          onAddConnected={(from, point, place) => {
             const source = docRef.current.nodes.find((n) => n.id === from);
             add(
               source?.kind === "note" ? "note" : "box",
               point,
               source?.kind === "box" ? source.shape : shape,
               from,
+              place,
             );
           }}
           onPreview={(next) => {
@@ -1095,7 +1097,10 @@ export function App() {
             ["テキスト・メモ・囲みを編集", "ダブルクリック / 選択して Enter"],
             ["編集を確定 / 取り消し", "⌘ Enter / Esc"],
             ["接続元と接続先を選ぶ", "C（接続点のドラッグも可）"],
-            ["接続した図形を追加", "接続点を空いた場所へドラッグ"],
+            [
+              "接続した図形を追加",
+              "接続点の矢印をクリック / 空いた場所へドラッグ",
+            ],
             ["複数選択", "Shift＋クリック / 余白をドラッグ"],
             ["囲む", "⌘ G"],
             ["選択した要素を移動", "矢印キー / Shiftで大きく移動"],

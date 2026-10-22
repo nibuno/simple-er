@@ -756,19 +756,31 @@ kbd {
 .resize-handle.sw {
   cursor: nesw-resize;
 }
+/* Ports point outward: an arrow says "a line goes from here". */
 .connection-port {
-  --port: 14px;
+  --port: 20px;
   position: absolute;
-  width: 14px;
-  height: 14px;
+  width: var(--port);
+  height: var(--port);
   min-height: 0;
   padding: 0;
   background: var(--surface);
-  border: 2px solid var(--accent);
+  border: 1.5px solid var(--accent);
   border-radius: 50%;
+  color: var(--accent);
   pointer-events: auto;
-  cursor: crosshair;
+  cursor: pointer;
   opacity: 0;
+  z-index: 3;
+}
+.connection-port > svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.2;
+}
+.connection-port:hover {
+  background: var(--accent);
+  color: var(--surface);
 }
 .canvas-node:hover .connection-port,
 .canvas-node.selected .connection-port,
@@ -777,26 +789,66 @@ kbd {
   opacity: 1;
 }
 .connection-port.top {
-  top: calc(-16px - var(--port) / 2);
+  top: calc(-18px - var(--port) / 2);
   left: calc(50% - var(--port) / 2);
 }
+.connection-port.top > svg {
+  transform: rotate(-90deg);
+}
 .connection-port.right {
-  right: calc(-16px - var(--port) / 2);
+  right: calc(-18px - var(--port) / 2);
   top: calc(50% - var(--port) / 2);
 }
 .connection-port.bottom {
-  bottom: calc(-16px - var(--port) / 2);
+  bottom: calc(-18px - var(--port) / 2);
   left: calc(50% - var(--port) / 2);
 }
+.connection-port.bottom > svg {
+  transform: rotate(90deg);
+}
 .connection-port.left {
-  left: calc(-16px - var(--port) / 2);
+  left: calc(-18px - var(--port) / 2);
   top: calc(50% - var(--port) / 2);
+}
+.connection-port.left > svg {
+  transform: rotate(180deg);
 }
 .connection-port::after {
   content: "";
   position: absolute;
-  inset: -9px;
+  inset: -8px;
   border-radius: 50%;
+}
+/* The hint shows as soon as the pointer rests on a port. */
+.connection-port::before {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--text);
+  color: var(--surface);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+}
+.connection-port.bottom::before {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+/* Above the top port sits the selection bar, so its hint goes to the side. */
+.connection-port.top::before {
+  left: calc(100% + 8px);
+  bottom: auto;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.connection-port:hover::before,
+.connection-port:focus-visible::before {
+  opacity: 1;
 }
 .connections {
   position: absolute;
@@ -1420,9 +1472,7 @@ kbd {
   }
   /* Without hover, ports appear on the selected element or while connecting. */
   .connection-port {
-    --port: 20px;
-    width: 20px;
-    height: 20px;
+    --port: 24px;
     pointer-events: none;
   }
   .canvas-node.selected .connection-port,

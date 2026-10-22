@@ -948,3 +948,30 @@ test("pointing at a memo lights up its figure, and the other way round", async (
   assert.ok(lit("worker-note"));
   assert.equal(document.querySelector(".attachment-wire"), null);
 });
+test("clicking a port adds a connected figure on that side, clear of others", async () => {
+  const stage = label("設計キャンバス"),
+    worker = saved().nodes.find((n) => n.id === "worker");
+  const port = document.querySelector(
+    '[data-node-id="worker"] .connection-port.bottom',
+  );
+  assert.equal(port.dataset.tip, "クリックで下に追加 · ドラッグで接続");
+  document.elementFromPoint = () => stage;
+  await pointer(port, "pointerdown", 300, 200);
+  await pointer(stage, "pointerup", 300, 200);
+  delete document.elementFromPoint;
+  await type(label("名前を直接編集"), "通知ログ");
+  await key(label("名前を直接編集"), "Enter", { metaKey: true });
+  const doc = saved(),
+    added = doc.nodes.find((n) => n.title === "通知ログ");
+  assert.ok(added.y >= worker.y + worker.h + 32, "placed below Worker");
+  assert.ok(doc.edges.some((e) => e.from === "worker" && e.to === added.id));
+  for (const n of doc.nodes)
+    if (n.id !== added.id && n.kind !== "group")
+      assert.ok(
+        added.x >= n.x + n.w ||
+          n.x >= added.x + added.w ||
+          added.y >= n.y + n.h ||
+          n.y >= added.y + added.h,
+        "does not overlap " + (n.title || n.id),
+      );
+});

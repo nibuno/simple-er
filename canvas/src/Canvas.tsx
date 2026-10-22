@@ -52,7 +52,8 @@ interface Props {
   onPatch: (id: string, patch: Partial<CanvasNode>) => void;
   onAddNote: (point: Point) => void;
   onAddBox: () => void;
-  onAddConnected: (from: string, point: Point) => void;
+  // `place` asks for a free spot near the point rather than the exact point.
+  onAddConnected: (from: string, point: Point, place?: boolean) => void;
   selectionBar?: ReactNode;
   onPreview: (doc: CanvasDocument) => void;
   onCommit: (doc: CanvasDocument, before?: CanvasDocument) => void;
@@ -73,8 +74,15 @@ type Drag =
     }
   | { kind: "pan"; pointer: number; start: Point; view: View }
   | { kind: "marquee"; pointer: number; start: Point; add: string[] }
-  | { kind: "connect"; pointer: number; from: string; start: Point };
+  | {
+      kind: "connect";
+      pointer: number;
+      from: string;
+      start: Point;
+      side: (typeof PORTS)[number];
+    };
 const PORTS = ["top", "right", "bottom", "left"] as const;
+const SIDE_NAMES = { top: "上", right: "右", bottom: "下", left: "左" };
 // The first free port is the one reachable by keyboard.
 const freePorts = (used?: Set<(typeof PORTS)[number]>) => {
   const free = PORTS.filter((side) => !used?.has(side));
@@ -189,8 +197,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         Math.min(width - 180, (b.x + b.w / 2) * view.zoom + view.x),
       ),
       below = top < 120;
-    // Clear of the connection ports, which sit 16px outside the figure.
-    return { x, y: below ? bottom + 36 : top - 36, below };
+    // Clear of the connection ports, which sit 18px outside the figure.
+    return { x, y: below ? bottom + 44 : top - 44, below };
   })();
   // Sides where a line already meets a figure; a port there would cover it.
   const usedSides = useMemo(() => {
@@ -548,6 +556,24 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     };
     capture(e);
   }
+  // A click on a port adds a figure of the same size on that side, one
+  // gap away, connected from this one.
+  function addBeside(id: string, side: (typeof PORTS)[number]) {
+    const n = latest.current.doc.nodes.find((n) => n.id === id);
+    if (!n) return;
+    const gap = 96,
+      cx = n.x + n.w / 2,
+      cy = n.y + n.h / 2;
+    const point =
+      side === "right"
+        ? { x: n.x + n.w + gap + n.w / 2, y: cy }
+        : side === "left"
+          ? { x: n.x - gap - n.w / 2, y: cy }
+          : side === "bottom"
+            ? { x: cx, y: n.y + n.h + gap + n.h / 2 }
+            : { x: cx, y: n.y - gap - n.h / 2 };
+    latest.current.onAddConnected(id, point, true);
+  }
   function cancel() {
     const d = drag.current;
     if (d && (d.kind === "move" || d.kind === "resize"))
@@ -599,6 +625,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         !hit?.closest(".canvas-controls,.empty-canvas,.edge-control")
       )
         latest.current.onAddConnected(d.from, point);
+      else if (!dragged) addBeside(d.from, d.side);
       else latest.current.onConnect(d.from);
     }
     setMarquee(null);
@@ -943,7 +970,9 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                   aria-label={i ? undefined : name + "から接続"}
                   aria-hidden={i ? true : undefined}
                   tabIndex={i ? -1 : 0}
-                  title="ドラッグして接続。空いた場所で離すと、つながった図形を追加します"
+                  data-tip={
+                    "クリックで" + SIDE_NAMES[side] + "に追加 · ドラッグで接続"
+                  }
                   onPointerDown={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
@@ -954,6 +983,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                       pointer: e.pointerId,
                       from: node.id,
                       start,
+                      side,
                     };
                     setWire({
                       from: node.id,
@@ -962,9 +992,11 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                     capture(e);
                   }}
                   onClick={(e) => {
-                    if (e.detail === 0) p.onConnect(node.id);
+                    if (e.detail === 0) addBeside(node.id, side);
                   }}
-                />
+                >
+                  <Icon name="arrow" />
+                </button>
               ))}
           </>
         )}
