@@ -109,6 +109,11 @@ async function key(el, key, options = {}) {
     ),
   );
 }
+// Opens a panel of the selection bar unless it is already open.
+async function panel(name) {
+  const toggle = label(name);
+  if (toggle.getAttribute("aria-expanded") !== "true") await click(toggle);
+}
 async function dblclick(el) {
   await act(() =>
     el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, detail: 2 })),
@@ -162,8 +167,7 @@ test("inline Japanese edits persist; cancel discards edits; undo and redo restor
       (n) => n.title === "監視" && n.description === "失敗した通知に気づく",
     ),
   );
-  await click(label("監視を選択"));
-  await click(button("名前と説明を編集"));
+  await dblclick(label("監視を選択"));
   await type(label("名前を直接編集"), "保存しない名前");
   await key(label("名前を直接編集"), "Escape");
   assert.ok(saved().nodes.some((n) => n.title === "監視"));
@@ -259,6 +263,7 @@ test("new shapes can be created, converted, connected and reloaded", async () =>
     "diamond",
   );
   await click(label("円柱の図形を選択"));
+  await panel("図形");
   assert.equal(label("円柱").getAttribute("aria-checked"), "true");
   await click(label("ひし形"));
   assert.equal(label("ひし形").getAttribute("aria-checked"), "true");
@@ -277,6 +282,7 @@ test("new shapes can be created, converted, connected and reloaded", async () =>
 });
 test("color selection, custom input, undo, reset and reload preserve figure colors", async () => {
   await click(label("Workerを選択"));
+  await panel("色");
   await click(label("塗り：青"));
   await click(label("線：赤"));
   assert.equal(
@@ -313,6 +319,7 @@ test("color selection, custom input, undo, reset and reload preserve figure colo
   await act(() => root.unmount());
   await mount();
   await click(label("Workerを選択"));
+  await panel("色");
   assert.equal(label("線：赤").getAttribute("aria-pressed"), "true");
   await click(label("塗りを標準に戻す"));
   assert.equal(
@@ -342,6 +349,7 @@ test("a color change applies to selected figures and connectors as one undo step
       new MouseEvent("click", { bubbles: true, shiftKey: true }),
     ),
   );
+  await panel("色");
   await click(label("線：青"));
   const afterStroke = saved();
   assert.equal(
@@ -359,6 +367,7 @@ test("a color change applies to selected figures and connectors as one undo step
   assert.deepEqual(saved(), before);
   await click(label("やり直す"));
   assert.deepEqual(saved(), afterStroke);
+  await panel("色");
   await click(label("塗り：黄"));
   assert.equal(
     saved().nodes.find((n) => n.id === "worker").fillColor,
@@ -513,6 +522,7 @@ test("figure editing keeps the current view at reduced and enlarged scales, incl
 test("dragging immediately after memo input keeps the text and undoes only the move", async () => {
   await click(label("Workerを選択"));
   const before = saved().nodes.find((n) => n.id === "worker");
+  await panel("メモを開く");
   await type(label("メモ"), "ドラッグ直前に入力したメモ");
   const stage = label("設計キャンバス");
   await pointer(label("Workerを選択"), "pointerdown", 300, 200);
@@ -530,6 +540,7 @@ test("starting another connection commits the active line label before changing 
   await click(label("接続"));
   await click(label("Workerを選択"));
   await click(label("DBを選択"));
+  await panel("ラベル");
   await type(label("線のラベル"), "入力中の接続名");
   await pointer(label("ブラウザから接続"), "pointerdown", 100, 200);
   document.elementFromPoint = () => label("ブラウザを選択");
@@ -542,6 +553,7 @@ test("selecting two elements creates one connection and editing its label surviv
   await click(label("Workerを選択"));
   await click(label("DBを選択"));
   assert.equal(saved().edges.length, 5);
+  await panel("ラベル");
   await type(label("線のラベル"), "結果を保存");
   await blur(label("線のラベル"));
   assert.equal(saved().edges.at(-1).label, "結果を保存");
@@ -552,6 +564,7 @@ test("selecting two elements creates one connection and editing its label surviv
 });
 test("a box memo and its canvas note remain in sync through edits and undo", async () => {
   await click(label("Workerを選択"));
+  await panel("メモを開く");
   await type(label("メモ"), "失敗時は3回再試行する。");
   await blur(label("メモ"));
   assert.ok(label("Worker のメモを選択").textContent.includes("失敗時は3回"));
@@ -624,6 +637,7 @@ test("another tab's write pauses autosave until the user explicitly resolves it"
 
 test("reload flushes the active editor rather than losing its unblurred text", async () => {
   await click(label("Workerを選択"));
+  await panel("メモを開く");
   await type(label("メモ"), "再読み込み直前の入力");
   await act(() =>
     window.dispatchEvent(new Event("beforeunload", { cancelable: true })),
@@ -805,6 +819,7 @@ test("the canvas records whether the last input was a pointer or the keyboard", 
 });
 test("the save state has a short form for narrow screens", async () => {
   await click(label("Workerを選択"));
+  await panel("メモを開く");
   await type(label("メモ"), "保存状態の確認");
   await blur(label("メモ"));
   assert.equal(
@@ -840,4 +855,24 @@ test("ports are left off the sides where a line already meets the figure", async
     label("Queueから接続").classList.contains("bottom") ||
       label("Queueから接続").classList.contains("left"),
   );
+});
+test("the selection bar appears over a selection and steps aside while editing or moving", async () => {
+  const bar = () => document.querySelector('[aria-label="選択した要素の操作"]');
+  assert.equal(bar(), null);
+  await click(label("Workerを選択"));
+  assert.ok(bar());
+  await panel("色");
+  assert.ok(label("塗り：赤"));
+  await key(label("塗り：赤"), "Escape");
+  assert.equal(document.querySelector(".bar-panel"), null);
+  await key(label("設計キャンバス"), "Enter");
+  assert.equal(bar(), null);
+  await key(label("名前を直接編集"), "Escape");
+  const stage = label("設計キャンバス");
+  await pointer(label("Workerを選択"), "pointerdown", 300, 200);
+  await pointer(stage, "pointermove", 340, 230);
+  assert.equal(bar(), null);
+  await pointer(stage, "pointerup", 340, 230);
+  assert.ok(bar());
+  await click(label("元に戻す"));
 });

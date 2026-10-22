@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { CanvasDocument, CanvasNode, CanvasEdge } from "./types";
 import { MAX_TEXT, noteContent } from "./model";
 import { Icon } from "./Icons";
@@ -75,7 +76,10 @@ export function TextField({
     </label>
   );
 }
-export function Inspector({
+type Panel = "shape" | "color" | "memo" | "label" | "more";
+// Actions for the selection sit in a bar just above it; anything with more
+// than a click behind it opens in a small panel under the bar.
+export function SelectionBar({
   doc,
   node,
   edge,
@@ -84,13 +88,12 @@ export function Inspector({
   onColors,
   onPatch,
   onEdge,
-  onClose,
   onDelete,
   onDuplicate,
+  onGroup,
   onAttach,
   onFitGroup,
   onSelect,
-  onEdit,
   onDirty,
 }: {
   doc: CanvasDocument;
@@ -103,15 +106,17 @@ export function Inspector({
   ) => void;
   onPatch: (id: string, patch: Partial<CanvasNode>) => void;
   onEdge: (id: string, patch: Partial<CanvasEdge>) => void;
-  onClose: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
+  onGroup: () => void;
   onAttach: (id: string) => void;
   onFitGroup: (id: string) => void;
   onSelect: (ids: string[]) => void;
-  onEdit: (id: string) => void;
   onDirty: () => void;
 }) {
+  const [open, setOpen] = useState<Panel | null>(null);
+  const key = selection.join(",");
+  useEffect(() => setOpen(null), [key]);
   if (!count) return null;
   const parent = node?.attachedTo
     ? doc.nodes.find((n) => n.id === node.attachedTo)
@@ -134,120 +139,190 @@ export function Inspector({
       mixed: items.some((item) => (item as CanvasNode)[key] !== first),
     };
   };
-  // A figure's panel leads with its shape and text; colors come next.
-  const colors = (
-    <>
-      {!!nodes.length && (
-        <ColorPicker
-          label="塗り"
-          kind="fill"
-          {...sharedColor(nodes, "fillColor")}
-          defaultColor={
-            nodes[0].kind === "group"
-              ? DEFAULT_COLORS.frame
-              : nodes[0].kind === "note"
-                ? "transparent"
-                : DEFAULT_COLORS.fill
-          }
-          onChange={(fillColor) => onColors({ fillColor })}
-        />
-      )}
-      <ColorPicker
-        label="線"
-        kind="stroke"
-        {...sharedColor(elements, "strokeColor")}
-        defaultColor={
-          nodes.length ? DEFAULT_COLORS.stroke : DEFAULT_COLORS.line
-        }
-        onChange={(strokeColor) => onColors({ strokeColor })}
-      />
-    </>
+  const fill = sharedColor(nodes, "fillColor"),
+    stroke = sharedColor(elements, "strokeColor");
+  const toggle = (panel: Panel) => setOpen(open === panel ? null : panel);
+  const panelButton = (panel: Panel, label: string, content: ReactNode) => (
+    <button
+      className={"bar-button" + (open === panel ? " open" : "")}
+      aria-label={label}
+      title={label}
+      aria-expanded={open === panel}
+      onClick={() => toggle(panel)}
+    >
+      {content}
+    </button>
   );
+  const colorButton = panelButton(
+    "color",
+    "色",
+    <span
+      className="bar-swatch"
+      style={
+        {
+          "--swatch-fill":
+            (fill.value !== "transparent" && fill.value) ||
+            (nodes.length ? "var(--surface)" : "transparent"),
+          "--swatch-stroke": stroke.value || "var(--shape-line)",
+        } as CSSProperties
+      }
+    />,
+  );
+  const hasGroups = doc.nodes.some((n) => n.kind === "group");
   return (
-    <aside className="inspector" aria-label="選択した要素の編集">
-      <div className="inspector-heading">
-        <strong>
-          {count > 1
-            ? count + "個を選択"
-            : edge
-              ? "接続線"
-              : node?.kind === "group"
-                ? "囲み"
-                : node?.kind === "note"
-                  ? "メモ"
-                  : "図形とメモ"}
-        </strong>
-        <button
-          className="icon-button"
-          aria-label="編集パネルを閉じる"
-          onClick={onClose}
-        >
-          <Icon name="close" />
-        </button>
-      </div>
-      <div
-        className="inspector-content"
-        key={node?.id || edge?.id || "multiple"}
-      >
-        {!node && colors}
-        {count > 1 && (
-          <p className="muted">
-            一緒に移動・複製できます。「囲む」で、まとまりに名前を付けられます。
-          </p>
+    <div
+      className="selection-bar"
+      role="toolbar"
+      aria-label="選択した要素の操作"
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && open) {
+          e.stopPropagation();
+          setOpen(null);
+        }
+      }}
+    >
+      <div className="bar-row">
+        {parent && (
+          <button
+            className="bar-button text"
+            onClick={() => onSelect([parent.id])}
+          >
+            {(parent.title || shapeLabels[parent.shape]) + "のメモ"}
+          </button>
         )}
-        {node && (
+        {node?.kind === "box" &&
+          panelButton("shape", "図形", <Icon name={shapeIcons[node.shape]} />)}
+        {edge &&
+          panelButton(
+            "label",
+            "ラベル",
+            <>
+              <Icon name="label" />
+              <span>{edge.label ? "ラベル" : "ラベルを追加"}</span>
+            </>,
+          )}
+        {colorButton}
+        {edge && (
           <>
-            {parent ? (
-              <div className="attached-label">
+            <button
+              className="bar-button"
+              aria-label="破線にする"
+              title="破線にする"
+              aria-pressed={edge.dashed}
+              onClick={() => onEdge(edge.id, { dashed: !edge.dashed })}
+            >
+              <Icon name="dashed" />
+            </button>
+            <button
+              className="bar-button"
+              aria-label="向きを逆にする"
+              title="向きを逆にする"
+              onClick={() => onEdge(edge.id, { from: edge.to, to: edge.from })}
+            >
+              <Icon name="swap" />
+            </button>
+          </>
+        )}
+        {node &&
+          node.kind !== "group" &&
+          panelButton(
+            "memo",
+            "メモを開く",
+            <>
+              <Icon name="note" />
+              <span>メモ</span>
+            </>,
+          )}
+        {count > 1 && (
+          <button
+            className="bar-button"
+            aria-label="囲む"
+            title="囲む (⌘ G)"
+            onClick={onGroup}
+          >
+            <Icon name="group" />
+          </button>
+        )}
+        {node?.kind === "group" && (
+          <button
+            className="bar-button"
+            aria-label="内容に合わせる"
+            title="内容に合わせる"
+            onClick={() => onFitGroup(node.id)}
+          >
+            <Icon name="fit" />
+          </button>
+        )}
+        <span className="bar-divider" />
+        {!edge && (
+          <button
+            className="bar-button"
+            aria-label="複製"
+            title="複製 (⌘ D)"
+            onClick={onDuplicate}
+          >
+            <Icon name="duplicate" />
+          </button>
+        )}
+        <button
+          className="bar-button danger"
+          aria-label={node?.kind === "group" ? "囲みを解除" : "削除"}
+          title={node?.kind === "group" ? "囲みを解除" : "削除 (Delete)"}
+          onClick={onDelete}
+        >
+          <Icon name="trash" />
+        </button>
+        {node && panelButton("more", "その他", <Icon name="more" />)}
+      </div>
+      {open && (
+        <div className="bar-panel" key={open}>
+          {open === "shape" && node && (
+            <div className="shape-choice" role="radiogroup" aria-label="図形">
+              {SHAPES.map((shape) => (
                 <button
-                  className="text-button"
-                  onClick={() => onSelect([parent.id])}
+                  key={shape}
+                  role="radio"
+                  aria-checked={node.shape === shape}
+                  aria-label={shapeLabels[shape]}
+                  title={shapeLabels[shape]}
+                  onClick={() => patch({ shape })}
                 >
-                  {parent.title || shapeLabels[parent.shape]}
-                </button>{" "}
-                のメモ
-              </div>
-            ) : node.kind === "box" ? (
-              <button
-                className="secondary full"
-                onClick={() => onEdit(node.id)}
-              >
-                名前と説明を編集
-              </button>
-            ) : (
-              <TextField
-                label="見出し"
-                value={node.title}
-                onCommit={(title) => patch({ title })}
-                onDirty={onDirty}
-                placeholder={node.kind === "note" ? "任意" : ""}
+                  <Icon name={shapeIcons[shape]} />
+                </button>
+              ))}
+            </div>
+          )}
+          {open === "color" && (
+            <>
+              {!!nodes.length && (
+                <ColorPicker
+                  label="塗り"
+                  kind="fill"
+                  {...fill}
+                  defaultColor={
+                    nodes[0].kind === "group"
+                      ? DEFAULT_COLORS.frame
+                      : nodes[0].kind === "note"
+                        ? "transparent"
+                        : DEFAULT_COLORS.fill
+                  }
+                  onChange={(fillColor) => onColors({ fillColor })}
+                />
+              )}
+              <ColorPicker
+                label="線"
+                kind="stroke"
+                {...stroke}
+                defaultColor={
+                  nodes.length ? DEFAULT_COLORS.stroke : DEFAULT_COLORS.line
+                }
+                onChange={(strokeColor) => onColors({ strokeColor })}
               />
-            )}
-            {node.kind === "box" && (
-              <div className="field">
-                <span id="shape-choice">図形</span>
-                <div
-                  className="shape-choice"
-                  role="radiogroup"
-                  aria-labelledby="shape-choice"
-                >
-                  {SHAPES.map((shape) => (
-                    <button
-                      key={shape}
-                      role="radio"
-                      aria-checked={node.shape === shape}
-                      aria-label={shapeLabels[shape]}
-                      title={shapeLabels[shape]}
-                      onClick={() => patch({ shape })}
-                    >
-                      <Icon name={shapeIcons[shape]} />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {colors}
-            {node.kind !== "group" && (
+            </>
+          )}
+          {open === "memo" && node && (
+            <>
               <TextField
                 label="メモ"
                 value={parent ? parent.body : node.body}
@@ -255,39 +330,54 @@ export function Inspector({
                 onDirty={onDirty}
                 multiline
                 maxLength={MAX_TEXT}
+                autoFocus
               />
-            )}
-            {node.kind === "box" && (
-              <button
-                className="secondary full"
-                onClick={() => onAttach(node.id)}
-              >
-                <Icon name="note" />
-                {doc.nodes.some((n) => n.attachedTo === node.id)
-                  ? "図に置いたメモを選択"
-                  : "メモを図に置く"}
-              </button>
-            )}
-            {parent && (
-              <p className="field-help">
-                このメモは図形のメモと同じ内容です。図形を動かすと一緒に移動します。
-              </p>
-            )}
-            {node.kind === "note" && !parent && (
-              <button
-                className="text-button"
-                onClick={() =>
-                  patch({
-                    kind: "box",
-                    title: node.title || node.body.split("\n")[0].slice(0, 80),
-                  })
-                }
-              >
-                箱にする
-              </button>
-            )}
-            {node.kind !== "group" &&
-              doc.nodes.some((n) => n.kind === "group") && (
+              {node.kind === "box" && (
+                <button
+                  className="secondary full"
+                  onClick={() => onAttach(node.id)}
+                >
+                  {doc.nodes.some((n) => n.attachedTo === node.id)
+                    ? "図に置いたメモを選択"
+                    : "メモを図に置く"}
+                </button>
+              )}
+            </>
+          )}
+          {open === "label" && edge && (
+            <TextField
+              label="線のラベル"
+              value={edge.label}
+              onCommit={(label) => onEdge(edge.id, { label })}
+              onDirty={onDirty}
+              autoFocus
+            />
+          )}
+          {open === "more" && node && (
+            <>
+              {node.kind === "note" && !parent && (
+                <button
+                  className="secondary full"
+                  onClick={() =>
+                    patch({
+                      kind: "box",
+                      title:
+                        node.title || node.body.split("\n")[0].slice(0, 80),
+                    })
+                  }
+                >
+                  箱にする
+                </button>
+              )}
+              {node.kind === "group" && (
+                <TextField
+                  label="見出し"
+                  value={node.title}
+                  onCommit={(title) => patch({ title })}
+                  onDirty={onDirty}
+                />
+              )}
+              {node.kind !== "group" && hasGroups && (
                 <label className="field">
                   <span>囲み</span>
                   <select
@@ -308,21 +398,6 @@ export function Inspector({
                   </select>
                 </label>
               )}
-            {node.kind === "group" && (
-              <>
-                <p className="field-help">
-                  見出しをドラッグすると、中の要素も一緒に動きます。
-                </p>
-                <button
-                  className="secondary"
-                  onClick={() => onFitGroup(node.id)}
-                >
-                  内容に合わせる
-                </button>
-              </>
-            )}
-            <details className="size-settings">
-              <summary>サイズ</summary>
               <div className="size-fields">
                 {(["w", "h"] as const).map((key, i) => (
                   <label key={key}>
@@ -348,52 +423,11 @@ export function Inspector({
                   </label>
                 ))}
               </div>
-            </details>
-          </>
-        )}
-        {edge && (
-          <>
-            <div className="edge-endpoints">
-              {doc.nodes.find((n) => n.id === edge.from)?.title || "メモ"}
-              <Icon name="arrow" />
-              {doc.nodes.find((n) => n.id === edge.to)?.title || "メモ"}
-            </div>
-            <TextField
-              label="線のラベル"
-              value={edge.label}
-              onCommit={(label) => onEdge(edge.id, { label })}
-              onDirty={onDirty}
-            />
-            <label className="checkbox-field">
-              <input
-                type="checkbox"
-                checked={edge.dashed}
-                onChange={(e) => onEdge(edge.id, { dashed: e.target.checked })}
-              />
-              破線にする
-            </label>
-            <button
-              className="text-button"
-              onClick={() => onEdge(edge.id, { from: edge.to, to: edge.from })}
-            >
-              向きを逆にする
-            </button>
-          </>
-        )}
-      </div>
-      <div className="inspector-actions">
-        {!edge && (
-          <button onClick={onDuplicate}>
-            <Icon name="duplicate" />
-            複製
-          </button>
-        )}
-        <button onClick={onDelete} className="delete-button">
-          <Icon name="trash" />
-          {node?.kind === "group" ? "囲みを解除" : "削除"}
-        </button>
-      </div>
-    </aside>
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -7,7 +7,11 @@ import {
   useRef,
   useState,
 } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react";
 import type { CanvasDocument, CanvasNode, Point, Tool, View } from "./types";
 import {
   bounds,
@@ -48,6 +52,7 @@ interface Props {
   onPatch: (id: string, patch: Partial<CanvasNode>) => void;
   onAddNote: (point: Point) => void;
   onAddConnected: (from: string, point: Point) => void;
+  selectionBar?: ReactNode;
   onPreview: (doc: CanvasDocument) => void;
   onCommit: (doc: CanvasDocument, before?: CanvasDocument) => void;
   onStatus: (value: string) => void;
@@ -114,6 +119,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   } | null>(null);
   const [wire, setWire] = useState<{ from: string; end: Point } | null>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
+  const [moving, setMoving] = useState(false);
   const [editedSize, setEditedSize] = useState<{
     id: string;
     h: number;
@@ -152,6 +158,31 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       ),
     [displayedDoc, p.draftId],
   );
+  // The selection bar sits centered above the selection, or below it when
+  // the selection is near the top of the window.
+  const barAnchor = (() => {
+    const el = stage.current;
+    if (!el || !p.selection.length) return null;
+    const rects = [
+      ...displayedDoc.nodes.filter((n) => p.selection.includes(n.id)),
+      ...displayedDoc.edges
+        .filter((e) => p.selection.includes(e.id))
+        .flatMap((e) => routes.get(e.id)?.points || [])
+        .map((point) => ({ ...point, w: 0, h: 0 })),
+    ];
+    if (!rects.length) return null;
+    const b = bounds(rects),
+      top = b.y * view.zoom + view.y,
+      bottom = (b.y + b.h) * view.zoom + view.y,
+      width = el.clientWidth || 800,
+      x = Math.max(
+        180,
+        Math.min(width - 180, (b.x + b.w / 2) * view.zoom + view.x),
+      ),
+      below = top < 120;
+    // Clear of the connection ports, which sit 16px outside the figure.
+    return { x, y: below ? bottom + 36 : top - 36, below };
+  })();
   // Sides where a line already meets a figure; a port there would cover it.
   const usedSides = useMemo(() => {
     const nodes = new Map(displayedDoc.nodes.map((n) => [n.id, n])),
@@ -537,6 +568,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     setMarquee(null);
     setWire(null);
     setGuides([]);
+    setMoving(false);
     setPanning(false);
     if (d && stage.current?.hasPointerCapture(d.pointer))
       stage.current.releasePointerCapture(d.pointer);
@@ -584,6 +616,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     setMarquee(null);
     setWire(null);
     setGuides([]);
+    setMoving(false);
     setPanning(false);
     if (stage.current?.hasPointerCapture(d.pointer))
       stage.current.releasePointerCapture(d.pointer);
@@ -619,6 +652,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       dy = point.y - d.start.y;
     if (!d.moved && Math.hypot(dx, dy) * viewRef.current.zoom < 4) return;
     if (!d.moved && d.editField) p.onSelect(d.ids);
+    if (!d.moved) setMoving(true);
     d.moved = true;
     const grid = (v: number) => (e.altKey ? v : Math.round(v / 8) * 8);
     if (d.kind === "move") {
@@ -861,15 +895,6 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                 </>
               )}
             </button>
-            {selected && (
-              <button
-                className="node-edit"
-                aria-label={name + "を編集"}
-                onClick={() => p.onEdit(node.id)}
-              >
-                編集
-              </button>
-            )}
             {selected &&
               p.selection.length === 1 &&
               RESIZE_DIRS.filter((dir) => dir !== "se").map((dir) => (
@@ -959,7 +984,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         if (e.button !== 0 && e.button !== 1) return;
         if (
           (e.target as Element).closest(
-            ".canvas-node,.edge-control,.canvas-controls,.empty-canvas",
+            ".canvas-node,.edge-control,.canvas-controls,.empty-canvas,.selection-anchor",
           )
         )
           return;
@@ -990,7 +1015,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       onDoubleClick={(e) => {
         if (
           !(e.target as Element).closest(
-            ".canvas-node,.edge-control,.canvas-controls,.empty-canvas",
+            ".canvas-node,.edge-control,.canvas-controls,.empty-canvas,.selection-anchor",
           )
         )
           p.onAddNote(toWorld(e.clientX, e.clientY));
@@ -1164,6 +1189,14 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       >
         {p.doc.nodes.filter((n) => n.kind !== "group").map(renderNode)}
       </div>
+      {p.selectionBar && !moving && !p.editing && barAnchor && (
+        <div
+          className={"selection-anchor" + (barAnchor.below ? " below" : "")}
+          style={{ left: barAnchor.x, top: barAnchor.y }}
+        >
+          {p.selectionBar}
+        </div>
+      )}
       {guides.length > 0 && (
         <svg className="snap-guides" aria-hidden="true">
           {guides.map((g, i) => (

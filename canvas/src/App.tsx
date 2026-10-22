@@ -35,7 +35,7 @@ import {
 import { downloadFile, exportPng, filename, toSvg } from "./export";
 import { Canvas } from "./Canvas";
 import type { CanvasHandle } from "./Canvas";
-import { Inspector, TextField } from "./Inspector";
+import { SelectionBar, TextField } from "./Inspector";
 import { Icon } from "./Icons";
 import { SHAPES, shapeIcons, shapeLabels } from "./shapes";
 
@@ -705,6 +705,36 @@ export function App() {
             setDirty(true);
           }}
           onCommit={commit}
+          selectionBar={
+            inspectorOpen && (
+              <SelectionBar
+                doc={doc}
+                node={node}
+                edge={edge}
+                count={selection.length}
+                selection={selection}
+                onColors={patchColors}
+                onPatch={patchNode}
+                onEdge={patchEdge}
+                onDelete={remove}
+                onDuplicate={duplicate}
+                onGroup={group}
+                onAttach={(id) => {
+                  try {
+                    flushInput();
+                    const result = attachNote(docRef.current, id);
+                    commit(result.doc);
+                    select([result.id]);
+                  } catch (e) {
+                    setError(errorMessage(e));
+                  }
+                }}
+                onFitGroup={(id) => commit(fitGroup(clone(docRef.current), id))}
+                onSelect={select}
+                onDirty={() => setDirty(true)}
+              />
+            )
+          }
           onStatus={notify}
           onDirty={() => setDirty(true)}
         />
@@ -1008,35 +1038,6 @@ export function App() {
             </span>
           )}
         </div>
-        {!editing && inspectorOpen && (
-          <Inspector
-            doc={doc}
-            node={node}
-            edge={edge}
-            count={selection.length}
-            selection={selection}
-            onColors={patchColors}
-            onPatch={patchNode}
-            onEdge={patchEdge}
-            onClose={() => select([])}
-            onDelete={remove}
-            onDuplicate={duplicate}
-            onAttach={(id) => {
-              try {
-                flushInput();
-                const result = attachNote(docRef.current, id);
-                commit(result.doc);
-                select([result.id]);
-              } catch (e) {
-                setError(errorMessage(e));
-              }
-            }}
-            onFitGroup={(id) => commit(fitGroup(clone(docRef.current), id))}
-            onSelect={select}
-            onEdit={edit}
-            onDirty={() => setDirty(true)}
-          />
-        )}
       </main>
       <input
         ref={file}

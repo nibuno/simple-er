@@ -332,6 +332,96 @@ kbd {
   left: 12px;
   bottom: 12px;
 }
+.selection-anchor {
+  position: absolute;
+  z-index: 18;
+  transform: translate(-50%, -100%);
+}
+.selection-anchor.below {
+  transform: translate(-50%, 0);
+}
+.selection-bar {
+  position: relative;
+  font-size: 12px;
+}
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 3px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--chip-shadow);
+}
+.bar-button {
+  min-height: 30px;
+  min-width: 30px;
+  padding: 5px 7px;
+  gap: 5px;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.bar-button > svg {
+  width: 17px;
+  height: 17px;
+}
+.bar-button:hover,
+.bar-button.open,
+.bar-button[aria-pressed="true"] {
+  color: var(--accent);
+}
+.bar-button.open {
+  background: var(--selected);
+}
+.bar-button.text {
+  color: var(--text);
+}
+.bar-button.danger:hover {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+.bar-divider {
+  height: 18px;
+  margin: 0 3px;
+  border-left: 1px solid var(--border);
+}
+.bar-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--swatch-fill);
+  border: 2px solid var(--swatch-stroke);
+}
+.bar-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 280px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+.selection-anchor:not(.below) .bar-panel {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.bar-panel .field {
+  margin-bottom: 10px;
+}
+.bar-panel .field:last-child {
+  margin-bottom: 0;
+}
+.bar-panel textarea {
+  min-height: 120px;
+}
+.bar-panel .color-picker + .color-picker {
+  margin-top: 12px;
+}
 .toast {
   position: absolute;
   left: 50%;
@@ -592,18 +682,6 @@ kbd {
 }
 .group .node-face[aria-pressed="true"] {
   box-shadow: none;
-}
-.node-edit {
-  position: absolute;
-  right: 0;
-  top: -32px;
-  height: 26px;
-  min-height: 26px;
-  padding: 2px 9px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  font-size: 11px;
-  pointer-events: auto;
 }
 .resize-handle {
   position: absolute;
@@ -956,49 +1034,6 @@ kbd {
   font-size: 11px;
   margin-top: 16px;
 }
-.inspector {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  bottom: 12px;
-  z-index: 20;
-  width: 288px;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: var(--chip-shadow);
-  min-height: 0;
-  overflow: hidden;
-}
-.inspector-heading {
-  padding: 14px 17px 6px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 15px;
-}
-.inspector-heading strong {
-  font-size: 13px;
-  font-weight: 600;
-}
-.inspector-content {
-  overflow: auto;
-  padding: 12px 20px 22px;
-  flex: 1;
-  min-height: 0;
-}
-.inspector-actions {
-  display: flex;
-  justify-content: space-between;
-  border-top: 1px solid var(--border);
-  padding: 10px 13px;
-  gap: 5px;
-}
-.inspector-actions button {
-  font-size: 12px;
-}
 .delete-button {
   color: var(--danger);
 }
@@ -1276,23 +1311,6 @@ kbd {
   .rail-button::after {
     display: none;
   }
-  .inspector {
-    top: auto;
-    left: 8px;
-    right: 8px;
-    bottom: 8px;
-    width: auto;
-    height: 42%;
-    max-height: 360px;
-    min-height: 185px;
-  }
-  .inspector-heading {
-    padding: 5px 14px 0;
-    min-height: 35px;
-  }
-  .inspector-content {
-    padding: 7px 16px 12px;
-  }
   .color-picker {
     margin-bottom: 4px;
   }
@@ -1301,19 +1319,6 @@ kbd {
   }
   .color-expand {
     min-height: 22px;
-  }
-  .inspector:has(.color-swatches.expanded) {
-    height: 52%;
-    max-height: 380px;
-  }
-  .inspector-content .field {
-    margin-bottom: 13px;
-  }
-  .inspector-content textarea {
-    min-height: 110px;
-  }
-  .inspector-actions {
-    padding: 5px 12px;
   }
   .empty-canvas h2 {
     font-size: 18px;
@@ -1361,10 +1366,6 @@ kbd {
     content: "";
     position: absolute;
     inset: -12px;
-  }
-  .node-edit {
-    min-height: 30px;
-    top: -34px;
   }
   .inline-actions button {
     min-height: 40px;
