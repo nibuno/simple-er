@@ -1,6 +1,6 @@
 import type { CanvasDocument, CanvasNode } from "./types";
 import { noteContent, wrapText } from "./model";
-import { documentRoutes, routeEdge, sceneBounds } from "./geometry";
+import { documentRoutes, sceneBounds } from "./geometry";
 import { boxTextArea, shapePaths } from "./shapes";
 import { DEFAULT_COLORS, nodeAppearance, safeColor } from "./colors";
 const esc = (value: string) =>
@@ -129,15 +129,10 @@ export function toSvg(doc: CanvasDocument) {
       titleLines = content.title
         ? wrapText(content.title, n.w - 28, 13).length
         : 0;
+    // A figure's memo is a pale card; free text is plain, as on the canvas.
+    const card = n.attachedTo && colors.fill === "transparent";
     return (
-      `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" fill="${colors.fill}"/>` +
-      '<path d="M ' +
-      n.x +
-      " " +
-      n.y +
-      " V " +
-      (n.y + n.h) +
-      `" stroke="${colors.stroke}" stroke-width="2"/>` +
+      `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="${card ? 8 : 0}" fill="${card ? DEFAULT_COLORS.memo : colors.fill}"/>` +
       textBlock(
         content.title,
         n.x + 14,
@@ -162,20 +157,6 @@ export function toSvg(doc: CanvasDocument) {
   const frames = doc.nodes
     .filter((n) => n.kind === "group")
     .map(nodeSvg)
-    .join("");
-  const attachments = doc.nodes
-    .filter((n) => n.attachedTo)
-    .map((n) => {
-      const route = routeEdge(
-        { id: n.id, from: n.attachedTo!, to: n.id, label: "", dashed: true },
-        doc.nodes,
-      );
-      return (
-        '<path d="' +
-        route.path +
-        '" fill="none" stroke="#cbd7d0" stroke-width="1" stroke-dasharray="3 5"/>'
-      );
-    })
     .join("");
   const wires = doc.edges
     .map((e, i) => {
@@ -240,7 +221,6 @@ export function toSvg(doc: CanvasDocument) {
     height +
     '" fill="#f8faf9"/><g font-family="system-ui,-apple-system,BlinkMacSystemFont,Noto Sans JP,sans-serif">' +
     frames +
-    attachments +
     wires +
     content +
     "</g></svg>"

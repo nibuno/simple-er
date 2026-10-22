@@ -23,7 +23,7 @@ import {
   noteContent,
   VIEW_KEY,
 } from "./model";
-import { documentRoutes, routeEdge, sceneBounds } from "./geometry";
+import { documentRoutes, sceneBounds } from "./geometry";
 import { snapToGuides } from "./spatial";
 import type { Guide } from "./spatial";
 import { Icon } from "./Icons";
@@ -121,6 +121,14 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   const [wire, setWire] = useState<{ from: string; end: Point } | null>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
   const [moving, setMoving] = useState(false);
+  // A memo and its figure light up together while either is under the
+  // pointer, which says which figure a memo belongs to.
+  const [hovered, setHovered] = useState<string | null>(null);
+  const linked = useMemo(() => {
+    const n = p.doc.nodes.find((n) => n.id === hovered);
+    if (!n) return null;
+    return n.attachedTo || p.doc.nodes.find((m) => m.attachedTo === n.id)?.id;
+  }, [hovered, p.doc.nodes]);
   const [editedSize, setEditedSize] = useState<{
     id: string;
     h: number;
@@ -705,6 +713,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           "canvas-node " +
           node.kind +
           (node.attachedTo ? " attached" : "") +
+          (linked === node.id ? " linked" : "") +
           (selected ? " selected" : "") +
           (editing ? " editing" : "") +
           (expanded.has(node.id) ? " in-selection" : "") +
@@ -794,6 +803,10 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
               aria-label={name + "を選択"}
               aria-pressed={selected}
               onPointerDown={(e) => startNode(e, node)}
+              onPointerEnter={() => setHovered(node.id)}
+              onPointerLeave={() =>
+                setHovered((id) => (id === node.id ? null : id))
+              }
               onDoubleClick={(e) => {
                 if (p.editing === node.id) return;
                 editTarget.current =
@@ -860,8 +873,15 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                 </>
               ) : node.kind === "note" ? (
                 <>
-                  {text.title && (
-                    <span className="note-title">{text.title}</span>
+                  {node.attachedTo ? (
+                    <span className="note-title">
+                      <Icon name="note" />
+                      {text.title}
+                    </span>
+                  ) : (
+                    text.title && (
+                      <span className="note-title">{text.title}</span>
+                    )
                   )}
                   <span className="note-body">{text.body}</span>
                 </>
@@ -1045,26 +1065,6 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
             "translate(" + view.x + "," + view.y + ") scale(" + view.zoom + ")"
           }
         >
-          {p.doc.nodes
-            .filter((n) => n.attachedTo)
-            .map((n) => (
-              <path
-                key={n.id}
-                className="attachment-wire"
-                d={
-                  routeEdge(
-                    {
-                      id: n.id,
-                      from: n.attachedTo!,
-                      to: n.id,
-                      label: "",
-                      dashed: true,
-                    },
-                    p.doc.nodes,
-                  ).path
-                }
-              />
-            ))}
           {p.doc.edges.map((edge) => {
             const route = routes.get(edge.id)!;
             return (

@@ -373,7 +373,7 @@ test("automatic routes follow boundaries and avoid a blocking box", () => {
   }
   assert.ok(route.path.startsWith("M "));
 });
-test("portable SVG is valid XML, escapes text and includes attached memo contents", () => {
+test("portable SVG is valid XML, escapes text and draws attached memos as cards", () => {
   const doc = growNodes(sampleDocument());
   doc.title = '構成 <A> & "B"';
   doc.nodes[0].title = "<script>alert(1)</script>\u0007";
@@ -392,8 +392,13 @@ test("portable SVG is valid XML, escapes text and includes attached memo content
     doc.edges.length,
   );
   assert.equal(documentRoutes(doc).size, doc.edges.length);
+  // A memo is a card headed by its figure's name, not a dotted leader line.
   assert.equal(
     parsed.window.document.querySelectorAll('[stroke-dasharray="3 5"]').length,
+    0,
+  );
+  assert.equal(
+    parsed.window.document.querySelectorAll('rect[rx="8"]').length,
     doc.nodes.filter((node) => node.attachedTo).length,
   );
 });

@@ -24,6 +24,7 @@ export const DEFAULT_COLORS = {
   white: "#ffffff",
   black: "#1e1e1e",
   strongText: "#000000",
+  memo: "#eef2ef",
 } as const;
 
 export const validColor = (value: unknown) =>

@@ -912,3 +912,24 @@ test("double-clicking empty space writes text in place, and existing text keeps 
     "再試行は3回まで",
   );
 });
+test("pointing at a memo lights up its figure, and the other way round", async () => {
+  const memo = label("Worker のメモを選択"),
+    worker = label("Workerを選択");
+  const lit = (id) =>
+    document
+      .querySelector(`[data-node-id="${id}"]`)
+      .classList.contains("linked");
+  await act(() =>
+    memo.dispatchEvent(new MouseEvent("pointerover", { bubbles: true })),
+  );
+  assert.ok(lit("worker"));
+  await act(() =>
+    memo.dispatchEvent(new MouseEvent("pointerout", { bubbles: true })),
+  );
+  assert.ok(!lit("worker"));
+  await act(() =>
+    worker.dispatchEvent(new MouseEvent("pointerover", { bubbles: true })),
+  );
+  assert.ok(lit("worker-note"));
+  assert.equal(document.querySelector(".attachment-wire"), null);
+});

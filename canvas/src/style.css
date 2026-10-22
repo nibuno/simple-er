@@ -15,6 +15,7 @@
   --heading: #f0f4f2;
   --grid: #e9edea;
   --shape-line: #9eaca6;
+  --memo: #eef2ef;
   --frame: #eff4f080;
   --shadow: 0 8px 28px #263b3514;
   --chip-shadow: 0 1px 2px #22302b14, 0 6px 18px #22302b0f;
@@ -52,6 +53,7 @@
     --heading: #222c28;
     --grid: #212a26;
     --shape-line: #64766e;
+    --memo: #222c28;
     --frame: #24302b80;
     --shadow: 0 8px 28px #0000007a;
     --chip-shadow: 0 1px 2px #0000005c, 0 8px 22px #00000052;
@@ -629,19 +631,35 @@ kbd {
   width: 12px;
   height: 12px;
 }
-/* Free text is plain writing on the paper. A figure's memo keeps a rule in
-   the accent color and a leader line to its figure, so the two never look
-   alike. */
+/* Free text is plain writing on the paper. A figure's memo is a pale card
+   headed by the figure's name; pointing at either lights up the other. */
 .note .node-face {
   border: 0;
-  border-left: 2px solid var(--node-stroke, transparent);
   border-radius: 0;
   background: var(--node-fill, transparent);
   padding: 8px 12px;
   gap: 10px;
 }
 .note.attached .node-face {
-  border-left-color: var(--node-stroke, var(--accent));
+  border-radius: 8px;
+  background: var(--node-fill, var(--memo));
+  border: 1px solid var(--node-stroke, transparent);
+}
+.note.attached .note-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.note.attached .note-title svg {
+  width: 13px;
+  height: 13px;
+}
+.canvas-node.linked .shape-outline {
+  stroke: var(--node-stroke, var(--accent));
+  stroke-width: 1.5;
+}
+.note.linked .node-face {
+  box-shadow: 0 0 0 1.5px var(--accent);
 }
 .note .node-face:hover {
   background: var(--node-fill, var(--heading));
@@ -817,13 +835,6 @@ kbd {
   stroke-linejoin: round;
   paint-order: stroke;
 }
-.attachment-wire {
-  fill: none;
-  stroke: var(--accent);
-  stroke-opacity: 0.55;
-  stroke-width: 1;
-  stroke-dasharray: 3 4;
-}
 .pending-wire {
   fill: none;
   stroke: var(--accent);
@@ -917,9 +928,9 @@ kbd {
   gap: 10px;
   overflow: visible;
 }
-.inline-editor.in-place.attached,
 .attached > .inline-editor.in-place {
-  border-left: 2px solid var(--accent);
+  border-radius: 8px;
+  background: var(--memo);
 }
 .inline-editor.in-place textarea,
 .inline-editor.in-place input {
