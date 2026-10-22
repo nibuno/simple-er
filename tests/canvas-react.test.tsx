@@ -152,7 +152,7 @@ afterEach(async () => {
   await act(() => root.unmount());
 });
 
-test("inline Japanese edits persist; cancel discards edits; undo and redo restore names", async () => {
+test("inline Japanese edits persist; Escape keeps edits and undo takes them back", async () => {
   const before = saved();
   await click(label("箱を追加"));
   await type(label("名前を直接編集"), "監視");
@@ -168,10 +168,12 @@ test("inline Japanese edits persist; cancel discards edits; undo and redo restor
     ),
   );
   await dblclick(label("監視を選択"));
-  await type(label("名前を直接編集"), "保存しない名前");
+  await type(label("名前を直接編集"), "監視サービス");
   await key(label("名前を直接編集"), "Escape");
+  assert.equal(document.querySelector(".shape-text-editor"), null);
+  assert.ok(saved().nodes.some((n) => n.title === "監視サービス"));
+  await click(label("元に戻す"));
   assert.ok(saved().nodes.some((n) => n.title === "監視"));
-  assert.ok(!saved().nodes.some((n) => n.title === "保存しない名前"));
   await click(label("元に戻す"));
   assert.deepEqual(saved(), before);
   await click(label("やり直す"));
@@ -194,9 +196,8 @@ test("empty additions never reach autosave or undo, whether submitted, dismissed
   assert.deepEqual(saved(), before);
 
   await click(label("箱を追加"));
-  await type(label("名前を直接編集"), "取り消す図形");
   await key(label("名前を直接編集"), "Escape");
-  assert.deepEqual(saved(), before);
+  assert.deepEqual(saved(), before, "Escape on an empty figure adds nothing");
 
   await click(label("箱を追加"));
   await type(label("名前を直接編集"), "　 ");
@@ -402,7 +403,7 @@ test("a click on a figure's text selects it; clicking it again edits that field 
   await click(label("元に戻す"));
   assert.deepEqual(saved(), before);
 });
-test("IME confirmation stays in the figure editor; Escape cancels its text and size preview", async () => {
+test("IME confirmation stays in the figure editor; Escape then keeps its text and undo restores the size", async () => {
   const before = saved();
   await click(label("Workerを選択"));
   await key(label("設計キャンバス"), "Enter");
@@ -432,12 +433,13 @@ test("IME confirmation stays in the figure editor; Escape cancels its text and s
   assert.deepEqual(saved(), before);
   await key(label("説明を直接編集"), "Escape");
   assert.equal(document.querySelector(".shape-text-editor"), null);
+  assert.equal(saved().nodes.find((n) => n.id === "worker").title, "通知処理");
+  await click(label("元に戻す"));
   assert.deepEqual(saved(), before);
   assert.equal(
     parseFloat(document.querySelector('[data-node-id="worker"]').style.height),
     before.nodes.find((n) => n.id === "worker").h,
   );
-  assert.ok(label("元に戻す").disabled);
 });
 test("dragging text moves its figure without opening an editor or losing its text", async () => {
   const before = saved(),
@@ -985,4 +987,16 @@ test("pointing at a figure readies only the port on the nearest side", async () 
       .length,
     1,
   );
+});
+test("double-clicking a line opens its label for writing", async () => {
+  const line = document.querySelector(".edge-control");
+  await act(() =>
+    line.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+  );
+  assert.equal(document.activeElement, label("線のラベル"));
+  await type(label("線のラベル"), "注文ID");
+  await key(label("線のラベル"), "Escape");
+  assert.ok(saved().edges.some((e) => e.label === "注文ID"));
+  await click(line);
+  assert.equal(document.querySelector(".bar-panel"), null);
 });

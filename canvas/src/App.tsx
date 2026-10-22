@@ -36,6 +36,7 @@ import { downloadFile, exportPng, filename, toSvg } from "./export";
 import { Canvas } from "./Canvas";
 import type { CanvasHandle } from "./Canvas";
 import { SelectionBar, TextField } from "./Inspector";
+import type { Panel } from "./Inspector";
 import { Icon } from "./Icons";
 import { SHAPES, shapeIcons, shapeLabels } from "./shapes";
 
@@ -112,6 +113,10 @@ export function App() {
     [status, setStatus] = useState(""),
     [error, setError] = useState(initial.current.error);
   const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [barRequest, setBarRequest] = useState<{
+    id: string;
+    panel: Panel;
+  } | null>(null);
   const [saveState, setSaveState] = useState(""),
     [dirty, setDirty] = useState(false),
     [paused, setPaused] = useState(!!initial.current.raw);
@@ -170,6 +175,7 @@ export function App() {
   function select(ids: string[]) {
     flushInput();
     setInspectorOpen(true);
+    setBarRequest(null);
     setSelection(ids);
     selectionRef.current = ids;
   }
@@ -688,6 +694,10 @@ export function App() {
           onPatch={patchNode}
           onAddNote={(point) => add("note", point)}
           onAddBox={() => add("box")}
+          onEditEdge={(id) => {
+            select([id]);
+            setBarRequest({ id, panel: "label" });
+          }}
           onAddConnected={(from, point, place) => {
             const source = docRef.current.nodes.find((n) => n.id === from);
             add(
@@ -735,6 +745,7 @@ export function App() {
                 onFitGroup={(id) => commit(fitGroup(clone(docRef.current), id))}
                 onSelect={select}
                 onDirty={() => setDirty(true)}
+                request={barRequest}
               />
             )
           }
@@ -1095,7 +1106,8 @@ export function App() {
             ["図形 / テキストを追加", "B / N"],
             ["図形の文字を編集", "ダブルクリック / 選択して Enter"],
             ["テキスト・メモ・囲みを編集", "ダブルクリック / 選択して Enter"],
-            ["編集を確定 / 取り消し", "⌘ Enter / Esc"],
+            ["編集を確定", "Esc / ⌘ Enter（取り消しは ⌘ Z）"],
+            ["線のラベルを書く", "線をダブルクリック"],
             ["接続元と接続先を選ぶ", "C（接続点のドラッグも可）"],
             [
               "接続した図形を追加",

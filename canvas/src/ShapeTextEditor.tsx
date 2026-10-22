@@ -14,7 +14,6 @@ export function ShapeTextEditor({
   onSize,
   onDirty,
   onFinish,
-  onCancel,
 }: {
   node: CanvasNode;
   doc: CanvasDocument;
@@ -24,7 +23,6 @@ export function ShapeTextEditor({
   onSize: (height: number) => void;
   onDirty: () => void;
   onFinish: (patch: Partial<CanvasNode>) => void;
-  onCancel: () => void;
 }) {
   const [title, setTitle] = useState(node.title),
     [description, setDescription] = useState(node.description);
@@ -103,11 +101,12 @@ export function ShapeTextEditor({
       onKeyDown={(e) => {
         e.stopPropagation();
         if (composing.current || e.nativeEvent.isComposing) return;
-        if (e.key === "Escape") {
-          e.preventDefault();
-          done.current = true;
-          onCancel();
-        } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        // Esc confirms, as on other canvases: written words never vanish.
+        // Undo takes them back.
+        if (
+          e.key === "Escape" ||
+          (e.key === "Enter" && (e.metaKey || e.ctrlKey))
+        ) {
           e.preventDefault();
           finish(e.currentTarget);
         } else if (e.key === "Enter" && e.target === titleInput.current) {

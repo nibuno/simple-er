@@ -29,8 +29,7 @@ export function TextField({
   className?: string;
 }) {
   const [draft, setDraft] = useState(value),
-    composing = useRef(false),
-    discard = useRef(false);
+    composing = useRef(false);
   useEffect(() => setDraft(value), [value]);
   const shared = {
     value: draft,
@@ -50,20 +49,15 @@ export function TextField({
       setDraft(e.target.value);
       onDirty?.();
     },
-    onBlur: () => {
-      onCommit(discard.current ? value : draft);
-      discard.current = false;
-    },
+    onBlur: () => onCommit(draft),
     onKeyDown: (
       e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
     ) => {
       if (composing.current || e.nativeEvent.isComposing) return;
-      if (e.key === "Escape") {
-        e.preventDefault();
-        discard.current = true;
-        setDraft(value);
-        e.currentTarget.blur();
-      } else if (e.key === "Enter" && (!multiline || e.metaKey || e.ctrlKey)) {
+      if (
+        e.key === "Escape" ||
+        (e.key === "Enter" && (!multiline || e.metaKey || e.ctrlKey))
+      ) {
         e.preventDefault();
         e.currentTarget.blur();
       }
@@ -76,7 +70,7 @@ export function TextField({
     </label>
   );
 }
-type Panel = "shape" | "color" | "memo" | "label" | "more";
+export type Panel = "shape" | "color" | "memo" | "label" | "more";
 // Actions for the selection sit in a bar just above it; anything with more
 // than a click behind it opens in a small panel under the bar.
 export function SelectionBar({
@@ -95,10 +89,13 @@ export function SelectionBar({
   onFitGroup,
   onSelect,
   onDirty,
+  request,
 }: {
   doc: CanvasDocument;
   node?: CanvasNode;
   edge?: CanvasEdge;
+  // A panel to open right away, such as the label after double-clicking a line.
+  request?: { id: string; panel: Panel } | null;
   count: number;
   selection: string[];
   onColors: (
@@ -116,7 +113,10 @@ export function SelectionBar({
 }) {
   const [open, setOpen] = useState<Panel | null>(null);
   const key = selection.join(",");
-  useEffect(() => setOpen(null), [key]);
+  useEffect(
+    () => setOpen(request && request.id === key ? request.panel : null),
+    [key, request],
+  );
   if (!count) return null;
   const parent = node?.attachedTo
     ? doc.nodes.find((n) => n.id === node.attachedTo)
@@ -436,13 +436,11 @@ export function InlineEditor({
   node,
   doc,
   onFinish,
-  onCancel,
   onDirty,
 }: {
   node: CanvasNode;
   doc: CanvasDocument;
   onFinish: (patch: Partial<CanvasNode>) => void;
-  onCancel: () => void;
   onDirty: () => void;
 }) {
   const content = noteContent(node, doc),
@@ -476,14 +474,11 @@ export function InlineEditor({
       onKeyDown={(e) => {
         e.stopPropagation();
         if (composing.current || e.nativeEvent.isComposing) return;
-        if (e.key === "Escape") {
-          e.preventDefault();
-          done.current = true;
-          onCancel();
-        }
+        // Esc confirms, like Enter with ⌘; undo takes the words back.
         if (
-          e.key === "Enter" &&
-          (e.metaKey || e.ctrlKey || node.kind === "group")
+          e.key === "Escape" ||
+          (e.key === "Enter" &&
+            (e.metaKey || e.ctrlKey || node.kind === "group"))
         ) {
           e.preventDefault();
           finish(e.currentTarget);

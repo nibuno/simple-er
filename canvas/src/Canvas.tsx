@@ -52,6 +52,7 @@ interface Props {
   onPatch: (id: string, patch: Partial<CanvasNode>) => void;
   onAddNote: (point: Point) => void;
   onAddBox: () => void;
+  onEditEdge: (id: string) => void;
   // `place` asks for a free spot near the point rather than the exact point.
   onAddConnected: (from: string, point: Point, place?: boolean) => void;
   selectionBar?: ReactNode;
@@ -800,12 +801,6 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                     : { id: node.id, h },
                 );
               }}
-              onCancel={() => {
-                editTarget.current = "title";
-                setEditedSize(null);
-                p.onEdit(null);
-                stage.current?.focus();
-              }}
               onFinish={(patch) => {
                 editTarget.current = "title";
                 setEditedSize(null);
@@ -820,10 +815,6 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
             node={node}
             doc={p.doc}
             onDirty={p.onDirty}
-            onCancel={() => {
-              p.onEdit(null);
-              stage.current?.focus();
-            }}
             onFinish={(patch) => {
               p.onPatch(node.id, patch);
               p.onEdit(null);
@@ -1147,6 +1138,10 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                   "への接続線"
                 }
                 onPointerDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  p.onEditEdge(edge.id);
+                }}
                 onClick={(e) => {
                   e.stopPropagation();
                   p.onSelect(
