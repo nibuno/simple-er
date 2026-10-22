@@ -56,7 +56,7 @@ export function makeNode(
       kind === "group"
         ? 280
         : kind === "note"
-          ? 180
+          ? 50
           : shape === "diamond"
             ? 180
             : shape === "cylinder"
@@ -142,8 +142,9 @@ export function minimumHeight(node: CanvasNode, doc: CanvasDocument) {
     return minimumBoxHeight(node.shape, textHeight);
   }
   const text = noteContent(node, doc);
+  // 50 is the smallest height a saved file accepts.
   return Math.max(
-    90,
+    50,
     24 +
       (text.title
         ? wrapText(text.title, node.w - 28, 13).length * 22 + 10
@@ -151,9 +152,12 @@ export function minimumHeight(node: CanvasNode, doc: CanvasDocument) {
       wrapText(text.body || "メモを書く", node.w - 28, 14).length * 24,
   );
 }
+// Figures and groups grow to fit their text; text and memos are exactly as
+// tall as their words, so their frame never runs past them.
 export function growNodes(doc: CanvasDocument) {
   doc.nodes.forEach((n) => {
-    n.h = Math.max(n.h, minimumHeight(n, doc));
+    const fit = minimumHeight(n, doc);
+    n.h = n.kind === "note" ? fit : Math.max(n.h, fit);
   });
   return doc;
 }
@@ -341,13 +345,9 @@ export function attachNote(doc: CanvasDocument, id: string) {
     attachedTo: id,
     groupId: parent.groupId,
   };
-  // Prefer a nearby free position over placing the memo on an existing element.
-  for (
-    let i = 0;
-    i < 20 && next.nodes.some((n) => n.kind !== "group" && intersects(note, n));
-    i++
-  )
-    note.y += 120;
+  note.h = minimumHeight(note, next);
+  // Beside the figure if it is clear there, else the nearest free spot.
+  placeInFreeSpace(note, next);
   next.nodes.push(note);
   return { doc: growNodes(next), id: note.id };
 }

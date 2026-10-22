@@ -222,6 +222,12 @@ button svg {
   justify-content: space-between;
   min-height: 36px;
 }
+.menu-note {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: left;
+}
 .file-popover hr {
   margin: 5px 0;
   border: 0;
@@ -434,6 +440,8 @@ kbd {
 }
 .toast span {
   display: block;
+  width: max-content;
+  max-width: min(560px, calc(100vw - 32px));
   padding: 7px 14px;
   border-radius: 8px;
   background: var(--text);
@@ -883,6 +891,11 @@ kbd {
 .edge-control {
   pointer-events: all;
   cursor: pointer;
+  outline: none;
+}
+.edge-control:focus-visible .edge-visible {
+  stroke: var(--edge-stroke, var(--focus));
+  stroke-width: 3;
 }
 .edge-visible {
   fill: none;

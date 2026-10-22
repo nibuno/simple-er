@@ -376,6 +376,7 @@ export function App() {
       const result = groupSelection(docRef.current, selectionRef.current);
       commit(result.doc);
       select([result.id]);
+      canvas.current?.reveal();
       notify("選んだ要素を囲みました。");
     } catch (e) {
       notify(errorMessage(e));
@@ -738,6 +739,7 @@ export function App() {
                     const result = attachNote(docRef.current, id);
                     commit(result.doc);
                     select([result.id]);
+                    canvas.current?.reveal();
                   } catch (e) {
                     setError(errorMessage(e));
                   }
@@ -768,10 +770,15 @@ export function App() {
               <button
                 onClick={() => {
                   replace(emptyDocument());
-                  notify("新しいキャンバスを開きました。元に戻せます。");
+                  notify(
+                    "新しいキャンバスにしました。前の図は ⌘Z で戻せます。再読み込みすると戻せないので、残すならファイルに保存してください。",
+                  );
                 }}
               >
-                新しいキャンバス
+                <span>
+                  新しいキャンバス
+                  <small className="menu-note">今の図と置き換わります</small>
+                </span>
               </button>
               <button onClick={() => file.current?.click()}>
                 ファイルを開く…
@@ -927,8 +934,19 @@ export function App() {
             onClick={() => {
               try {
                 flushInput();
-                commit(arrange(docRef.current, selectionRef.current));
-                notify("図形と線を整えました。");
+                const before = docRef.current,
+                  next = arrange(before, selectionRef.current),
+                  moved = next.nodes.filter((n) => {
+                    const old = before.nodes.find((o) => o.id === n.id);
+                    return old && (old.x !== n.x || old.y !== n.y);
+                  }).length;
+                // Say what changed: the moves are often only a few pixels.
+                if (!moved) {
+                  notify("揃える必要のある図形はありません。");
+                  return;
+                }
+                commit(next);
+                notify(moved + "個の図形を揃え、線をまっすぐにしました。");
               } catch (e) {
                 notify(errorMessage(e));
               }

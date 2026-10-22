@@ -1000,3 +1000,14 @@ test("double-clicking a line opens its label for writing", async () => {
   await click(line);
   assert.equal(document.querySelector(".bar-panel"), null);
 });
+test("typing does not bring back the canvas focus ring; only Tab does", async () => {
+  const stage = label("設計キャンバス");
+  await pointer(label("Workerを選択"), "pointerdown", 300, 200);
+  await pointer(stage, "pointerup", 300, 200);
+  await key(stage, "Enter");
+  await key(label("名前を直接編集"), "a");
+  await key(label("名前を直接編集"), "Enter", { metaKey: true });
+  assert.equal(stage.dataset.input, "pointer");
+  await key(stage, "Tab");
+  assert.equal(stage.dataset.input, "keyboard");
+});

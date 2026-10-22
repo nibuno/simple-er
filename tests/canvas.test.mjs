@@ -492,3 +492,16 @@ test("only figures on a chosen color get a fixed text color; others follow the t
     true,
   );
 });
+test("text is exactly as tall as its words, and a placed memo avoids other elements", () => {
+  const doc = growNodes(sampleDocument()),
+    policy = doc.nodes.find((n) => n.title === "今回の方針");
+  // Heading + three lines.
+  assert.equal(policy.h, 24 + 32 + 3 * 24);
+  const result = attachNote(doc, "api"),
+    memo = result.doc.nodes.find((n) => n.id === result.id);
+  const hit = (a, b) =>
+    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  for (const n of result.doc.nodes)
+    if (n.id !== memo.id && n.kind !== "group")
+      assert.ok(!hit(memo, n), "overlaps " + (n.title || n.id));
+});

@@ -37,6 +37,7 @@ export interface CanvasHandle {
   fit: () => void;
   center: () => Point;
   focus: () => void;
+  reveal: () => void;
 }
 interface Props {
   doc: CanvasDocument;
@@ -289,6 +290,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           stage.current!.clientHeight / 2,
       ),
     focus: () => stage.current?.focus(),
+    // After a memo or group is placed, bring it into view once it renders.
+    reveal: () => requestAnimationFrame(revealSelection),
   }));
   function revealSelection() {
     const el = stage.current,
@@ -466,13 +469,13 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     };
   }, []);
   // The stage is focused from code after pointer actions, which browsers may
-  // treat as keyboard focus; show its focus ring only after keyboard input.
+  // treat as keyboard focus; show its focus ring only after moving focus with
+  // Tab. Typing words or shortcuts does not count.
   useEffect(() => {
     const el = stage.current!,
       pointer = () => (el.dataset.input = "pointer"),
       keyboard = (e: KeyboardEvent) => {
-        if (!["Shift", "Control", "Alt", "Meta"].includes(e.key))
-          el.dataset.input = "keyboard";
+        if (e.key === "Tab") el.dataset.input = "keyboard";
       };
     window.addEventListener("pointerdown", pointer, true);
     window.addEventListener("keydown", keyboard, true);
