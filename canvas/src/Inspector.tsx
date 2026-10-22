@@ -1,13 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type {
-  CanvasDocument,
-  CanvasNode,
-  CanvasEdge,
-  NodeShape,
-} from "./types";
+import type { CanvasDocument, CanvasNode, CanvasEdge } from "./types";
 import { MAX_TEXT, noteContent } from "./model";
 import { Icon } from "./Icons";
-import { SHAPES, shapeLabels } from "./shapes";
+import { SHAPES, shapeIcons, shapeLabels } from "./shapes";
 import { ColorPicker } from "./ColorPicker";
 import { DEFAULT_COLORS } from "./colors";
 
@@ -139,6 +134,35 @@ export function Inspector({
       mixed: items.some((item) => (item as CanvasNode)[key] !== first),
     };
   };
+  // A figure's panel leads with its shape and text; colors come next.
+  const colors = (
+    <>
+      {!!nodes.length && (
+        <ColorPicker
+          label="塗り"
+          kind="fill"
+          {...sharedColor(nodes, "fillColor")}
+          defaultColor={
+            nodes[0].kind === "group"
+              ? DEFAULT_COLORS.frame
+              : nodes[0].kind === "note"
+                ? "transparent"
+                : DEFAULT_COLORS.fill
+          }
+          onChange={(fillColor) => onColors({ fillColor })}
+        />
+      )}
+      <ColorPicker
+        label="線"
+        kind="stroke"
+        {...sharedColor(elements, "strokeColor")}
+        defaultColor={
+          nodes.length ? DEFAULT_COLORS.stroke : DEFAULT_COLORS.line
+        }
+        onChange={(strokeColor) => onColors({ strokeColor })}
+      />
+    </>
+  );
   return (
     <aside className="inspector" aria-label="選択した要素の編集">
       <div className="inspector-heading">
@@ -165,30 +189,7 @@ export function Inspector({
         className="inspector-content"
         key={node?.id || edge?.id || "multiple"}
       >
-        {!!nodes.length && (
-          <ColorPicker
-            label="塗り"
-            kind="fill"
-            {...sharedColor(nodes, "fillColor")}
-            defaultColor={
-              nodes[0].kind === "group"
-                ? DEFAULT_COLORS.frame
-                : nodes[0].kind === "note"
-                  ? "transparent"
-                  : DEFAULT_COLORS.fill
-            }
-            onChange={(fillColor) => onColors({ fillColor })}
-          />
-        )}
-        <ColorPicker
-          label="線"
-          kind="stroke"
-          {...sharedColor(elements, "strokeColor")}
-          defaultColor={
-            nodes.length ? DEFAULT_COLORS.stroke : DEFAULT_COLORS.line
-          }
-          onChange={(strokeColor) => onColors({ strokeColor })}
-        />
+        {!node && colors}
         {count > 1 && (
           <p className="muted">
             一緒に移動・複製できます。「囲む」で、まとまりに名前を付けられます。
@@ -222,6 +223,30 @@ export function Inspector({
                 placeholder={node.kind === "note" ? "任意" : ""}
               />
             )}
+            {node.kind === "box" && (
+              <div className="field">
+                <span id="shape-choice">図形</span>
+                <div
+                  className="shape-choice"
+                  role="radiogroup"
+                  aria-labelledby="shape-choice"
+                >
+                  {SHAPES.map((shape) => (
+                    <button
+                      key={shape}
+                      role="radio"
+                      aria-checked={node.shape === shape}
+                      aria-label={shapeLabels[shape]}
+                      title={shapeLabels[shape]}
+                      onClick={() => patch({ shape })}
+                    >
+                      <Icon name={shapeIcons[shape]} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {colors}
             {node.kind !== "group" && (
               <TextField
                 label="メモ"
@@ -260,24 +285,6 @@ export function Inspector({
               >
                 箱にする
               </button>
-            )}
-            {node.kind === "box" && (
-              <label className="field">
-                <span>図形</span>
-                <select
-                  aria-label="図形"
-                  value={node.shape}
-                  onChange={(e) =>
-                    patch({ shape: e.target.value as NodeShape })
-                  }
-                >
-                  {SHAPES.map((shape) => (
-                    <option key={shape} value={shape}>
-                      {shapeLabels[shape]}
-                    </option>
-                  ))}
-                </select>
-              </label>
             )}
             {node.kind !== "group" &&
               doc.nodes.some((n) => n.kind === "group") && (

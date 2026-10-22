@@ -1057,6 +1057,20 @@ kbd {
   margin-bottom: 18px;
   overflow-wrap: anywhere;
 }
+.shape-choice {
+  display: flex;
+  gap: 4px;
+}
+.shape-choice button {
+  width: 38px;
+  padding: 6px;
+  color: var(--muted);
+}
+.shape-choice button[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--selected);
+  color: var(--accent);
+}
 .size-settings {
   margin-top: 24px;
   font-size: 12px;

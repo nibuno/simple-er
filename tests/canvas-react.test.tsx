@@ -259,11 +259,9 @@ test("new shapes can be created, converted, connected and reloaded", async () =>
     "diamond",
   );
   await click(label("円柱の図形を選択"));
-  await act(() => {
-    const select = label("図形");
-    select.value = "diamond";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  assert.equal(label("円柱").getAttribute("aria-checked"), "true");
+  await click(label("ひし形"));
+  assert.equal(label("ひし形").getAttribute("aria-checked"), "true");
   assert.equal(
     saved().nodes.find((n) => n.title === "円柱の図形").shape,
     "diamond",
