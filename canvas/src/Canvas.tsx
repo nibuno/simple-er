@@ -795,19 +795,22 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                   </span>
                   {node.body && (
                     <span
-                      className="memo-indicator"
-                      aria-label="メモあり"
+                      className={
+                        "memo-indicator" +
+                        (node.shape === "rectangle" ? "" : " centered")
+                      }
+                      title={"メモ：" + node.body.split("\n")[0].slice(0, 60)}
                       style={
                         node.shape === "rectangle"
                           ? undefined
                           : {
-                              right: node.w / 2 - 6,
                               bottom:
                                 node.shape === "cylinder" ? 12 : area.y / 2 + 4,
                             }
                       }
                     >
                       <Icon name="note" />
+                      メモ
                     </span>
                   )}
                 </>

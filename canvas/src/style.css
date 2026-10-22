@@ -481,13 +481,26 @@ kbd {
 }
 .memo-indicator {
   position: absolute;
-  right: 10px;
-  bottom: 8px;
+  right: 8px;
+  bottom: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 5px 1px 3px;
+  border-radius: 9px;
+  background: var(--heading);
   color: var(--muted);
+  font-size: 10px;
+  line-height: 14px;
+}
+.memo-indicator.centered {
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
 }
 .memo-indicator svg {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
 }
 .note .node-face {
   border: 0;

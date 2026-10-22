@@ -815,3 +815,14 @@ test("the save state has a short form for narrow screens", async () => {
   await type(label("メモ"), "編集中の文章");
   assert.equal(document.querySelector(".save-short").textContent, "編集中");
 });
+test("a figure with a memo shows a labeled marker that previews its first line", async () => {
+  const marker = document.querySelector(
+    '[data-node-id="worker"] .memo-indicator',
+  );
+  assert.equal(marker.textContent, "メモ");
+  assert.equal(marker.title, "メモ：送信に失敗したら再試行する。");
+  assert.equal(
+    document.querySelector('[data-node-id="queue"] .memo-indicator'),
+    null,
+  );
+});
