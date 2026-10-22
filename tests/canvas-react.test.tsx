@@ -109,6 +109,11 @@ async function key(el, key, options = {}) {
     ),
   );
 }
+async function dblclick(el) {
+  await act(() =>
+    el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, detail: 2 })),
+  );
+}
 async function pointer(el, event, x, y) {
   await act(() => {
     const e = new MouseEvent(event, {
@@ -360,12 +365,15 @@ test("a color change applies to selected figures and connectors as one undo step
   await click(label("元に戻す"));
   assert.deepEqual(saved(), afterStroke);
 });
-test("clicking a figure's text edits that field in place and commits both fields as one undo step", async () => {
+test("a click on a figure's text selects it; clicking it again edits that field and commits both fields as one undo step", async () => {
   const before = saved(),
     stage = label("設計キャンバス");
-  const text = label("Workerを選択").querySelector(".node-description");
-  await pointer(text, "pointerdown", 300, 200);
-  assert.equal(document.querySelector(".inspector"), null);
+  const text = () => label("Workerを選択").querySelector(".node-description");
+  await pointer(text(), "pointerdown", 300, 200);
+  await pointer(stage, "pointerup", 300, 200);
+  assert.equal(document.querySelector(".shape-text-editor"), null);
+  assert.equal(label("Workerを選択").getAttribute("aria-pressed"), "true");
+  await pointer(text(), "pointerdown", 300, 200);
   await pointer(stage, "pointerup", 300, 200);
   assert.equal(document.activeElement, label("説明を直接編集"));
   assert.ok(document.querySelector('[data-node-id="worker"] .shape-outline'));
@@ -434,16 +442,26 @@ test("dragging text moves its figure without opening an editor or losing its tex
   await click(label("元に戻す"));
   assert.deepEqual(saved(), before);
 });
-test("clicking another figure's text commits the current input and opens the next field", async () => {
-  const stage = label("設計キャンバス"),
-    first = label("Workerを選択").querySelector(".node-title");
-  await pointer(first, "pointerdown", 300, 200);
-  await pointer(stage, "pointerup", 300, 200);
+test("double-clicking a figure's text edits that field", async () => {
+  await dblclick(label("DBを選択").querySelector(".node-description"));
+  assert.equal(document.activeElement, label("説明を直接編集"));
+  assert.equal(label("説明を直接編集").value, "注文を保存する");
+  await key(label("説明を直接編集"), "Escape");
+  await dblclick(label("Workerを選択"));
+  assert.equal(document.activeElement, label("名前を直接編集"));
+});
+test("clicking another figure's text commits the current input and selects that figure", async () => {
+  const stage = label("設計キャンバス");
+  await dblclick(label("Workerを選択").querySelector(".node-title"));
   await type(label("名前を直接編集"), "通知処理");
-  const next = label("DBを選択").querySelector(".node-description");
-  await pointer(next, "pointerdown", 400, 200);
+  const next = () => label("DBを選択").querySelector(".node-description");
+  await pointer(next(), "pointerdown", 400, 200);
   await pointer(stage, "pointerup", 400, 200);
   assert.equal(saved().nodes.find((n) => n.id === "worker").title, "通知処理");
+  assert.equal(document.querySelector(".shape-text-editor"), null);
+  assert.equal(label("DBを選択").getAttribute("aria-pressed"), "true");
+  await pointer(next(), "pointerdown", 400, 200);
+  await pointer(stage, "pointerup", 400, 200);
   assert.equal(document.activeElement, label("説明を直接編集"));
   assert.equal(label("説明を直接編集").value, "注文を保存する");
   await key(label("説明を直接編集"), "Escape");
@@ -451,11 +469,8 @@ test("clicking another figure's text commits the current input and opens the nex
 });
 test("figure editing keeps the current view at reduced and enlarged scales, including manual adjustments", async () => {
   const before = saved();
-  const open = async () => {
-    const text = label("Workerを選択").querySelector(".node-title");
-    await pointer(text, "pointerdown", 300, 200);
-    await pointer(label("設計キャンバス"), "pointerup", 300, 200);
-  };
+  const open = () =>
+    dblclick(label("Workerを選択").querySelector(".node-title"));
   for (const view of [
     { x: 20, y: 460, zoom: 0.4 },
     { x: -1480, y: -200, zoom: 2.4 },

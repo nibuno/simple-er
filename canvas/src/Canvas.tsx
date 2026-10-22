@@ -64,6 +64,11 @@ type Drag =
   | { kind: "pan"; pointer: number; start: Point; view: View }
   | { kind: "marquee"; pointer: number; start: Point; add: string[] }
   | { kind: "connect"; pointer: number; from: string };
+function textField(target: EventTarget): ShapeTextField | undefined {
+  const text = (target as Element).closest(".node-title,.node-description");
+  if (!text) return undefined;
+  return text.classList.contains("node-description") ? "description" : "title";
+}
 function readView(): View | null {
   try {
     const v = JSON.parse(localStorage.getItem(VIEW_KEY) || "null");
@@ -412,22 +417,20 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       return;
     }
     if (p.editing === node.id) return;
-    const textTarget =
-      !resize && !e.shiftKey && node.kind === "box"
-        ? (e.target as Element).closest(".node-title,.node-description")
-        : null;
-    const editField = textTarget
-      ? textTarget.classList.contains("node-description")
-        ? "description"
-        : "title"
-      : undefined;
     if (p.editing) {
       stage.current?.focus();
-      if (!editField) {
-        p.onSelect([node.id]);
-        return;
-      }
+      p.onSelect([node.id]);
+      return;
     }
+    // A click selects; clicking the text of the already selected figure, or
+    // double-clicking it, edits that field.
+    const editField =
+      !resize &&
+      !e.shiftKey &&
+      p.selection.length === 1 &&
+      p.selection[0] === node.id
+        ? textField(e.target)
+        : undefined;
     e.preventDefault();
     stage.current?.focus();
     const ids = e.shiftKey
@@ -665,7 +668,12 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
               aria-label={name + "を選択"}
               aria-pressed={selected}
               onPointerDown={(e) => startNode(e, node)}
-              onDoubleClick={() => p.onEdit(node.id)}
+              onDoubleClick={(e) => {
+                if (p.editing === node.id) return;
+                editTarget.current =
+                  (node.kind === "box" && textField(e.target)) || "title";
+                p.onEdit(node.id);
+              }}
               onClick={(e) => {
                 if (e.detail === 0) {
                   if (p.pending || p.tool === "connect") p.onConnect(node.id);
