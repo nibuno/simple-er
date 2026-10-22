@@ -595,7 +595,7 @@ test("invalid JSON import keeps the current work; valid replacement can be undon
   assert.ok(
     document
       .querySelector('[role="alert"]')
-      .textContent.includes("現在の内容は保持"),
+      .textContent.includes("今の図はそのまま"),
   );
   const imported = sampleDocument();
   imported.title = "別の設計";
@@ -609,7 +609,7 @@ test("corrupt stored data is not overwritten by mounting or editing", async () =
   localStorage.setItem(STORAGE_KEY, "broken-original");
   await mount();
   assert.ok(
-    document.querySelector('[role="alert"]').textContent.includes("上書きせず"),
+    document.querySelector('[role="alert"]').textContent.includes("上書きしていません"),
   );
   await type(label("キャンバス名"), "新しく検討");
   await blur(label("キャンバス名"));
@@ -956,7 +956,7 @@ test("clicking a port adds a connected figure on that side, clear of others", as
   const port = document.querySelector(
     '[data-node-id="worker"] .connection-port.bottom',
   );
-  assert.equal(port.dataset.tip, "クリックで下に追加 · ドラッグで接続");
+  assert.equal(port.dataset.tip, "下に追加（ドラッグで接続）");
   document.elementFromPoint = () => stage;
   await pointer(port, "pointerdown", 300, 200);
   await pointer(stage, "pointerup", 300, 200);

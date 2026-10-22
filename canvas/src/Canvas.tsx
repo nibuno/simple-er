@@ -940,7 +940,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
             {selected && (
               <button
                 className="resize-handle se"
-                aria-label="サイズを変更。矢印キーでも調整できます"
+                aria-label="サイズを変更"
                 onPointerDown={(e) => startNode(e, node, "se")}
                 onKeyDown={(e) => {
                   if (!e.key.startsWith("Arrow")) return;
@@ -981,9 +981,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                   aria-label={i ? undefined : name + "から接続"}
                   aria-hidden={i ? true : undefined}
                   tabIndex={i ? -1 : 0}
-                  data-tip={
-                    "クリックで" + SIDE_NAMES[side] + "に追加 · ドラッグで接続"
-                  }
+                  data-tip={SIDE_NAMES[side] + "に追加（ドラッグで接続）"}
                   onPointerDown={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
@@ -1034,7 +1032,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           return;
         }
         if (p.tool === "connect") {
-          p.onStatus("接続元の図形またはメモを選んでください。");
+          p.onStatus("接続元を選択");
           return;
         }
         stage.current?.focus();
@@ -1253,10 +1251,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           <span className="empty-symbol">
             <Icon name="box" />
           </span>
-          <h2>図形を置いて始める</h2>
-          <p>
-            箱を置いて名前を書き、接続点から次の図形をつなげます。理由はテキストで横に書き添えます。
-          </p>
+          <h2>空のキャンバス</h2>
           <div className="empty-actions">
             <button className="primary" onClick={p.onAddBox}>
               箱を追加
@@ -1268,7 +1263,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
               テキストを追加
             </button>
           </div>
-          <small>余白をダブルクリックすると、その場にテキストを書けます</small>
+          <small>余白をダブルクリックすると文字を書けます</small>
         </div>
       )}
       <div className="canvas-controls" aria-label="表示操作">

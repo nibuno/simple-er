@@ -207,8 +207,8 @@ export function SelectionBar({
           <>
             <button
               className="bar-button"
-              aria-label="破線にする"
-              title="破線にする"
+              aria-label="破線"
+              title="破線"
               aria-pressed={edge.dashed}
               onClick={() => onEdge(edge.id, { dashed: !edge.dashed })}
             >
@@ -216,8 +216,8 @@ export function SelectionBar({
             </button>
             <button
               className="bar-button"
-              aria-label="向きを逆にする"
-              title="向きを逆にする"
+              aria-label="向きを反転"
+              title="向きを反転"
               onClick={() => onEdge(edge.id, { from: edge.to, to: edge.from })}
             >
               <Icon name="swap" />
@@ -337,8 +337,8 @@ export function SelectionBar({
                   onClick={() => onAttach(node.id)}
                 >
                   {doc.nodes.some((n) => n.attachedTo === node.id)
-                    ? "図に置いたメモを選択"
-                    : "メモを図に置く"}
+                    ? "図のメモを選択"
+                    : "図に表示"}
                 </button>
               )}
             </>
@@ -508,7 +508,7 @@ export function InlineEditor({
             }
             name="body"
             defaultValue={content.body}
-            placeholder={node.attachedTo ? "メモを書く" : "テキストを書く"}
+            placeholder={node.attachedTo ? "メモを入力" : "テキストを入力"}
             maxLength={MAX_TEXT}
             autoFocus
             rows={Math.max(2, content.body.split("\n").length + 1)}

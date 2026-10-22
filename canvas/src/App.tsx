@@ -55,8 +55,8 @@ function boot() {
       doc: emptyDocument(),
       saved: raw,
       error: raw
-        ? "保存済みのデータを読み込めませんでした。元のデータは上書きせずに保持しています。"
-        : "このブラウザでは自動保存を利用できません。ファイルに保存して作業を残してください。",
+        ? "保存データを読み込めませんでした。元のデータは上書きしていません。"
+        : "このブラウザでは自動保存できません。作業はファイルに保存してください。",
       raw,
     };
   }
@@ -284,11 +284,11 @@ export function App() {
     discardDraft();
     const next = clone(docRef.current);
     if (next.nodes.length >= MAX_NODES) {
-      setError("要素は150個まで追加できます。");
+      setError("追加できるのは150個までです");
       return;
     }
     if (from && next.edges.length >= MAX_EDGES) {
-      setError("接続線は400本まで追加できます。");
+      setError("線は400本までです");
       return;
     }
     const center = point || canvas.current?.center() || { x: 100, y: 100 },
@@ -311,7 +311,7 @@ export function App() {
   function connect(id: string, fromOverride?: string) {
     flushInput();
     if (docRef.current.nodes.find((n) => n.id === id)?.kind === "group") {
-      notify("図形またはメモを選んでください。");
+      notify("図形かテキストを選択してください");
       return;
     }
     const from = fromOverride ?? pendingRef.current;
@@ -319,21 +319,21 @@ export function App() {
       pendingRef.current = id;
       setPending(id);
       select([id]);
-      notify("接続先を選んでください。Escで取り消せます。");
+      notify("接続先を選択（Escでやめる）");
       return;
     }
     if (from === id) {
       clearPending();
-      notify("接続を取り消しました。");
+      notify("接続をやめました");
       return;
     }
     if (docRef.current.edges.some((e) => e.from === from && e.to === id)) {
       clearPending();
-      notify("この向きの接続線はすでにあります。");
+      notify("同じ向きの線がすでにあります");
       return;
     }
     if (docRef.current.edges.length >= MAX_EDGES) {
-      setError("接続線は400本まで追加できます。");
+      setError("線は400本までです");
       clearPending();
       return;
     }
@@ -344,7 +344,7 @@ export function App() {
     clearPending();
     setTool("select");
     select([edge.id]);
-    notify("接続しました。ラベルも付けられます。");
+    notify("接続しました");
   }
   function remove() {
     flushInput();
@@ -353,7 +353,7 @@ export function App() {
     select([]);
     edit(null);
     clearPending();
-    notify("削除しました。元に戻せます。");
+    notify("削除しました");
   }
   function duplicate() {
     flushInput();
@@ -365,7 +365,7 @@ export function App() {
       );
       commit(result.doc);
       select(result.ids);
-      notify("複製しました。");
+      notify("複製しました");
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -377,7 +377,7 @@ export function App() {
       commit(result.doc);
       select([result.id]);
       canvas.current?.reveal();
-      notify("選んだ要素を囲みました。");
+      notify("囲みました");
     } catch (e) {
       notify(errorMessage(e));
     }
@@ -395,7 +395,7 @@ export function App() {
     setEditing(null);
     setDirty(false);
     clearPending();
-    notify("元に戻しました。");
+    notify("元に戻しました");
   }
   function redo() {
     if (draftRef.current) {
@@ -410,7 +410,7 @@ export function App() {
     setEditing(null);
     setDirty(false);
     clearPending();
-    notify("やり直しました。");
+    notify("やり直しました");
   }
   function save() {
     flushInput();
@@ -418,7 +418,7 @@ export function App() {
       encode(docRef.current),
       filename(docRef.current.title) + ".simplecanvas.json",
     );
-    notify("ファイルを保存しました。");
+    notify("ファイルに保存しました");
   }
   function replace(next: CanvasDocument) {
     flushInput();
@@ -434,7 +434,7 @@ export function App() {
     flushInput();
     clearPending();
     setTool((old) => (old === "connect" ? "select" : "connect"));
-    notify("接続元、接続先の順に選んでください。");
+    notify("接続元を選択");
   }
   actions.current = {
     undo,
@@ -455,9 +455,7 @@ export function App() {
       if (stored !== lastSaved.current) {
         setPaused(true);
         setRemote(stored);
-        setError(
-          "別の画面でキャンバスが変更されました。自動保存を一時停止しています。",
-        );
+        setError("別のタブで変更されたため、自動保存を止めています。");
         return;
       }
       localStorage.setItem(STORAGE_KEY, value);
@@ -466,7 +464,7 @@ export function App() {
     } catch {
       setSaveState("自動保存できません");
       setError(
-        "ブラウザに保存できませんでした。ファイルに保存して作業を残してください。",
+        "ブラウザに保存できませんでした。作業はファイルに保存してください。",
       );
     }
   }, [history.past, history.future, paused]);
@@ -492,9 +490,7 @@ export function App() {
       (raw) => {
         setPaused(true);
         setRemote(raw);
-        setError(
-          "別の画面でキャンバスが変更されました。自動保存を一時停止しています。",
-        );
+        setError("別のタブで変更されたため、自動保存を止めています。");
       },
     );
   }, []);
@@ -586,7 +582,7 @@ export function App() {
       e.preventDefault();
       e.clipboardData?.setData("text/plain", encode(fragment));
       if (e.type === "cut") actions.current.remove();
-      else notify("選んだ要素をコピーしました。");
+      else notify("コピーしました");
     };
     const paste = (e: ClipboardEvent) => {
       if (isTyping(e.target) || help.current?.open) return;
@@ -613,12 +609,11 @@ export function App() {
           });
           commit(result.doc);
           select(result.ids);
-          notify("貼り付けました。");
+          notify("貼り付けました");
         } else {
-          if (text.length > 6000)
-            throw new Error("一つのメモは6000文字までです。");
+          if (text.length > 6000) throw new Error("テキストは6000文字までです");
           if (docRef.current.nodes.length >= MAX_NODES)
-            throw new Error("要素は150個まで追加できます。");
+            throw new Error("追加できるのは150個までです");
           const next = clone(docRef.current),
             node = makeNode(
               "note",
@@ -628,7 +623,7 @@ export function App() {
           next.nodes.push(node);
           commit(next);
           select([node.id]);
-          notify("文章をテキストとして貼り付けました。");
+          notify("テキストとして貼り付けました");
         }
       } catch (error) {
         setError(errorMessage(error));
@@ -770,14 +765,12 @@ export function App() {
               <button
                 onClick={() => {
                   replace(emptyDocument());
-                  notify(
-                    "新しいキャンバスにしました。前の図は ⌘Z で戻せます。再読み込みすると戻せないので、残すならファイルに保存してください。",
-                  );
+                  notify("新しいキャンバスを作成しました（⌘Z で戻る）");
                 }}
               >
                 <span>
                   新しいキャンバス
-                  <small className="menu-note">今の図と置き換わります</small>
+                  <small className="menu-note">現在の図を閉じます</small>
                 </span>
               </button>
               <button onClick={() => file.current?.click()}>
@@ -795,7 +788,7 @@ export function App() {
                     filename(docRef.current.title) + ".svg",
                     "image/svg+xml",
                   );
-                  notify("SVGを保存しました。");
+                  notify("SVGで保存しました");
                 }}
               >
                 SVGで保存
@@ -806,7 +799,7 @@ export function App() {
                   setExporting(true);
                   try {
                     await exportPng(docRef.current);
-                    notify("PNGを保存しました。");
+                    notify("PNGで保存しました");
                   } catch (e) {
                     setError(errorMessage(e));
                   } finally {
@@ -820,7 +813,7 @@ export function App() {
               <button
                 onClick={() => {
                   replace(growNodes(sampleDocument()));
-                  notify("サンプルを開きました。前の内容へは元に戻せます。");
+                  notify("サンプルを開きました");
                 }}
               >
                 サンプルを開く
@@ -877,7 +870,7 @@ export function App() {
           <button
             className="icon-button rail-button"
             aria-label="移動ツール"
-            data-tip="キャンバスを移動 H"
+            data-tip="手のひら H"
             aria-pressed={tool === "pan"}
             onClick={() => {
               setTool("pan");
@@ -922,7 +915,7 @@ export function App() {
           <button
             className="icon-button rail-button"
             aria-label="囲む"
-            data-tip="選んだ要素を囲む ⌘G"
+            data-tip="囲む ⌘G"
             onClick={group}
           >
             <Icon name="group" />
@@ -930,7 +923,7 @@ export function App() {
           <button
             className="icon-button rail-button"
             aria-label="整頓"
-            data-tip="線がまっすぐになるよう揃える"
+            data-tip="整頓"
             onClick={() => {
               try {
                 flushInput();
@@ -942,11 +935,11 @@ export function App() {
                   }).length;
                 // Say what changed: the moves are often only a few pixels.
                 if (!moved) {
-                  notify("揃える必要のある図形はありません。");
+                  notify("整頓する図形はありません");
                   return;
                 }
                 commit(next);
-                notify(moved + "個の図形を揃え、線をまっすぐにしました。");
+                notify(moved + "個の図形を整頓しました");
               } catch (e) {
                 notify(errorMessage(e));
               }
@@ -1003,7 +996,7 @@ export function App() {
                     const raw = localStorage.getItem(STORAGE_KEY);
                     if (!raw)
                       throw new Error(
-                        "保存データが削除されています。この画面の内容をファイルに保存してください。",
+                        "保存データが見つかりません。この画面の内容をファイルに保存してください。",
                       );
                     const next = decode(raw);
                     replace(next);
@@ -1065,9 +1058,7 @@ export function App() {
         )}
         <div className="toast" role="status" aria-live="polite">
           {(status || pending) && (
-            <span>
-              {status || "接続先の図形を選んでください。Escで取り消せます。"}
-            </span>
+            <span>{status || "接続先を選択（Escでやめる）"}</span>
           )}
         </div>
       </main>
@@ -1084,12 +1075,12 @@ export function App() {
             if (selected.size > 2000000)
               throw new Error("ファイルの上限は2MBです。");
             replace(decode(await selected.text()));
-            notify("ファイルを開きました。読み込み前の内容へも元に戻せます。");
+            notify("ファイルを開きました");
           } catch (error) {
             setError(
               "読み込めませんでした：" +
                 errorMessage(error) +
-                " 現在の内容は保持しています。",
+                "（今の図はそのままです）",
             );
           } finally {
             input.value = "";
@@ -1114,32 +1105,28 @@ export function App() {
           </button>
         </div>
         <p>
-          上部の図形アイコンから、箱・楕円・ひし形・円柱を選べます。名前や説明を入力せずに閉じると、図形は追加されません。
+          左のツール列から図形を置き、矢印で次の図形につなげます。図の横には理由をテキストで書き添えられます。
         </p>
         <p>
-          変更はこのブラウザに自動保存されます。別の端末で編集する場合は「ファイルに保存」を使ってください。
+          変更はこのブラウザに自動保存されます。ほかの端末で使うときは「ファイルに保存」してください。
         </p>
         <dl>
           {[
             ["図形 / テキストを追加", "B / N"],
-            ["図形の文字を編集", "ダブルクリック / 選択して Enter"],
-            ["テキスト・メモ・囲みを編集", "ダブルクリック / 選択して Enter"],
-            ["編集を確定", "Esc / ⌘ Enter（取り消しは ⌘ Z）"],
-            ["線のラベルを書く", "線をダブルクリック"],
-            ["接続元と接続先を選ぶ", "C（接続点のドラッグも可）"],
-            [
-              "接続した図形を追加",
-              "接続点の矢印をクリック / 空いた場所へドラッグ",
-            ],
+            ["文字を編集", "ダブルクリック / Enter"],
+            ["編集を確定", "Esc / ⌘ Enter"],
+            ["線のラベル", "線をダブルクリック"],
+            ["接続", "C / 矢印をドラッグ"],
+            ["つながった図形を追加", "矢印をクリック"],
             ["複数選択", "Shift＋クリック / 余白をドラッグ"],
             ["囲む", "⌘ G"],
-            ["選択した要素を移動", "矢印キー / Shiftで大きく移動"],
+            ["選択中のものを移動", "矢印キー（Shiftで大きく）"],
             ["複製 / コピー / 貼り付け", "⌘ D / ⌘ C / ⌘ V"],
             ["キャンバスを移動", "2本指スクロール / Space＋ドラッグ"],
             ["拡大・縮小", "ピンチ / Ctrl＋ホイール"],
             ["全体を表示", "1"],
             ["元に戻す / やり直す", "⌘ Z / ⌘ Shift Z"],
-            ["編集できるファイルを保存", "⌘ S"],
+            ["ファイルに保存", "⌘ S"],
           ].map(([label, value]) => (
             <div key={label}>
               <dt>{label}</dt>
@@ -1148,7 +1135,7 @@ export function App() {
           ))}
         </dl>
         <p className="field-help">
-          Windowsでは⌘の代わりにCtrlを使います。囲みを消しても中の要素は残ります。図形を消すと接続線も消えます。図に置いたメモは残ります。
+          Windowsでは⌘をCtrlに読み替えてください。囲みを解除しても中身は残ります。図形を削除するとつながった線も消えます。
         </p>
         <button className="primary" onClick={() => help.current?.close()}>
           閉じる

@@ -322,11 +322,9 @@ export function groupSelection(doc: CanvasDocument, ids: string[]) {
     (n) => expanded.has(n.id) && n.kind !== "group",
   );
   if (!members.length)
-    throw new Error(
-      "囲みたい箱やメモを選んでください。Shiftを押しながら複数選択できます。",
-    );
+    throw new Error("囲む図形を2つ以上選択してください（Shift＋クリック）");
   if (next.nodes.length >= MAX_NODES)
-    throw new Error("要素は150個まで追加できます。");
+    throw new Error("追加できるのは150個までです");
   const group = makeNode("group", { x: 0, y: 0 });
   members.forEach((n) => (n.groupId = group.id));
   next.nodes.push(group);
@@ -337,9 +335,10 @@ export function attachNote(doc: CanvasDocument, id: string) {
   if (existing) return { doc, id: existing.id };
   const next = clone(doc),
     parent = next.nodes.find((n) => n.id === id);
-  if (!parent || parent.kind !== "box") throw new Error("箱を選んでください。");
+  if (!parent || parent.kind !== "box")
+    throw new Error("図形を選択してください");
   if (next.nodes.length >= MAX_NODES)
-    throw new Error("要素は150個まで追加できます。");
+    throw new Error("追加できるのは150個までです");
   const note = {
     ...makeNode("note", { x: parent.x + parent.w + 72, y: parent.y }),
     attachedTo: id,
@@ -439,7 +438,7 @@ export function pasteDocument(
     doc.nodes.length + fragment.nodes.length > MAX_NODES ||
     doc.edges.length + fragment.edges.length > MAX_EDGES
   )
-    throw new Error("貼り付けると要素数の上限を超えます。");
+    throw new Error("貼り付けると上限の150個を超えます");
   const next = clone(doc),
     map = new Map(fragment.nodes.map((n) => [n.id, uid()]));
   const nodes = fragment.nodes.map((n) => ({
@@ -468,8 +467,7 @@ export function arrange(doc: CanvasDocument, selection: string[]) {
       selected.length >= 2
         ? selected
         : doc.nodes.filter((n) => n.kind === "box");
-  if (nodes.length < 2)
-    throw new Error("整頓するには図形を2つ以上追加してください。");
+  if (nodes.length < 2) throw new Error("整頓するには図形が2つ以上必要です");
   const next = clone(doc),
     allowed = new Set(nodes.map((n) => n.id));
   const positions = arrangeBoxes(doc, allowed),
