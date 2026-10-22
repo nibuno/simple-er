@@ -421,3 +421,18 @@ test("a new figure is placed clear of figures, lines and labels", async () => {
       assert.ok(!hit(node, seg), "crosses a line");
     });
 });
+test("guides snap the nearest edge or center within the threshold on each axis", async () => {
+  const { snapToGuides } = await import("../canvas/src/spatial.ts");
+  const other = { x: 100, y: 100, w: 200, h: 80 };
+  const near = snapToGuides({ x: 104, y: 300, w: 120, h: 60 }, [other], 6);
+  assert.equal(near.dx, -4);
+  assert.equal(near.dy, null);
+  assert.deepEqual(near.guides, [{ x1: 100, x2: 100, y1: 100, y2: 360 }]);
+  const centered = snapToGuides({ x: 400, y: 107, w: 100, h: 60 }, [other], 6);
+  // Its center (137) is nearer to the other's center (140) than its top is.
+  assert.equal(centered.dy, 3);
+  assert.equal(
+    snapToGuides({ x: 120, y: 300, w: 120, h: 60 }, [other], 6).dx,
+    null,
+  );
+});

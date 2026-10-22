@@ -259,11 +259,9 @@ test("new shapes can be created, converted, connected and reloaded", async () =>
     "diamond",
   );
   await click(label("円柱の図形を選択"));
-  await act(() => {
-    const select = label("図形");
-    select.value = "diamond";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  assert.equal(label("円柱").getAttribute("aria-checked"), "true");
+  await click(label("ひし形"));
+  assert.equal(label("ひし形").getAttribute("aria-checked"), "true");
   assert.equal(
     saved().nodes.find((n) => n.title === "円柱の図形").shape,
     "diamond",
@@ -730,4 +728,63 @@ test("a figure being added does not reroute existing lines until it is confirmed
   );
   assert.ok(document.querySelector(".canvas-node.editing"));
   assert.deepEqual(paths(), before);
+});
+test("dropping a line on empty space adds a connected figure as one undo step, or nothing if left empty", async () => {
+  const before = saved(),
+    stage = label("設計キャンバス");
+  const drop = async () => {
+    await pointer(label("Workerから接続"), "pointerdown", 300, 200);
+    document.elementFromPoint = () => stage;
+    await pointer(stage, "pointermove", 600, 500);
+    await pointer(stage, "pointerup", 600, 500);
+    delete document.elementFromPoint;
+  };
+  await drop();
+  assert.ok(label("名前を直接編集"));
+  assert.deepEqual(saved(), before);
+  await key(label("名前を直接編集"), "Escape");
+  assert.deepEqual(saved(), before);
+  await drop();
+  await type(label("名前を直接編集"), "通知ログ");
+  await key(label("名前を直接編集"), "Enter", { metaKey: true });
+  const added = saved().nodes.find((n) => n.title === "通知ログ");
+  assert.equal(added.shape, "rectangle");
+  assert.deepEqual(
+    saved()
+      .edges.filter((e) => e.to === added.id)
+      .map((e) => e.from),
+    ["worker"],
+  );
+  await click(label("元に戻す"));
+  assert.deepEqual(saved(), before);
+});
+test("resizing from the top-left corner keeps the opposite corner in place", async () => {
+  await click(label("Workerを選択"));
+  const before = saved().nodes.find((n) => n.id === "worker"),
+    stage = label("設計キャンバス"),
+    handle = document.querySelector(
+      '[data-node-id="worker"] .resize-handle.nw',
+    );
+  await pointer(handle, "pointerdown", 300, 200);
+  await pointer(stage, "pointermove", 260, 160);
+  await pointer(stage, "pointerup", 260, 160);
+  const after = saved().nodes.find((n) => n.id === "worker");
+  assert.ok(after.w > before.w && after.h > before.h);
+  assert.equal(after.x + after.w, before.x + before.w);
+  assert.equal(after.y + after.h, before.y + before.h);
+});
+test("moving a figure near another's edge aligns it and shows a guide until the drop", async () => {
+  await act(() => root.unmount());
+  localStorage.setItem(VIEW_KEY, JSON.stringify({ x: 0, y: 0, zoom: 1 }));
+  await mount();
+  const stage = label("設計キャンバス"),
+    worker = saved().nodes.find((n) => n.id === "worker"),
+    db = saved().nodes.find((n) => n.id === "db");
+  await pointer(label("Workerを選択"), "pointerdown", 300, 200);
+  // 3px off DB's left edge; the 8px grid alone would leave it there.
+  await pointer(stage, "pointermove", 300 + db.x - worker.x + 3, 120);
+  assert.ok(document.querySelector(".snap-guides line"));
+  await pointer(stage, "pointerup", 300 + db.x - worker.x + 3, 120);
+  assert.equal(document.querySelector(".snap-guides"), null);
+  assert.equal(saved().nodes.find((n) => n.id === "worker").x, db.x);
 });

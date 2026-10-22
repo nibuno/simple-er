@@ -9,6 +9,7 @@
   --selected: #e8f2ed;
   --line: #84998e;
   --focus: #247cbe;
+  --guide: #d6336c;
   --danger: #a34343;
   --danger-bg: #fdf6f3;
   --heading: #f0f4f2;
@@ -550,22 +551,57 @@ kbd {
 }
 .resize-handle {
   position: absolute;
-  right: -5px;
-  bottom: -5px;
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   padding: 0;
   min-height: 0;
   border: 1.5px solid var(--accent);
   border-radius: 2px;
   background: var(--surface);
-  cursor: nwse-resize;
   pointer-events: auto;
+  z-index: 2;
+}
+.resize-handle.n,
+.resize-handle.s {
+  left: calc(50% - 5px);
+  cursor: ns-resize;
+}
+.resize-handle.e,
+.resize-handle.w {
+  top: calc(50% - 5px);
+  cursor: ew-resize;
+}
+.resize-handle.n,
+.resize-handle.ne,
+.resize-handle.nw {
+  top: -5px;
+}
+.resize-handle.s,
+.resize-handle.se,
+.resize-handle.sw {
+  bottom: -5px;
+}
+.resize-handle.e,
+.resize-handle.ne,
+.resize-handle.se {
+  right: -5px;
+}
+.resize-handle.w,
+.resize-handle.nw,
+.resize-handle.sw {
+  left: -5px;
+}
+.resize-handle.nw,
+.resize-handle.se {
+  cursor: nwse-resize;
+}
+.resize-handle.ne,
+.resize-handle.sw {
+  cursor: nesw-resize;
 }
 .connection-port {
+  --port: 14px;
   position: absolute;
-  right: -7px;
-  top: calc(50% - 7px);
   width: 14px;
   height: 14px;
   min-height: 0;
@@ -583,10 +619,26 @@ kbd {
 .connection-port:focus-visible {
   opacity: 1;
 }
+.connection-port.top {
+  top: calc(-16px - var(--port) / 2);
+  left: calc(50% - var(--port) / 2);
+}
+.connection-port.right {
+  right: calc(-16px - var(--port) / 2);
+  top: calc(50% - var(--port) / 2);
+}
+.connection-port.bottom {
+  bottom: calc(-16px - var(--port) / 2);
+  left: calc(50% - var(--port) / 2);
+}
+.connection-port.left {
+  left: calc(-16px - var(--port) / 2);
+  top: calc(50% - var(--port) / 2);
+}
 .connection-port::after {
   content: "";
   position: absolute;
-  inset: -6px;
+  inset: -9px;
   border-radius: 50%;
 }
 .connections {
@@ -637,6 +689,20 @@ kbd {
   stroke: var(--accent);
   stroke-width: 1.5;
   stroke-dasharray: 5 5;
+}
+.snap-guides {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 4;
+}
+.snap-guides line {
+  stroke: var(--guide);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
 }
 .marquee {
   stroke: var(--accent);
@@ -991,6 +1057,20 @@ kbd {
   margin-bottom: 18px;
   overflow-wrap: anywhere;
 }
+.shape-choice {
+  display: flex;
+  gap: 4px;
+}
+.shape-choice button {
+  width: 38px;
+  padding: 6px;
+  color: var(--muted);
+}
+.shape-choice button[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--selected);
+  color: var(--accent);
+}
 .size-settings {
   margin-top: 24px;
   font-size: 12px;
@@ -1295,12 +1375,17 @@ kbd {
   .shape-text-editor .node-description {
     font-size: 16px;
   }
+  /* Without hover, ports appear on the selected element or while connecting. */
   .connection-port {
-    opacity: 1;
+    --port: 20px;
     width: 20px;
     height: 20px;
-    right: -10px;
-    top: calc(50% - 10px);
+    pointer-events: none;
+  }
+  .canvas-node.selected .connection-port,
+  .tool-connect .connection-port {
+    opacity: 1;
+    pointer-events: auto;
   }
   .resize-handle::after {
     content: "";
