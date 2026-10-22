@@ -788,3 +788,13 @@ test("moving a figure near another's edge aligns it and shows a guide until the 
   assert.equal(document.querySelector(".snap-guides"), null);
   assert.equal(saved().nodes.find((n) => n.id === "worker").x, db.x);
 });
+test("the canvas records whether the last input was a pointer or the keyboard", async () => {
+  const stage = label("設計キャンバス");
+  await pointer(label("Workerを選択"), "pointerdown", 300, 200);
+  await pointer(stage, "pointerup", 300, 200);
+  assert.equal(stage.dataset.input, "pointer");
+  await key(stage, "Tab");
+  assert.equal(stage.dataset.input, "keyboard");
+  await key(stage, "Shift");
+  assert.equal(stage.dataset.input, "keyboard");
+});

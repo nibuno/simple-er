@@ -329,6 +329,9 @@ kbd {
   outline: 2px solid var(--focus);
   outline-offset: -2px;
 }
+.canvas-stage[data-input="pointer"]:focus-visible {
+  outline: none;
+}
 .canvas-dots {
   position: absolute;
   inset: 0;

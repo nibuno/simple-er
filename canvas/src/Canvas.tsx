@@ -403,6 +403,22 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       window.removeEventListener("blur", blur);
     };
   }, []);
+  // The stage is focused from code after pointer actions, which browsers may
+  // treat as keyboard focus; show its focus ring only after keyboard input.
+  useEffect(() => {
+    const el = stage.current!,
+      pointer = () => (el.dataset.input = "pointer"),
+      keyboard = (e: KeyboardEvent) => {
+        if (!["Shift", "Control", "Alt", "Meta"].includes(e.key))
+          el.dataset.input = "keyboard";
+      };
+    window.addEventListener("pointerdown", pointer, true);
+    window.addEventListener("keydown", keyboard, true);
+    return () => {
+      window.removeEventListener("pointerdown", pointer, true);
+      window.removeEventListener("keydown", keyboard, true);
+    };
+  }, []);
   useEffect(() => {
     const escape = (e: KeyboardEvent) => {
       if (e.key === "Escape" && drag.current) {
