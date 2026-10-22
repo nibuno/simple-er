@@ -3,6 +3,8 @@ import { noteContent, wrapText } from "./model";
 import { documentRoutes, sceneBounds } from "./geometry";
 import { boxTextArea, shapePaths } from "./shapes";
 import { DEFAULT_COLORS, nodeAppearance, safeColor } from "./colors";
+import { iconPath } from "./Icons";
+import { textWidth } from "./text";
 const esc = (value: string) =>
   value
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, "")
@@ -95,15 +97,27 @@ export function toSvg(doc: CanvasDocument) {
             : 0),
         textX = n.x + area.x + (area.centered ? area.w / 2 : 0),
         anchor = area.centered ? "middle" : "start";
+      // The icon sits before the name; the pair is centered together.
+      const icon = n.icon ? iconPath(n.icon) : undefined,
+        firstLine = n.title ? wrapText(n.title, area.w, 16)[0] : "",
+        iconShift = icon ? (anchor === "middle" ? 10.5 : 21) : 0,
+        iconX =
+          (anchor === "middle"
+            ? textX - (textWidth(firstLine, 16) + 21) / 2
+            : textX) - n.x,
+        iconSvg = icon
+          ? `<path d="${icon}" transform="translate(${iconX} ${textY + 4}) scale(0.67)" fill="none" stroke="${colors.muted}" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>`
+          : "";
       return (
         `<g data-node-shape="${n.shape}" transform="translate(${n.x} ${n.y})"><path d="${paths.outline}" fill="${colors.fill}" stroke="${colors.stroke}"/>` +
         (paths.detail
           ? `<path d="${paths.detail}" fill="none" stroke="${colors.stroke}"/>`
           : "") +
+        iconSvg +
         "</g>" +
         textBlock(
           n.title,
-          textX,
+          textX + iconShift,
           n.y + textY + 18,
           area.w,
           16,

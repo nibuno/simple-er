@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { CanvasDocument, CanvasNode, CanvasEdge } from "./types";
 import { MAX_TEXT, noteContent } from "./model";
-import { Icon } from "./Icons";
-import { SHAPES, shapeIcons, shapeLabels } from "./shapes";
+import { Icon, NODE_ICONS, NodeIcon } from "./Icons";
+import { minimumWidth, SHAPES, shapeIcons, shapeLabels } from "./shapes";
 import { ColorPicker } from "./ColorPicker";
 import { DEFAULT_COLORS } from "./colors";
 
@@ -70,7 +70,7 @@ export function TextField({
     </label>
   );
 }
-export type Panel = "shape" | "color" | "memo" | "label" | "more";
+export type Panel = "shape" | "icon" | "color" | "memo" | "label" | "more";
 // Actions for the selection sit in a bar just above it; anything with more
 // than a click behind it opens in a small panel under the bar.
 export function SelectionBar({
@@ -193,6 +193,12 @@ export function SelectionBar({
         )}
         {node?.kind === "box" &&
           panelButton("shape", "図形", <Icon name={shapeIcons[node.shape]} />)}
+        {node?.kind === "box" &&
+          panelButton(
+            "icon",
+            "アイコン",
+            node.icon ? <NodeIcon id={node.icon} /> : <Icon name="plus" />,
+          )}
         {edge &&
           panelButton(
             "label",
@@ -276,6 +282,35 @@ export function SelectionBar({
       </div>
       {open && (
         <div className="bar-panel" key={open}>
+          {open === "icon" && node && (
+            <div
+              className="icon-choice"
+              role="radiogroup"
+              aria-label="アイコン"
+            >
+              <button
+                role="radio"
+                aria-checked={!node.icon}
+                aria-label="アイコンなし"
+                title="なし"
+                onClick={() => patch({ icon: undefined })}
+              >
+                <Icon name="close" />
+              </button>
+              {NODE_ICONS.map((icon) => (
+                <button
+                  key={icon.id}
+                  role="radio"
+                  aria-checked={node.icon === icon.id}
+                  aria-label={icon.label}
+                  title={icon.label}
+                  onClick={() => patch({ icon: icon.id })}
+                >
+                  <NodeIcon id={icon.id} />
+                </button>
+              ))}
+            </div>
+          )}
           {open === "shape" && node && (
             <div className="shape-choice" role="radiogroup" aria-label="図形">
               {SHAPES.map((shape) => (
@@ -404,19 +439,25 @@ export function SelectionBar({
                     <input
                       type="number"
                       aria-label={i ? "高さ" : "幅"}
-                      min={i ? 50 : 160}
+                      min={i ? 50 : minimumWidth(node.shape)}
                       max={i ? 20000 : 4000}
                       step="10"
                       value={Math.round(node[key])}
                       onChange={(e) => {
                         const value = e.target.valueAsNumber;
-                        if (Number.isFinite(value))
-                          patch({
-                            [key]: Math.max(
-                              i ? 50 : 160,
-                              Math.min(i ? 20000 : 4000, value),
-                            ),
-                          });
+                        if (!Number.isFinite(value)) return;
+                        const size = Math.max(
+                          i && node.shape !== "circle"
+                            ? 50
+                            : minimumWidth(node.shape),
+                          Math.min(i ? 20000 : 4000, value),
+                        );
+                        // A circle's width and height move together.
+                        patch(
+                          node.shape === "circle"
+                            ? { w: size, h: size }
+                            : { [key]: size },
+                        );
                       }}
                     />
                   </label>

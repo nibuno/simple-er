@@ -38,7 +38,7 @@ import type { CanvasHandle } from "./Canvas";
 import { SelectionBar, TextField } from "./Inspector";
 import type { Panel } from "./Inspector";
 import { Icon } from "./Icons";
-import { SHAPES, shapeIcons, shapeLabels } from "./shapes";
+import { RAIL_SHAPES, SHAPES, shapeIcons, shapeLabels } from "./shapes";
 
 function boot() {
   let raw: string | null = null;
@@ -113,6 +113,24 @@ export function App() {
     [status, setStatus] = useState(""),
     [error, setError] = useState(initial.current.error);
   const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [moreShapes, setMoreShapes] = useState(false);
+  useEffect(() => {
+    if (!moreShapes) return;
+    const close = (e: PointerEvent | KeyboardEvent) => {
+      if (
+        e instanceof KeyboardEvent
+          ? e.key === "Escape"
+          : !(e.target as Element).closest?.(".rail-more")
+      )
+        setMoreShapes(false);
+    };
+    window.addEventListener("pointerdown", close, true);
+    window.addEventListener("keydown", close, true);
+    return () => {
+      window.removeEventListener("pointerdown", close, true);
+      window.removeEventListener("keydown", close, true);
+    };
+  }, [moreShapes]);
   const [barRequest, setBarRequest] = useState<{
     id: string;
     panel: Panel;
@@ -672,6 +690,21 @@ export function App() {
     selection.length === 1
       ? doc.edges.find((e) => e.id === selection[0])
       : undefined;
+  const shapeButton = (option: NodeShape) => (
+    <button
+      key={option}
+      className="icon-button rail-button"
+      aria-label={shapeLabels[option] + "を追加"}
+      data-tip={shapeLabels[option] + (option === shape ? " B" : "")}
+      onClick={() => {
+        setShape(option);
+        setMoreShapes(false);
+        add("box", undefined, option);
+      }}
+    >
+      <Icon name={shapeIcons[option]} />
+    </button>
+  );
   return (
     <div className="app">
       <main className="workspace">
@@ -880,20 +913,29 @@ export function App() {
             <Icon name="pan" />
           </button>
           <span className="rail-divider" />
-          {SHAPES.map((option) => (
+          {RAIL_SHAPES.map((option) => shapeButton(option))}
+          <div className="rail-more">
             <button
-              key={option}
               className="icon-button rail-button"
-              aria-label={shapeLabels[option] + "を追加"}
-              data-tip={shapeLabels[option] + (option === shape ? " B" : "")}
-              onClick={() => {
-                setShape(option);
-                add("box", undefined, option);
-              }}
+              aria-label="その他の図形"
+              data-tip="その他の図形"
+              aria-expanded={moreShapes}
+              onClick={() => setMoreShapes(!moreShapes)}
             >
-              <Icon name={shapeIcons[option]} />
+              <Icon name="shapes" />
             </button>
-          ))}
+            {moreShapes && (
+              <div
+                className="rail-popover"
+                role="group"
+                aria-label="その他の図形"
+              >
+                {SHAPES.filter((option) => !RAIL_SHAPES.includes(option)).map(
+                  (option) => shapeButton(option),
+                )}
+              </div>
+            )}
+          </div>
           <span className="rail-divider" />
           <button
             className="icon-button rail-button"

@@ -304,6 +304,21 @@ kbd {
   left: 12px;
   flex-direction: column;
 }
+.rail-more {
+  position: relative;
+}
+.rail-popover {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: -4px;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--chip-shadow);
+}
 .rail-divider {
   width: 22px;
   margin: 3px 0;
@@ -335,6 +350,17 @@ kbd {
 .rail-button:hover::after,
 .rail-button:focus-visible::after {
   opacity: 1;
+}
+/* The button under the pointer comes forward, so its hint is not covered
+   by the next button. In the shapes popover the hint goes below. */
+.rail-button:hover,
+.rail-button:focus-visible {
+  z-index: 1;
+}
+.rail-popover .rail-button::after {
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
 }
 .history-bar {
   left: 12px;
@@ -630,6 +656,19 @@ kbd {
   font-size: 10px;
   line-height: 14px;
 }
+.memo-indicator.top {
+  top: 2px;
+  right: 2px;
+  bottom: auto;
+}
+.node-icon {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  margin-right: 5px;
+  vertical-align: -2px;
+  color: var(--node-muted, var(--muted));
+}
 .memo-indicator.centered {
   right: auto;
   left: 50%;
@@ -724,7 +763,8 @@ kbd {
   border-radius: 2px;
   background: var(--surface);
   pointer-events: auto;
-  z-index: 2;
+  /* Above the ports, which sit just outside the same edges. */
+  z-index: 4;
 }
 .resize-handle.n,
 .resize-handle.s {
@@ -842,10 +882,11 @@ kbd {
 .connection-port.left > svg {
   transform: rotate(180deg);
 }
+/* The hit area stays clear of the resize handle on the same side. */
 .connection-port::after {
   content: "";
   position: absolute;
-  inset: -8px;
+  inset: -4px;
   border-radius: 50%;
 }
 /* The hint shows as soon as the pointer rests on a port. */
@@ -1307,7 +1348,30 @@ kbd {
 }
 .shape-choice {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
+}
+.icon-choice {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+}
+.icon-choice button {
+  min-height: 38px;
+  padding: 0;
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+.icon-choice button[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--selected);
+  color: var(--accent);
+}
+.icon-choice .node-icon {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  color: inherit;
 }
 .shape-choice button {
   width: 38px;

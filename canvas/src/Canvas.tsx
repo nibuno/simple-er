@@ -12,7 +12,14 @@ import type {
   PointerEvent as ReactPointerEvent,
   ReactNode,
 } from "react";
-import type { CanvasDocument, CanvasNode, Point, Tool, View } from "./types";
+import type {
+  CanvasDocument,
+  CanvasNode,
+  NodeShape,
+  Point,
+  Tool,
+  View,
+} from "./types";
 import {
   bounds,
   clone,
@@ -26,11 +33,11 @@ import {
 import { documentRoutes, sceneBounds } from "./geometry";
 import { snapToGuides } from "./spatial";
 import type { Guide } from "./spatial";
-import { Icon } from "./Icons";
+import { Icon, NodeIcon } from "./Icons";
 import { InlineEditor } from "./Inspector";
 import { ShapeTextEditor } from "./ShapeTextEditor";
 import type { ShapeTextField } from "./ShapeTextEditor";
-import { boxTextArea, shapeLabels, shapePaths } from "./shapes";
+import { boxTextArea, minimumWidth, shapeLabels, shapePaths } from "./shapes";
 import { nodeAppearance } from "./colors";
 
 export interface CanvasHandle {
@@ -84,6 +91,8 @@ type Drag =
       side: (typeof PORTS)[number];
     };
 const PORTS = ["top", "right", "bottom", "left"] as const;
+// Shapes with a square corner free for the memo marker.
+const CORNER_MARKER: NodeShape[] = ["rectangle", "screen", "document"];
 const SIDE_NAMES = { top: "上", right: "右", bottom: "下", left: "左" };
 // The first free port is the one reachable by keyboard.
 const freePorts = (used?: Set<(typeof PORTS)[number]>) => {
@@ -704,14 +713,23 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         start = { x: n.x, y: n.y, w: n.w, h: n.h };
       let w = dir.includes("e") ? n.w + dx : dir.includes("w") ? n.w - dx : n.w,
         h = dir.includes("s") ? n.h + dy : dir.includes("n") ? n.h - dy : n.h;
-      // Shift keeps the proportions when resizing from a corner.
-      if (e.shiftKey && dir.length === 2) {
+      // A circle always stays round; elsewhere Shift keeps the proportions
+      // when resizing from a corner.
+      if (n.shape === "circle") {
+        w = h =
+          dir.length === 2
+            ? Math.max(w, h)
+            : dir === "e" || dir === "w"
+              ? w
+              : h;
+      } else if (e.shiftKey && dir.length === 2) {
         const scale = Math.max(w / start.w, h / start.h);
         w = start.w * scale;
         h = start.h * scale;
       }
-      n.w = Math.max(160, Math.min(4000, Math.round(w)));
+      n.w = Math.max(minimumWidth(n.shape), Math.min(4000, Math.round(w)));
       n.h = Math.max(minimumHeight(n, next), Math.min(20000, Math.round(h)));
+      if (n.shape === "circle") n.w = n.h = Math.max(n.w, n.h);
       if (dir.includes("w")) n.x = start.x + start.w - n.w;
       if (dir.includes("n")) n.y = start.y + start.h - n.h;
       p.onPreview(next);
@@ -875,8 +893,11 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                       height: area.h,
                     }}
                   >
-                    {node.title && (
-                      <span className="node-title">{node.title}</span>
+                    {(node.title || node.icon) && (
+                      <span className="node-title">
+                        {node.icon && <NodeIcon id={node.icon} />}
+                        {node.title}
+                      </span>
                     )}
                     {node.description && (
                       <span className="node-description">
@@ -888,11 +909,16 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                     <span
                       className={
                         "memo-indicator" +
-                        (node.shape === "rectangle" ? "" : " centered")
+                        (CORNER_MARKER.includes(node.shape)
+                          ? ""
+                          : node.shape === "person"
+                            ? " top"
+                            : " centered")
                       }
                       title={"メモ：" + node.body.split("\n")[0].slice(0, 60)}
                       style={
-                        node.shape === "rectangle"
+                        CORNER_MARKER.includes(node.shape) ||
+                        node.shape === "person"
                           ? undefined
                           : {
                               bottom:
@@ -946,9 +972,20 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                   if (!e.key.startsWith("Arrow")) return;
                   e.stopPropagation();
                   e.preventDefault();
+                  if (node.shape === "circle") {
+                    const size = Math.max(
+                      minimumWidth(node.shape),
+                      node.w +
+                        (e.key === "ArrowRight" || e.key === "ArrowDown"
+                          ? 16
+                          : -16),
+                    );
+                    p.onPatch(node.id, { w: size, h: size });
+                    return;
+                  }
                   p.onPatch(node.id, {
                     w: Math.max(
-                      160,
+                      minimumWidth(node.shape),
                       node.w +
                         (e.key === "ArrowRight"
                           ? 16
