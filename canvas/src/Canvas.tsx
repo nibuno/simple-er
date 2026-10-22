@@ -1012,11 +1012,24 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       }}
       onDoubleClick={(e) => {
         if (
-          !(e.target as Element).closest(
+          (e.target as Element).closest(
             ".canvas-node,.edge-control,.canvas-controls,.empty-canvas,.selection-anchor",
           )
         )
-          p.onAddNote(toWorld(e.clientX, e.clientY));
+          return;
+        // Pressing a figure captures the pointer on the stage, so its
+        // double-click arrives here; edit whatever is under the pointer.
+        const hit = document.elementFromPoint?.(e.clientX, e.clientY),
+          id = hit?.closest<HTMLElement>("[data-node-id]")?.dataset.nodeId,
+          node = p.doc.nodes.find((n) => n.id === id);
+        if (node) {
+          if (p.editing === node.id) return;
+          editTarget.current =
+            (node.kind === "box" && hit && textField(hit)) || "title";
+          p.onEdit(node.id);
+          return;
+        }
+        p.onAddNote(toWorld(e.clientX, e.clientY));
       }}
     >
       <div

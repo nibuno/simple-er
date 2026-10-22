@@ -912,6 +912,21 @@ test("double-clicking empty space writes text in place, and existing text keeps 
     "再試行は3回まで",
   );
 });
+test("a double-click that reaches the canvas through pointer capture edits the memo under the pointer", async () => {
+  const stage = label("設計キャンバス"),
+    memo = label("Worker のメモを選択"),
+    before = saved().nodes.length;
+  document.elementFromPoint = () => memo.querySelector(".note-body");
+  await act(() =>
+    stage.dispatchEvent(
+      new MouseEvent("dblclick", { bubbles: true, clientX: 900, clientY: 300 }),
+    ),
+  );
+  delete document.elementFromPoint;
+  assert.equal(document.activeElement, label("メモを直接編集"));
+  await key(label("メモを直接編集"), "Escape");
+  assert.equal(saved().nodes.length, before, "no new text is added");
+});
 test("pointing at a memo lights up its figure, and the other way round", async () => {
   const memo = label("Worker のメモを選択"),
     worker = label("Workerを選択");

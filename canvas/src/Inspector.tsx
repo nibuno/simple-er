@@ -501,7 +501,12 @@ export function InlineEditor({
         />
       ) : (
         <>
-          {content.title && <span className="note-title">{content.title}</span>}
+          {content.title && (
+            <span className="note-title">
+              {node.attachedTo && <Icon name="note" />}
+              {content.title}
+            </span>
+          )}
           <textarea
             aria-label={
               node.attachedTo ? "メモを直接編集" : "テキストを直接編集"
