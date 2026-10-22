@@ -30,8 +30,7 @@ export function ColorPicker({
     setDraft(initialColor);
     setInvalid(false);
   }, [initialColor, mixed]);
-  const palette: { name: string; color?: string }[] = [
-    { name: "標準" },
+  const palette: { name: string; color: string }[] = [
     { name: "透明", color: "transparent" },
     kind === "fill"
       ? { name: "白", color: DEFAULT_COLORS.white }
@@ -41,13 +40,15 @@ export function ColorPicker({
       color: family[kind],
     })),
   ];
-  const quickNames = ["標準", "赤", "黄", "緑", "青"];
+  const quickNames = ["赤", "黄", "緑", "青"];
   const choices = expanded
     ? palette
     : quickNames.map((name) => palette.find((p) => p.name === name)!);
   const currentName = mixed
     ? "複数の色"
-    : (palette.find((p) => p.color === value)?.name ?? value);
+    : value === undefined
+      ? "標準"
+      : (palette.find((p) => p.color === value)?.name ?? value);
   function apply() {
     const color = normalizeColor(draft);
     setInvalid(!color);
@@ -58,6 +59,15 @@ export function ColorPicker({
       <div className="color-heading">
         <span>{label}</span>
         <span className="color-value">{currentName}</span>
+        {(mixed || value !== undefined) && (
+          <button
+            className="color-expand"
+            aria-label={label + "を標準に戻す"}
+            onClick={() => onChange(undefined)}
+          >
+            標準に戻す
+          </button>
+        )}
         <button
           className="color-expand"
           aria-label={label + (expanded ? "の色を閉じる" : "の色を選ぶ")}
@@ -72,17 +82,15 @@ export function ColorPicker({
           <button
             key={name}
             className={
-              "color-swatch" +
-              ((color ?? defaultColor) === "transparent" ? " transparent" : "")
+              "color-swatch" + (color === "transparent" ? " transparent" : "")
             }
             aria-label={label + "：" + name}
             aria-pressed={!mixed && value === color}
-            title={name + (color && color !== "transparent" ? " " + color : "")}
-            style={{ "--swatch-color": color ?? defaultColor } as CSSProperties}
+            title={name + (color !== "transparent" ? " " + color : "")}
+            style={{ "--swatch-color": color } as CSSProperties}
             onClick={() => onChange(color)}
           >
             <span className="swatch-sample" />
-            {name === "標準" && <span className="swatch-default">↶</span>}
           </button>
         ))}
       </div>

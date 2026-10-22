@@ -314,7 +314,12 @@ test("color selection, custom input, undo, reset and reload preserve figure colo
   await mount();
   await click(label("Workerを選択"));
   assert.equal(label("線：赤").getAttribute("aria-pressed"), "true");
-  await click(label("塗り：標準"));
+  await click(label("塗りを標準に戻す"));
+  assert.equal(
+    document.querySelector('[aria-label="塗りを標準に戻す"]'),
+    null,
+    "the reset appears only for a custom color",
+  );
   assert.equal(
     saved().nodes.find((n) => n.id === "worker").fillColor,
     undefined,

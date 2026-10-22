@@ -972,7 +972,7 @@ kbd {
 }
 .color-swatches {
   display: grid;
-  grid-template-columns: repeat(5, 32px);
+  grid-template-columns: repeat(4, 32px);
   gap: 9px;
   padding: 3px;
 }
@@ -1010,11 +1010,6 @@ kbd {
   inset: -4px;
   border: 2px solid var(--accent);
   border-radius: 7px;
-}
-.swatch-default {
-  position: relative;
-  color: var(--text);
-  font-size: 18px;
 }
 .custom-color {
   display: flex;
