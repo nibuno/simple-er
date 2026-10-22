@@ -13,6 +13,7 @@ const paths = {
   trash: "M3 6h18 M9 6V3h6v3 M6 6l1 15h10l1-15 M10 10v7 M14 10v7",
   duplicate: "M8 8h12v12H8Z M4 16V4h12",
   close: "m6 6 12 12 M6 18 18 6",
+  menu: "M4 7h16 M4 12h16 M4 17h16",
   fit: "M8 3H3v5 M16 3h5v5 M21 16v5h-5 M8 21H3v-5 M8 8h8v8H8Z",
   plus: "M12 5v14 M5 12h14",
   minus: "M5 12h14",

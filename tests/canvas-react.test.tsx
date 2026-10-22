@@ -246,7 +246,7 @@ test("new shapes can be created, converted, connected and reloaded", async () =>
       shape,
     );
   }
-  await click(button("接続"));
+  await click(label("接続"));
   await click(label("楕円の図形を選択"));
   await click(label("ひし形の図形を選択"));
   const connection = saved().edges.at(-1);
@@ -527,7 +527,7 @@ test("dragging immediately after memo input keeps the text and undoes only the m
   assert.equal(undone.x, before.x);
 });
 test("starting another connection commits the active line label before changing selection", async () => {
-  await click(button("接続"));
+  await click(label("接続"));
   await click(label("Workerを選択"));
   await click(label("DBを選択"));
   await type(label("線のラベル"), "入力中の接続名");
@@ -538,7 +538,7 @@ test("starting another connection commits the active line label before changing 
   delete document.elementFromPoint;
 });
 test("selecting two elements creates one connection and editing its label survives reload", async () => {
-  await click(button("接続"));
+  await click(label("接続"));
   await click(label("Workerを選択"));
   await click(label("DBを選択"));
   assert.equal(saved().edges.length, 5);
@@ -634,14 +634,14 @@ test("reload flushes the active editor rather than losing its unblurred text", a
   );
 });
 test("tidy works just after connecting, updates the visible wires, and undoes as one operation", async () => {
-  await click(button("接続"));
+  await click(label("接続"));
   await click(label("DBを選択"));
   await click(label("Workerを選択"));
   const before = saved(),
     paths = [...document.querySelectorAll(".edge-visible")].map((el) =>
       el.getAttribute("d"),
     );
-  await click(button("整頓"));
+  await click(label("整頓"));
   const next = saved(),
     nodes = new Map(next.nodes.map((n) => [n.id, n])),
     center = (id) => nodes.get(id).y + nodes.get(id).h / 2;
@@ -688,7 +688,7 @@ test("tidy preserves a vertical flow, the current view, and the prior document o
   await mount();
   const camera = localStorage.getItem(VIEW_KEY),
     before = saved();
-  await click(button("整頓"));
+  await click(label("整頓"));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
   const next = saved(),
     centers = next.nodes.map((n) => n.x + n.w / 2);

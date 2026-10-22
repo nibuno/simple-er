@@ -17,7 +17,7 @@ export const DEFAULT_COLORS = {
   background: "#f8faf9",
   fill: "#ffffff",
   frame: "#eff4f080",
-  stroke: "#d5ddd9",
+  stroke: "#9eaca6",
   line: "#84998e",
   text: "#263b35",
   muted: "#68766f",

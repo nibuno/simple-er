@@ -180,6 +180,12 @@ export function App() {
   function notify(message: string) {
     setStatus(message);
   }
+  // Messages are short confirmations; they leave on their own.
+  useEffect(() => {
+    if (!status) return;
+    const timer = setTimeout(() => setStatus(""), 4000);
+    return () => clearTimeout(timer);
+  }, [status]);
   function commit(next: CanvasDocument, before?: CanvasDocument) {
     try {
       growNodes(next);
@@ -665,309 +671,6 @@ export function App() {
       : undefined;
   return (
     <div className="app">
-      <header className="app-header">
-        <h1>SimpleCanvas</h1>
-        <details
-          className="file-menu"
-          ref={menu}
-          onClick={(e) => {
-            if ((e.target as HTMLElement).closest("button"))
-              menu.current!.open = false;
-          }}
-        >
-          <summary>
-            ファイル <span aria-hidden="true">⌄</span>
-          </summary>
-          <div className="file-popover">
-            <button
-              onClick={() => {
-                replace(emptyDocument());
-                notify("新しいキャンバスを開きました。元に戻せます。");
-              }}
-            >
-              新しいキャンバス
-            </button>
-            <button onClick={() => file.current?.click()}>
-              ファイルを開く…
-            </button>
-            <button onClick={save}>
-              ファイルに保存 <kbd>⌘ S</kbd>
-            </button>
-            <hr />
-            <button
-              disabled={!doc.nodes.length}
-              onClick={() => {
-                downloadFile(
-                  toSvg(docRef.current),
-                  filename(docRef.current.title) + ".svg",
-                  "image/svg+xml",
-                );
-                notify("SVGを保存しました。");
-              }}
-            >
-              SVGで保存
-            </button>
-            <button
-              disabled={!doc.nodes.length || exporting}
-              onClick={async () => {
-                setExporting(true);
-                try {
-                  await exportPng(docRef.current);
-                  notify("PNGを保存しました。");
-                } catch (e) {
-                  setError(errorMessage(e));
-                } finally {
-                  setExporting(false);
-                }
-              }}
-            >
-              {exporting ? "PNGに変換中…" : "PNGで保存"}
-            </button>
-            <hr />
-            <button
-              onClick={() => {
-                replace(growNodes(sampleDocument()));
-                notify("サンプルを開きました。前の内容へは元に戻せます。");
-              }}
-            >
-              サンプルを開く
-            </button>
-          </div>
-        </details>
-        <TextField
-          className="document-title"
-          label="キャンバス名"
-          value={doc.title}
-          onCommit={(title) =>
-            commit({
-              ...docRef.current,
-              title: title.trim() || "無題のキャンバス",
-            })
-          }
-          onDirty={() => setDirty(true)}
-        />
-        <span
-          className={
-            "save-status" +
-            (paused || saveState === "自動保存できません" ? " unsaved" : "")
-          }
-        >
-          <span className="save-long">{saveText}</span>
-          {/* Narrow screens keep a short form instead of hiding the state. */}
-          <span className="save-short" aria-hidden="true">
-            {SHORT_SAVE_STATES[saveText] ?? saveText}
-          </span>
-        </span>
-        <button
-          className="icon-button help-button"
-          aria-label="使い方"
-          title="使い方 (?)"
-          onClick={() => help.current?.showModal()}
-        >
-          <Icon name="help" />
-        </button>
-      </header>
-      <div className="toolbar" role="toolbar" aria-label="図の編集">
-        <div className="tool-group">
-          <button
-            className="icon-button"
-            aria-label="元に戻す"
-            title="元に戻す (⌘ Z)"
-            disabled={!history.past.length}
-            onClick={undo}
-          >
-            <Icon name="undo" />
-          </button>
-          <button
-            className="icon-button"
-            aria-label="やり直す"
-            title="やり直す (⌘ Shift Z)"
-            disabled={!history.future.length}
-            onClick={redo}
-          >
-            <Icon name="redo" />
-          </button>
-        </div>
-        <div className="tool-group">
-          <button
-            className="icon-button"
-            aria-label="選択ツール"
-            title="選択 (V)"
-            aria-pressed={tool === "select"}
-            onClick={() => {
-              setTool("select");
-              clearPending();
-            }}
-          >
-            <Icon name="select" />
-          </button>
-          <button
-            className="icon-button"
-            aria-label="移動ツール"
-            title="キャンバスを移動 (H)"
-            aria-pressed={tool === "pan"}
-            onClick={() => {
-              setTool("pan");
-              clearPending();
-            }}
-          >
-            <Icon name="pan" />
-          </button>
-        </div>
-        <div
-          className="tool-group shape-tools"
-          role="group"
-          aria-label="図形の追加"
-        >
-          <span className="tool-group-label" aria-hidden="true">
-            図形
-          </span>
-          {SHAPES.map((option) => (
-            <button
-              key={option}
-              className="icon-button shape-tool"
-              aria-label={shapeLabels[option] + "を追加"}
-              aria-describedby={"shape-tip-" + option}
-              onClick={() => {
-                setShape(option);
-                add("box", undefined, option);
-              }}
-            >
-              <Icon name={shapeIcons[option]} />
-              <span
-                className="tool-tip"
-                role="tooltip"
-                id={"shape-tip-" + option}
-              >
-                {shapeLabels[option]}
-                {option === shape && <kbd>B</kbd>}
-              </span>
-            </button>
-          ))}
-        </div>
-        <button onClick={() => add("note")} title="メモを追加 (N)">
-          <Icon name="note" />
-          メモ
-        </button>
-        <button
-          aria-pressed={tool === "connect"}
-          onClick={connectMode}
-          title="接続 (C)"
-        >
-          <Icon name="connect" />
-          接続
-        </button>
-        <button onClick={group} title="選んだ要素を囲む (⌘ G)">
-          <Icon name="group" />
-          囲む
-        </button>
-        <button
-          onClick={() => {
-            try {
-              flushInput();
-              commit(arrange(docRef.current, selectionRef.current));
-              notify("図形と線を整えました。");
-            } catch (e) {
-              notify(errorMessage(e));
-            }
-          }}
-          title="今の配置を保ちながら図形と線を整える"
-        >
-          <Icon name="arrange" />
-          整頓
-        </button>
-        {!!selection.length && (
-          <span className="selection-count">{selection.length}個を選択</span>
-        )}
-      </div>
-      {error && (
-        <div className="notice" role="alert">
-          <span>{error}</span>
-          {recovery !== null && (
-            <button
-              onClick={() =>
-                downloadFile(
-                  recovery,
-                  "simplecanvas-recovery.txt",
-                  "text/plain",
-                )
-              }
-            >
-              元のデータを保存
-            </button>
-          )}
-          {paused && remote !== null && (
-            <span>
-              開く前にこの画面の内容をファイルに保存できます。開くと編集履歴はリセットされます。
-            </span>
-          )}
-          {paused && remote !== null && (
-            <button
-              onClick={() => {
-                try {
-                  const raw = localStorage.getItem(STORAGE_KEY);
-                  if (!raw)
-                    throw new Error(
-                      "保存データが削除されています。この画面の内容をファイルに保存してください。",
-                    );
-                  const next = decode(raw);
-                  replace(next);
-                  const reset = { type: "reset" as const, next };
-                  historyRef.current = historyReducer(
-                    historyRef.current,
-                    reset,
-                  );
-                  dispatch(reset);
-                  lastSaved.current = raw;
-                  setPaused(false);
-                  setRemote(null);
-                  setRecovery(null);
-                  setError("");
-                  requestAnimationFrame(() =>
-                    document
-                      .querySelector<HTMLElement>(
-                        'button[aria-label="全体を表示"]',
-                      )
-                      ?.focus(),
-                  );
-                } catch (e) {
-                  setError(errorMessage(e));
-                }
-              }}
-            >
-              最新の内容を開く
-            </button>
-          )}
-          {paused && (
-            <button
-              onClick={() => {
-                if (recovery)
-                  downloadFile(
-                    recovery,
-                    "simplecanvas-recovery.txt",
-                    "text/plain",
-                  );
-                lastSaved.current = localStorage.getItem(STORAGE_KEY);
-                setRecovery(null);
-                setRemote(null);
-                setPaused(false);
-                setError("");
-              }}
-            >
-              この画面の内容で保存を再開
-            </button>
-          )}
-          {!paused && (
-            <button
-              className="icon-button"
-              aria-label="通知を閉じる"
-              onClick={() => setError("")}
-            >
-              <Icon name="close" />
-            </button>
-          )}
-        </div>
-      )}
       <main className="workspace">
         <Canvas
           ref={canvas}
@@ -1005,6 +708,306 @@ export function App() {
           onStatus={notify}
           onDirty={() => setDirty(true)}
         />
+        <div className="floating doc-bar">
+          <details
+            className="file-menu"
+            ref={menu}
+            onClick={(e) => {
+              if ((e.target as HTMLElement).closest("button"))
+                menu.current!.open = false;
+            }}
+          >
+            <summary aria-label="メニュー" title="メニュー">
+              <Icon name="menu" />
+            </summary>
+            <div className="file-popover">
+              <button
+                onClick={() => {
+                  replace(emptyDocument());
+                  notify("新しいキャンバスを開きました。元に戻せます。");
+                }}
+              >
+                新しいキャンバス
+              </button>
+              <button onClick={() => file.current?.click()}>
+                ファイルを開く…
+              </button>
+              <button onClick={save}>
+                ファイルに保存 <kbd>⌘ S</kbd>
+              </button>
+              <hr />
+              <button
+                disabled={!doc.nodes.length}
+                onClick={() => {
+                  downloadFile(
+                    toSvg(docRef.current),
+                    filename(docRef.current.title) + ".svg",
+                    "image/svg+xml",
+                  );
+                  notify("SVGを保存しました。");
+                }}
+              >
+                SVGで保存
+              </button>
+              <button
+                disabled={!doc.nodes.length || exporting}
+                onClick={async () => {
+                  setExporting(true);
+                  try {
+                    await exportPng(docRef.current);
+                    notify("PNGを保存しました。");
+                  } catch (e) {
+                    setError(errorMessage(e));
+                  } finally {
+                    setExporting(false);
+                  }
+                }}
+              >
+                {exporting ? "PNGに変換中…" : "PNGで保存"}
+              </button>
+              <hr />
+              <button
+                onClick={() => {
+                  replace(growNodes(sampleDocument()));
+                  notify("サンプルを開きました。前の内容へは元に戻せます。");
+                }}
+              >
+                サンプルを開く
+              </button>
+              <hr />
+              <button onClick={() => help.current?.showModal()}>
+                使い方 <kbd>?</kbd>
+              </button>
+            </div>
+          </details>
+          <TextField
+            className="document-title"
+            label="キャンバス名"
+            value={doc.title}
+            onCommit={(title) =>
+              commit({
+                ...docRef.current,
+                title: title.trim() || "無題のキャンバス",
+              })
+            }
+            onDirty={() => setDirty(true)}
+          />
+          <span
+            className={
+              "save-status" +
+              (paused || saveState === "自動保存できません" ? " unsaved" : "")
+            }
+          >
+            <span className="save-long">{saveText}</span>
+            {/* Narrow screens keep a short form instead of hiding the state. */}
+            <span className="save-short" aria-hidden="true">
+              {SHORT_SAVE_STATES[saveText] ?? saveText}
+            </span>
+          </span>
+        </div>
+        <div
+          className="floating tool-rail"
+          role="toolbar"
+          aria-label="図の編集"
+          aria-orientation="vertical"
+        >
+          <button
+            className="icon-button rail-button"
+            aria-label="選択ツール"
+            data-tip="選択 V"
+            aria-pressed={tool === "select"}
+            onClick={() => {
+              setTool("select");
+              clearPending();
+            }}
+          >
+            <Icon name="select" />
+          </button>
+          <button
+            className="icon-button rail-button"
+            aria-label="移動ツール"
+            data-tip="キャンバスを移動 H"
+            aria-pressed={tool === "pan"}
+            onClick={() => {
+              setTool("pan");
+              clearPending();
+            }}
+          >
+            <Icon name="pan" />
+          </button>
+          <span className="rail-divider" />
+          {SHAPES.map((option) => (
+            <button
+              key={option}
+              className="icon-button rail-button"
+              aria-label={shapeLabels[option] + "を追加"}
+              data-tip={shapeLabels[option] + (option === shape ? " B" : "")}
+              onClick={() => {
+                setShape(option);
+                add("box", undefined, option);
+              }}
+            >
+              <Icon name={shapeIcons[option]} />
+            </button>
+          ))}
+          <span className="rail-divider" />
+          <button
+            className="icon-button rail-button"
+            aria-label="メモを追加"
+            data-tip="メモ N"
+            onClick={() => add("note")}
+          >
+            <Icon name="note" />
+          </button>
+          <button
+            className="icon-button rail-button"
+            aria-label="接続"
+            data-tip="接続 C"
+            aria-pressed={tool === "connect"}
+            onClick={connectMode}
+          >
+            <Icon name="connect" />
+          </button>
+          <button
+            className="icon-button rail-button"
+            aria-label="囲む"
+            data-tip="選んだ要素を囲む ⌘G"
+            onClick={group}
+          >
+            <Icon name="group" />
+          </button>
+          <button
+            className="icon-button rail-button"
+            aria-label="整頓"
+            data-tip="線がまっすぐになるよう揃える"
+            onClick={() => {
+              try {
+                flushInput();
+                commit(arrange(docRef.current, selectionRef.current));
+                notify("図形と線を整えました。");
+              } catch (e) {
+                notify(errorMessage(e));
+              }
+            }}
+          >
+            <Icon name="arrange" />
+          </button>
+        </div>
+        <div className="floating history-bar">
+          <button
+            className="icon-button"
+            aria-label="元に戻す"
+            title="元に戻す (⌘ Z)"
+            disabled={!history.past.length}
+            onClick={undo}
+          >
+            <Icon name="undo" />
+          </button>
+          <button
+            className="icon-button"
+            aria-label="やり直す"
+            title="やり直す (⌘ Shift Z)"
+            disabled={!history.future.length}
+            onClick={redo}
+          >
+            <Icon name="redo" />
+          </button>
+        </div>
+        {error && (
+          <div className="notice" role="alert">
+            <span>{error}</span>
+            {recovery !== null && (
+              <button
+                onClick={() =>
+                  downloadFile(
+                    recovery,
+                    "simplecanvas-recovery.txt",
+                    "text/plain",
+                  )
+                }
+              >
+                元のデータを保存
+              </button>
+            )}
+            {paused && remote !== null && (
+              <span>
+                開く前にこの画面の内容をファイルに保存できます。開くと編集履歴はリセットされます。
+              </span>
+            )}
+            {paused && remote !== null && (
+              <button
+                onClick={() => {
+                  try {
+                    const raw = localStorage.getItem(STORAGE_KEY);
+                    if (!raw)
+                      throw new Error(
+                        "保存データが削除されています。この画面の内容をファイルに保存してください。",
+                      );
+                    const next = decode(raw);
+                    replace(next);
+                    const reset = { type: "reset" as const, next };
+                    historyRef.current = historyReducer(
+                      historyRef.current,
+                      reset,
+                    );
+                    dispatch(reset);
+                    lastSaved.current = raw;
+                    setPaused(false);
+                    setRemote(null);
+                    setRecovery(null);
+                    setError("");
+                    requestAnimationFrame(() =>
+                      document
+                        .querySelector<HTMLElement>(
+                          'button[aria-label="全体を表示"]',
+                        )
+                        ?.focus(),
+                    );
+                  } catch (e) {
+                    setError(errorMessage(e));
+                  }
+                }}
+              >
+                最新の内容を開く
+              </button>
+            )}
+            {paused && (
+              <button
+                onClick={() => {
+                  if (recovery)
+                    downloadFile(
+                      recovery,
+                      "simplecanvas-recovery.txt",
+                      "text/plain",
+                    );
+                  lastSaved.current = localStorage.getItem(STORAGE_KEY);
+                  setRecovery(null);
+                  setRemote(null);
+                  setPaused(false);
+                  setError("");
+                }}
+              >
+                この画面の内容で保存を再開
+              </button>
+            )}
+            {!paused && (
+              <button
+                className="icon-button"
+                aria-label="通知を閉じる"
+                onClick={() => setError("")}
+              >
+                <Icon name="close" />
+              </button>
+            )}
+          </div>
+        )}
+        <div className="toast" role="status" aria-live="polite">
+          {(status || pending) && (
+            <span>
+              {status || "接続先の図形を選んでください。Escで取り消せます。"}
+            </span>
+          )}
+        </div>
         {!editing && inspectorOpen && (
           <Inspector
             doc={doc}
@@ -1035,21 +1038,6 @@ export function App() {
           />
         )}
       </main>
-      <footer className="statusbar">
-        <span role="status" aria-live="polite">
-          {status ||
-            (pending
-              ? "接続先を選択 · Escで取り消し"
-              : tool === "pan"
-                ? "ドラッグでキャンバスを移動"
-                : "余白をダブルクリックでメモ · Shiftで複数選択 · Space＋ドラッグで移動")}
-        </span>
-        <span>
-          {history.present.nodes.filter((n) => n.kind === "box").length} 図形{" "}
-          <span className="status-separator">/</span>{" "}
-          {history.present.nodes.filter((n) => n.kind === "note").length} メモ
-        </span>
-      </footer>
       <input
         ref={file}
         type="file"
