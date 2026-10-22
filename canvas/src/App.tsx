@@ -75,12 +75,22 @@ export function App() {
   });
   const [draftNode, setDraftNode] = useState<CanvasNode | null>(null),
     draftRef = useRef<CanvasNode | null>(null);
+  // A figure added by dropping a line on empty space keeps that line as part
+  // of the draft, so it is added or discarded together with the figure.
+  const [draftEdge, setDraftEdge] = useState<CanvasEdge | null>(null),
+    draftEdgeRef = useRef<CanvasEdge | null>(null);
   const doc = useMemo(
     () =>
       draftNode
-        ? { ...history.present, nodes: [...history.present.nodes, draftNode] }
+        ? {
+            ...history.present,
+            nodes: [...history.present.nodes, draftNode],
+            edges: draftEdge
+              ? [...history.present.edges, draftEdge]
+              : history.present.edges,
+          }
         : history.present,
-    [history.present, draftNode],
+    [history.present, draftNode, draftEdge],
   );
   const docRef = useRef(history.present);
   docRef.current = history.present;
@@ -129,10 +139,15 @@ export function App() {
     )
       active.blur();
   }
+  function setDraft(node: CanvasNode | null, edge: CanvasEdge | null = null) {
+    draftRef.current = node;
+    draftEdgeRef.current = edge;
+    setDraftNode(node);
+    setDraftEdge(edge);
+  }
   function discardDraft() {
     const id = draftRef.current?.id;
-    draftRef.current = null;
-    setDraftNode(null);
+    setDraft(null);
     setEditing(null);
     setDirty(false);
     if (id) {
@@ -190,10 +205,8 @@ export function App() {
       }
       const next = clone(docRef.current);
       next.nodes.push(node);
-      if (commit(next)) {
-        draftRef.current = null;
-        setDraftNode(null);
-      }
+      if (draftEdgeRef.current) next.edges.push(draftEdgeRef.current);
+      if (commit(next)) setDraft(null);
       return;
     }
     const next = clone(docRef.current),
@@ -238,7 +251,12 @@ export function App() {
     setDirty(!!id);
     if (id) select([id]);
   }
-  function add(kind: "box" | "note", point?: Point, nodeShape = shape) {
+  function add(
+    kind: "box" | "note",
+    point?: Point,
+    nodeShape = shape,
+    from?: string,
+  ) {
     flushInput();
     discardDraft();
     const next = clone(docRef.current);
@@ -246,15 +264,22 @@ export function App() {
       setError("要素は150個まで追加できます。");
       return;
     }
+    if (from && next.edges.length >= MAX_EDGES) {
+      setError("接続線は400本まで追加できます。");
+      return;
+    }
     const center = point || canvas.current?.center() || { x: 100, y: 100 },
       node = makeNode(kind, center, nodeShape);
-    if (!point) {
-      node.x -= node.w / 2;
-      node.y -= node.h / 2;
+    // A dropped line places the figure centered on the drop point.
+    if (!point || from) {
+      node.x = Math.round((node.x - node.w / 2) / 8) * 8;
+      node.y = Math.round((node.y - node.h / 2) / 8) * 8;
     }
     if (!point) placeInFreeSpace(node, next);
-    draftRef.current = node;
-    setDraftNode(node);
+    setDraft(
+      node,
+      from ? { id: uid(), from, to: node.id, label: "", dashed: false } : null,
+    );
     clearPending();
     setTool("select");
     select([node.id]);
@@ -948,6 +973,15 @@ export function App() {
           onEdit={edit}
           onPatch={patchNode}
           onAddNote={(point) => add("note", point)}
+          onAddConnected={(from, point) => {
+            const source = docRef.current.nodes.find((n) => n.id === from);
+            add(
+              source?.kind === "note" ? "note" : "box",
+              point,
+              source?.kind === "box" ? source.shape : shape,
+              from,
+            );
+          }}
           onPreview={(next) => {
             docRef.current = next;
             historyRef.current = historyReducer(historyRef.current, {
@@ -1061,6 +1095,7 @@ export function App() {
             ["メモ・囲みを編集", "ダブルクリック / 選択して Enter"],
             ["編集を確定 / 取り消し", "⌘ Enter / Esc"],
             ["接続元と接続先を選ぶ", "C（接続点のドラッグも可）"],
+            ["接続した図形を追加", "接続点を空いた場所へドラッグ"],
             ["複数選択", "Shift＋クリック / 余白をドラッグ"],
             ["囲む", "⌘ G"],
             ["選択した要素を移動", "矢印キー / Shiftで大きく移動"],

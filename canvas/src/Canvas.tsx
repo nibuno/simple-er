@@ -45,6 +45,7 @@ interface Props {
   onEdit: (id: string | null) => void;
   onPatch: (id: string, patch: Partial<CanvasNode>) => void;
   onAddNote: (point: Point) => void;
+  onAddConnected: (from: string, point: Point) => void;
   onPreview: (doc: CanvasDocument) => void;
   onCommit: (doc: CanvasDocument, before?: CanvasDocument) => void;
   onStatus: (value: string) => void;
@@ -63,7 +64,8 @@ type Drag =
     }
   | { kind: "pan"; pointer: number; start: Point; view: View }
   | { kind: "marquee"; pointer: number; start: Point; add: string[] }
-  | { kind: "connect"; pointer: number; from: string };
+  | { kind: "connect"; pointer: number; from: string; start: Point };
+const PORTS = ["top", "right", "bottom", "left"] as const;
 function textField(target: EventTarget): ShapeTextField | undefined {
   const text = (target as Element).closest(".node-title,.node-description");
   if (!text) return undefined;
@@ -120,12 +122,15 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         : p.doc,
     [p.doc, p.editing, editedSize],
   );
-  // A figure being added has no connections yet; leave it out of routing so
-  // existing lines do not detour around it before it is confirmed.
+  // A figure being added without a line is left out of routing, so existing
+  // lines do not detour around it before it is confirmed.
   const routes = useMemo(
     () =>
       documentRoutes(
-        p.draftId
+        p.draftId &&
+          !displayedDoc.edges.some(
+            (e) => e.from === p.draftId || e.to === p.draftId,
+          )
           ? {
               ...displayedDoc,
               nodes: displayedDoc.nodes.filter((n) => n.id !== p.draftId),
@@ -504,10 +509,20 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       latest.current.onSelect([...new Set([...d.add, ...ids])]);
     }
     if (d.kind === "connect") {
-      const target = document
-        .elementFromPoint(e.clientX, e.clientY)
-        ?.closest<HTMLElement>("[data-node-id]")?.dataset.nodeId;
+      const hit = document.elementFromPoint(e.clientX, e.clientY),
+        target = hit?.closest<HTMLElement>("[data-node-id]")?.dataset.nodeId,
+        point = toWorld(e.clientX, e.clientY),
+        dragged =
+          Math.hypot(point.x - d.start.x, point.y - d.start.y) *
+            viewRef.current.zoom >
+          24;
       if (target && target !== d.from) latest.current.onConnect(target, d.from);
+      else if (
+        !target &&
+        dragged &&
+        !hit?.closest(".canvas-controls,.empty-canvas,.edge-control")
+      )
+        latest.current.onAddConnected(d.from, point);
       else latest.current.onConnect(d.from);
     }
     setMarquee(null);
@@ -798,31 +813,37 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                 }}
               />
             )}
-            {node.kind !== "group" && (
-              <button
-                className="connection-port"
-                aria-label={name + "から接続"}
-                title="ドラッグ、またはクリックして接続先を選択"
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  stage.current?.focus();
-                  drag.current = {
-                    kind: "connect",
-                    pointer: e.pointerId,
-                    from: node.id,
-                  };
-                  setWire({
-                    from: node.id,
-                    end: toWorld(e.clientX, e.clientY),
-                  });
-                  capture(e);
-                }}
-                onClick={(e) => {
-                  if (e.detail === 0) p.onConnect(node.id);
-                }}
-              />
-            )}
+            {node.kind !== "group" &&
+              PORTS.map((side) => (
+                <button
+                  key={side}
+                  className={"connection-port " + side}
+                  aria-label={side === "right" ? name + "から接続" : undefined}
+                  aria-hidden={side === "right" ? undefined : true}
+                  tabIndex={side === "right" ? 0 : -1}
+                  title="ドラッグして接続。空いた場所で離すと、つながった図形を追加します"
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    stage.current?.focus();
+                    const start = toWorld(e.clientX, e.clientY);
+                    drag.current = {
+                      kind: "connect",
+                      pointer: e.pointerId,
+                      from: node.id,
+                      start,
+                    };
+                    setWire({
+                      from: node.id,
+                      end: toWorld(e.clientX, e.clientY),
+                    });
+                    capture(e);
+                  }}
+                  onClick={(e) => {
+                    if (e.detail === 0) p.onConnect(node.id);
+                  }}
+                />
+              ))}
           </>
         )}
       </div>

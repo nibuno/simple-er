@@ -731,3 +731,32 @@ test("a figure being added does not reroute existing lines until it is confirmed
   assert.ok(document.querySelector(".canvas-node.editing"));
   assert.deepEqual(paths(), before);
 });
+test("dropping a line on empty space adds a connected figure as one undo step, or nothing if left empty", async () => {
+  const before = saved(),
+    stage = label("設計キャンバス");
+  const drop = async () => {
+    await pointer(label("Workerから接続"), "pointerdown", 300, 200);
+    document.elementFromPoint = () => stage;
+    await pointer(stage, "pointermove", 600, 500);
+    await pointer(stage, "pointerup", 600, 500);
+    delete document.elementFromPoint;
+  };
+  await drop();
+  assert.ok(label("名前を直接編集"));
+  assert.deepEqual(saved(), before);
+  await key(label("名前を直接編集"), "Escape");
+  assert.deepEqual(saved(), before);
+  await drop();
+  await type(label("名前を直接編集"), "通知ログ");
+  await key(label("名前を直接編集"), "Enter", { metaKey: true });
+  const added = saved().nodes.find((n) => n.title === "通知ログ");
+  assert.equal(added.shape, "rectangle");
+  assert.deepEqual(
+    saved()
+      .edges.filter((e) => e.to === added.id)
+      .map((e) => e.from),
+    ["worker"],
+  );
+  await click(label("元に戻す"));
+  assert.deepEqual(saved(), before);
+});

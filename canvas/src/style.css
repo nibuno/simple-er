@@ -583,10 +583,26 @@ kbd {
 .connection-port:focus-visible {
   opacity: 1;
 }
+.connection-port.top {
+  top: calc(-16px - var(--port) / 2);
+  left: calc(50% - var(--port) / 2);
+}
+.connection-port.right {
+  right: calc(-16px - var(--port) / 2);
+  top: calc(50% - var(--port) / 2);
+}
+.connection-port.bottom {
+  bottom: calc(-16px - var(--port) / 2);
+  left: calc(50% - var(--port) / 2);
+}
+.connection-port.left {
+  left: calc(-16px - var(--port) / 2);
+  top: calc(50% - var(--port) / 2);
+}
 .connection-port::after {
   content: "";
   position: absolute;
-  inset: -6px;
+  inset: -9px;
   border-radius: 50%;
 }
 .connections {
@@ -1295,12 +1311,17 @@ kbd {
   .shape-text-editor .node-description {
     font-size: 16px;
   }
+  /* Without hover, ports appear on the selected element or while connecting. */
   .connection-port {
-    opacity: 1;
+    --port: 20px;
     width: 20px;
     height: 20px;
-    right: -10px;
-    top: calc(50% - 10px);
+    pointer-events: none;
+  }
+  .canvas-node.selected .connection-port,
+  .tool-connect .connection-port {
+    opacity: 1;
+    pointer-events: auto;
   }
   .resize-handle::after {
     content: "";
