@@ -775,3 +775,18 @@ test("resizing from the top-left corner keeps the opposite corner in place", asy
   assert.equal(after.x + after.w, before.x + before.w);
   assert.equal(after.y + after.h, before.y + before.h);
 });
+test("moving a figure near another's edge aligns it and shows a guide until the drop", async () => {
+  await act(() => root.unmount());
+  localStorage.setItem(VIEW_KEY, JSON.stringify({ x: 0, y: 0, zoom: 1 }));
+  await mount();
+  const stage = label("設計キャンバス"),
+    worker = saved().nodes.find((n) => n.id === "worker"),
+    db = saved().nodes.find((n) => n.id === "db");
+  await pointer(label("Workerを選択"), "pointerdown", 300, 200);
+  // 3px off DB's left edge; the 8px grid alone would leave it there.
+  await pointer(stage, "pointermove", 300 + db.x - worker.x + 3, 120);
+  assert.ok(document.querySelector(".snap-guides line"));
+  await pointer(stage, "pointerup", 300 + db.x - worker.x + 3, 120);
+  assert.equal(document.querySelector(".snap-guides"), null);
+  assert.equal(saved().nodes.find((n) => n.id === "worker").x, db.x);
+});

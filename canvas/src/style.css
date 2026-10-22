@@ -9,6 +9,7 @@
   --selected: #e8f2ed;
   --line: #84998e;
   --focus: #247cbe;
+  --guide: #d6336c;
   --danger: #a34343;
   --danger-bg: #fdf6f3;
   --heading: #f0f4f2;
@@ -688,6 +689,20 @@ kbd {
   stroke: var(--accent);
   stroke-width: 1.5;
   stroke-dasharray: 5 5;
+}
+.snap-guides {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 4;
+}
+.snap-guides line {
+  stroke: var(--guide);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
 }
 .marquee {
   stroke: var(--accent);

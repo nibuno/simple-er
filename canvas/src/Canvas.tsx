@@ -20,6 +20,8 @@ import {
   VIEW_KEY,
 } from "./model";
 import { documentRoutes, routeEdge, sceneBounds } from "./geometry";
+import { snapToGuides } from "./spatial";
+import type { Guide } from "./spatial";
 import { Icon } from "./Icons";
 import { InlineEditor } from "./Inspector";
 import { ShapeTextEditor } from "./ShapeTextEditor";
@@ -104,6 +106,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     h: number;
   } | null>(null);
   const [wire, setWire] = useState<{ from: string; end: Point } | null>(null);
+  const [guides, setGuides] = useState<Guide[]>([]);
   const [editedSize, setEditedSize] = useState<{
     id: string;
     h: number;
@@ -486,6 +489,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     drag.current = null;
     setMarquee(null);
     setWire(null);
+    setGuides([]);
     setPanning(false);
     if (d && stage.current?.hasPointerCapture(d.pointer))
       stage.current.releasePointerCapture(d.pointer);
@@ -532,6 +536,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     }
     setMarquee(null);
     setWire(null);
+    setGuides([]);
     setPanning(false);
     if (stage.current?.hasPointerCapture(d.pointer))
       stage.current.releasePointerCapture(d.pointer);
@@ -568,12 +573,28 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     if (!d.moved && Math.hypot(dx, dy) * viewRef.current.zoom < 4) return;
     if (!d.moved && d.editField) p.onSelect(d.ids);
     d.moved = true;
-    if (!e.altKey) {
-      dx = Math.round(dx / 8) * 8;
-      dy = Math.round(dy / 8) * 8;
-    }
-    if (d.kind === "move") p.onPreview(moveNodes(d.before, d.ids, dx, dy));
-    else {
+    const grid = (v: number) => (e.altKey ? v : Math.round(v / 8) * 8);
+    if (d.kind === "move") {
+      // Alt moves freely. Otherwise an axis aligned with a nearby figure
+      // follows that figure, and the other axis follows the 8px grid.
+      if (!e.altKey) {
+        const moved = expandedIds(d.before, d.ids),
+          box = bounds(d.before.nodes.filter((n) => d.ids.includes(n.id))),
+          snap = snapToGuides(
+            { ...box, x: box.x + dx, y: box.y + dy },
+            d.before.nodes.filter(
+              (n) => n.kind !== "group" && !moved.has(n.id),
+            ),
+            6 / viewRef.current.zoom,
+          );
+        dx = snap.dx === null ? grid(dx) : dx + snap.dx;
+        dy = snap.dy === null ? grid(dy) : dy + snap.dy;
+        setGuides(snap.guides);
+      } else setGuides([]);
+      p.onPreview(moveNodes(d.before, d.ids, dx, dy));
+    } else {
+      dx = grid(dx);
+      dy = grid(dy);
       const next = clone(d.before),
         n = next.nodes.find((n) => n.id === d.id)!,
         dir = d.dir || "se",
@@ -1092,6 +1113,19 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       >
         {p.doc.nodes.filter((n) => n.kind !== "group").map(renderNode)}
       </div>
+      {guides.length > 0 && (
+        <svg className="snap-guides" aria-hidden="true">
+          {guides.map((g, i) => (
+            <line
+              key={i}
+              x1={g.x1 * view.zoom + view.x}
+              y1={g.y1 * view.zoom + view.y}
+              x2={g.x2 * view.zoom + view.x}
+              y2={g.y2 * view.zoom + view.y}
+            />
+          ))}
+        </svg>
+      )}
       {!p.doc.nodes.length && (
         <div className="empty-canvas">
           <span className="empty-symbol">
