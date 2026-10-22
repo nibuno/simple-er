@@ -121,20 +121,51 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       v = viewRef.current;
     return { x: (x - r.left - v.x) / v.zoom, y: (y - r.top - v.y) / v.zoom };
   };
-  function fit() {
-    if (!stage.current) return;
-    const b = sceneBounds(latest.current.doc),
-      w = stage.current.clientWidth,
-      h = stage.current.clientHeight;
-    const zoom = Math.max(
+  const fitZoom = (b: { w: number; h: number }, w: number, h: number) =>
+    Math.max(
       0.05,
       Math.min(1, (w - 100) / Math.max(b.w, 1), (h - 110) / Math.max(b.h, 1)),
     );
+  function fit() {
+    const el = stage.current;
+    // Without a size the zoom would clamp to 5% and then be stored.
+    if (!el?.clientWidth || !el.clientHeight) return;
+    const b = sceneBounds(latest.current.doc),
+      w = el.clientWidth,
+      h = el.clientHeight,
+      zoom = fitZoom(b, w, h);
     setView({
       zoom,
       x: (w - b.w * zoom) / 2 - b.x * zoom,
       y: (h - b.h * zoom) / 2 - b.y * zoom,
     });
+  }
+  // The first layout can happen before the stage has a size (a hidden pane),
+  // so the initial view is settled once it has one. A stored view is kept
+  // unless it hides the whole drawing or is far smaller than fitting it.
+  const initialView = useRef(true);
+  function settleInitialView() {
+    const el = stage.current;
+    if (!initialView.current || !el?.clientWidth || !el.clientHeight) return;
+    initialView.current = false;
+    const v = saved.current,
+      doc = latest.current.doc;
+    if (v && !doc.nodes.length) return;
+    if (v) {
+      const b = sceneBounds(doc),
+        visible = intersects(
+          {
+            x: b.x * v.zoom + v.x,
+            y: b.y * v.zoom + v.y,
+            w: Math.max(b.w * v.zoom, 1),
+            h: Math.max(b.h * v.zoom, 1),
+          },
+          { x: 0, y: 0, w: el.clientWidth, h: el.clientHeight },
+        );
+      if (visible && v.zoom >= fitZoom(b, el.clientWidth, el.clientHeight) / 4)
+        return;
+    }
+    fit();
   }
   useImperativeHandle(ref, () => ({
     fit,
@@ -180,8 +211,11 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     });
   }
   useLayoutEffect(() => {
-    if (!saved.current) fit();
-    const resize = new ResizeObserver(revealSelection);
+    settleInitialView();
+    const resize = new ResizeObserver(() => {
+      settleInitialView();
+      revealSelection();
+    });
     resize.observe(stage.current!);
     return () => resize.disconnect();
   }, []);

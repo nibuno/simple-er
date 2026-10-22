@@ -688,3 +688,14 @@ test("tidy preserves a vertical flow, the current view, and the prior document o
   await mount();
   assert.deepEqual(saved(), next);
 });
+test("a stored view that hides the drawing at 5% is replaced by fitting it; a usable one is kept", async () => {
+  await act(() => root.unmount());
+  localStorage.setItem(VIEW_KEY, JSON.stringify({ x: 0, y: 0, zoom: 0.05 }));
+  await mount();
+  assert.ok(JSON.parse(localStorage.getItem(VIEW_KEY)).zoom > 0.5);
+  await act(() => root.unmount());
+  const usable = { x: 10, y: 20, zoom: 0.8 };
+  localStorage.setItem(VIEW_KEY, JSON.stringify(usable));
+  await mount();
+  assert.deepEqual(JSON.parse(localStorage.getItem(VIEW_KEY)), usable);
+});
