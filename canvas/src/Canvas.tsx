@@ -120,7 +120,20 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         : p.doc,
     [p.doc, p.editing, editedSize],
   );
-  const routes = useMemo(() => documentRoutes(displayedDoc), [displayedDoc]);
+  // A figure being added has no connections yet; leave it out of routing so
+  // existing lines do not detour around it before it is confirmed.
+  const routes = useMemo(
+    () =>
+      documentRoutes(
+        p.draftId
+          ? {
+              ...displayedDoc,
+              nodes: displayedDoc.nodes.filter((n) => n.id !== p.draftId),
+            }
+          : displayedDoc,
+      ),
+    [displayedDoc, p.draftId],
+  );
   const toWorld = (x: number, y: number) => {
     const r = stage.current!.getBoundingClientRect(),
       v = viewRef.current;

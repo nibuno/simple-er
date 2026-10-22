@@ -397,3 +397,27 @@ test("portable SVG is valid XML, escapes text and includes attached memo content
     doc.nodes.filter((node) => node.attachedTo).length,
   );
 });
+test("a new figure is placed clear of figures, lines and labels", async () => {
+  const { placeInFreeSpace } = await import("../canvas/src/model.ts");
+  const doc = growNodes(sampleDocument()),
+    // Centered on the API → Queue line and its label.
+    node = makeNode("box", { x: 400, y: 190 });
+  placeInFreeSpace(node, doc);
+  const hit = (a, b) =>
+    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  assert.ok(
+    doc.nodes.every((n) => n.kind === "group" || !hit(node, n)),
+    "overlaps a figure",
+  );
+  for (const r of documentRoutes(doc).values())
+    r.points.slice(1).forEach((p, i) => {
+      const q = r.points[i];
+      const seg = {
+        x: Math.min(p.x, q.x),
+        y: Math.min(p.y, q.y),
+        w: Math.abs(p.x - q.x),
+        h: Math.abs(p.y - q.y),
+      };
+      assert.ok(!hit(node, seg), "crosses a line");
+    });
+});

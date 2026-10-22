@@ -714,3 +714,20 @@ test("a stored view that hides the drawing at 5% is replaced by fitting it; a us
   await mount();
   assert.deepEqual(JSON.parse(localStorage.getItem(VIEW_KEY)), usable);
 });
+test("a figure being added does not reroute existing lines until it is confirmed", async () => {
+  await act(() => root.unmount());
+  localStorage.setItem(VIEW_KEY, JSON.stringify({ x: 0, y: 0, zoom: 1 }));
+  await mount();
+  const paths = () =>
+    [...document.querySelectorAll(".edge-control path")].map((p) =>
+      p.getAttribute("d"),
+    );
+  const before = paths();
+  await act(() =>
+    label("設計キャンバス").dispatchEvent(
+      new MouseEvent("dblclick", { bubbles: true, clientX: 460, clientY: 230 }),
+    ),
+  );
+  assert.ok(document.querySelector(".canvas-node.editing"));
+  assert.deepEqual(paths(), before);
+});

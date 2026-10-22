@@ -252,7 +252,7 @@ export function App() {
       node.x -= node.w / 2;
       node.y -= node.h / 2;
     }
-    if (!point) placeInFreeSpace(node, next.nodes);
+    if (!point) placeInFreeSpace(node, next);
     draftRef.current = node;
     setDraftNode(node);
     clearPending();
