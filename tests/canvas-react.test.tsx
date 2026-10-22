@@ -826,3 +826,18 @@ test("a figure with a memo shows a labeled marker that previews its first line",
     null,
   );
 });
+test("ports are left off the sides where a line already meets the figure", async () => {
+  const sides = (id) =>
+    [...document.querySelectorAll(`[data-node-id="${id}"] .connection-port`)]
+      .map((port) => port.className.replace("connection-port ", ""))
+      .sort();
+  // Queue → Worker arrives at Worker's left side.
+  assert.deepEqual(sides("worker"), ["bottom", "right", "top"]);
+  // API → Queue arrives at the top, Queue → Worker leaves from the right.
+  assert.deepEqual(sides("queue"), ["bottom", "left"]);
+  assert.ok(label("Workerから接続").classList.contains("right"));
+  assert.ok(
+    label("Queueから接続").classList.contains("bottom") ||
+      label("Queueから接続").classList.contains("left"),
+  );
+});

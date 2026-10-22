@@ -69,6 +69,13 @@ type Drag =
   | { kind: "marquee"; pointer: number; start: Point; add: string[] }
   | { kind: "connect"; pointer: number; from: string; start: Point };
 const PORTS = ["top", "right", "bottom", "left"] as const;
+// The first free port is the one reachable by keyboard.
+const freePorts = (used?: Set<(typeof PORTS)[number]>) => {
+  const free = PORTS.filter((side) => !used?.has(side));
+  return free.length
+    ? free.sort((a, b) => +(b === "right") - +(a === "right"))
+    : PORTS;
+};
 const RESIZE_DIRS = ["n", "ne", "e", "se", "s", "sw", "w", "nw"] as const;
 type ResizeDir = (typeof RESIZE_DIRS)[number];
 function textField(target: EventTarget): ShapeTextField | undefined {
@@ -145,6 +152,30 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       ),
     [displayedDoc, p.draftId],
   );
+  // Sides where a line already meets a figure; a port there would cover it.
+  const usedSides = useMemo(() => {
+    const nodes = new Map(displayedDoc.nodes.map((n) => [n.id, n])),
+      used = new Map<string, Set<(typeof PORTS)[number]>>();
+    const mark = (id: string, point: Point | undefined) => {
+      const n = nodes.get(id);
+      if (!n || !point) return;
+      const distance = {
+        top: Math.abs(point.y - n.y),
+        right: Math.abs(point.x - n.x - n.w),
+        bottom: Math.abs(point.y - n.y - n.h),
+        left: Math.abs(point.x - n.x),
+      };
+      const side = PORTS.reduce((a, b) => (distance[b] < distance[a] ? b : a));
+      if (!used.has(id)) used.set(id, new Set());
+      used.get(id)!.add(side);
+    };
+    displayedDoc.edges.forEach((edge) => {
+      const points = routes.get(edge.id)?.points;
+      mark(edge.from, points?.[0]);
+      mark(edge.to, points?.at(-1));
+    });
+    return used;
+  }, [displayedDoc, routes]);
   const toWorld = (x: number, y: number) => {
     const r = stage.current!.getBoundingClientRect(),
       v = viewRef.current;
@@ -881,13 +912,13 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
               />
             )}
             {node.kind !== "group" &&
-              PORTS.map((side) => (
+              freePorts(usedSides.get(node.id)).map((side, i) => (
                 <button
                   key={side}
                   className={"connection-port " + side}
-                  aria-label={side === "right" ? name + "から接続" : undefined}
-                  aria-hidden={side === "right" ? undefined : true}
-                  tabIndex={side === "right" ? 0 : -1}
+                  aria-label={i ? undefined : name + "から接続"}
+                  aria-hidden={i ? true : undefined}
+                  tabIndex={i ? -1 : 0}
                   title="ドラッグして接続。空いた場所で離すと、つながった図形を追加します"
                   onPointerDown={(e) => {
                     e.stopPropagation();
