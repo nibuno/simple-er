@@ -18,6 +18,7 @@
   --shadow: 0 8px 28px #263b3514;
   --radius: 7px;
   --font-code: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: light dark;
   font-family:
     system-ui,
     -apple-system,
@@ -28,6 +29,29 @@
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
+}
+/* Follow the system's dark appearance. Colors the user picked for figures
+   stay as chosen, and exported images keep the light palette. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131917;
+    --surface: #1b2320;
+    --text: #e2eae6;
+    --muted: #9aa9a2;
+    --border: #35433d;
+    --accent: #7cc4ae;
+    --on-accent: #0f1f19;
+    --selected: #22382f;
+    --line: #80958b;
+    --focus: #5aaae6;
+    --guide: #f06595;
+    --danger: #ef8f8f;
+    --danger-bg: #3a2323;
+    --heading: #222c28;
+    --grid: #27322d;
+    --frame: #24302b80;
+    --shadow: 0 8px 28px #0000007a;
+  }
 }
 * {
   box-sizing: border-box;

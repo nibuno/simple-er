@@ -82,6 +82,11 @@ export function nodeAppearance(node: CanvasNode, doc: CanvasDocument) {
         : DEFAULT_COLORS.strongText;
   return {
     fill,
+    // Text sits on a color the user chose, rather than the theme's surface.
+    customBackground:
+      validColor(node.fillColor) && node.fillColor !== "transparent"
+        ? true
+        : fill === "transparent" && background !== DEFAULT_COLORS.background,
     stroke: safeColor(node.strokeColor, DEFAULT_COLORS.stroke),
     text,
     muted:

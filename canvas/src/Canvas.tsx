@@ -703,8 +703,9 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
             height: node.h,
             "--node-fill": node.fillColor,
             "--node-stroke": node.strokeColor,
-            "--node-text": colors.text,
-            "--node-muted": colors.muted,
+            // Without a chosen fill, text follows the light or dark theme.
+            "--node-text": colors.customBackground ? colors.text : undefined,
+            "--node-muted": colors.customBackground ? colors.muted : undefined,
           } as CSSProperties
         }
       >

@@ -462,3 +462,28 @@ test("a long line label is kept clear of the figures it would sit under", async 
   assert.ok(!hit(box, api) && !hit(box, queue), JSON.stringify(box));
   assert.equal(route.labelLines.join(""), doc.edges[0].label);
 });
+test("only figures on a chosen color get a fixed text color; others follow the theme", () => {
+  const doc = sampleDocument(),
+    worker = doc.nodes.find((n) => n.id === "worker");
+  assert.equal(nodeAppearance(worker, doc).customBackground, false);
+  assert.equal(
+    nodeAppearance({ ...worker, fillColor: "transparent" }, doc)
+      .customBackground,
+    false,
+  );
+  assert.equal(
+    nodeAppearance({ ...worker, fillColor: "#1971c2" }, doc).customBackground,
+    true,
+  );
+  const group = {
+    ...makeNode("group", { x: 0, y: 0 }),
+    id: "g",
+    fillColor: "#343a40",
+  };
+  doc.nodes.push(group);
+  const note = doc.nodes.find((n) => n.kind === "note" && !n.attachedTo);
+  assert.equal(
+    nodeAppearance({ ...note, groupId: "g" }, doc).customBackground,
+    true,
+  );
+});
