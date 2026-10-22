@@ -65,6 +65,11 @@ const isTyping = (target: EventTarget | null) =>
   !!target.closest("input,textarea,select,[contenteditable='true']");
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
+const SHORT_SAVE_STATES: Record<string, string> = {
+  このブラウザに保存済み: "保存済み",
+  自動保存を停止中: "保存停止中",
+  自動保存できません: "保存できません",
+};
 export function App() {
   const initial = useRef<ReturnType<typeof boot> | null>(null);
   if (!initial.current) initial.current = boot();
@@ -115,6 +120,11 @@ export function App() {
   const [recovery, setRecovery] = useState(initial.current.raw),
     [remote, setRemote] = useState<string | null>(null),
     [exporting, setExporting] = useState(false);
+  const saveText = paused
+    ? "自動保存を停止中"
+    : dirty || editing
+      ? "編集中"
+      : saveState;
   const canvas = useRef<CanvasHandle>(null),
     file = useRef<HTMLInputElement>(null),
     menu = useRef<HTMLDetailsElement>(null),
@@ -742,11 +752,11 @@ export function App() {
             (paused || saveState === "自動保存できません" ? " unsaved" : "")
           }
         >
-          {paused
-            ? "自動保存を停止中"
-            : dirty || editing
-              ? "編集中"
-              : saveState}
+          <span className="save-long">{saveText}</span>
+          {/* Narrow screens keep a short form instead of hiding the state. */}
+          <span className="save-short" aria-hidden="true">
+            {SHORT_SAVE_STATES[saveText] ?? saveText}
+          </span>
         </span>
         <button
           className="icon-button help-button"

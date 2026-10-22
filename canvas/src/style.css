@@ -239,6 +239,9 @@ kbd {
 .save-status.unsaved {
   color: var(--danger);
 }
+.save-short {
+  display: none;
+}
 .help-button {
   flex-shrink: 0;
 }
@@ -1207,8 +1210,16 @@ kbd {
   .tool-group {
     padding-right: 5px;
   }
-  .save-status {
-    display: none;
+  .save-long {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .save-short {
+    display: inline;
   }
   .inspector {
     width: 265px;

@@ -803,3 +803,15 @@ test("the canvas records whether the last input was a pointer or the keyboard", 
   await key(stage, "Shift");
   assert.equal(stage.dataset.input, "keyboard");
 });
+test("the save state has a short form for narrow screens", async () => {
+  await click(label("Workerを選択"));
+  await type(label("メモ"), "保存状態の確認");
+  await blur(label("メモ"));
+  assert.equal(
+    document.querySelector(".save-long").textContent,
+    "このブラウザに保存済み",
+  );
+  assert.equal(document.querySelector(".save-short").textContent, "保存済み");
+  await type(label("メモ"), "編集中の文章");
+  assert.equal(document.querySelector(".save-short").textContent, "編集中");
+});
