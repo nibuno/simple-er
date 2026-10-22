@@ -589,7 +589,7 @@ export function DiagramCanvas(p: Props) {
                 >
                   <title>{`${t.logicalName ? t.logicalName + " / " : ""}${t.name ?? t.id}`}</title>
                   <path
-                    d={`M9 0H${width - 9}Q${width} 0 ${width} 9V${HEADER}H0V9Q0 0 9 0`}
+                    d={`M9 1H${width - 9}Q${width - 1} 1 ${width - 1} 9V${HEADER}H1V9Q1 1 9 1`}
                   />
                   <line
                     x1={1}
