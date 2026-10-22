@@ -56,7 +56,7 @@ export function makeNode(
         ? 420
         : kind === "note"
           ? 280
-          : shape === "person"
+          : shape === "person" || shape === "circle"
             ? 120
             : shape === "ellipse" || shape === "diamond" || shape === "cloud"
               ? 240
@@ -70,7 +70,10 @@ export function makeNode(
             ? 180
             : shape === "cylinder"
               ? 140
-              : shape === "ellipse" || shape === "person" || shape === "cloud"
+              : shape === "ellipse" ||
+                  shape === "person" ||
+                  shape === "cloud" ||
+                  shape === "circle"
                 ? 120
                 : 100,
     title: kind === "group" ? "囲み" : "",
@@ -167,6 +170,9 @@ export function growNodes(doc: CanvasDocument) {
   doc.nodes.forEach((n) => {
     const fit = minimumHeight(n, doc);
     n.h = n.kind === "note" ? fit : Math.max(n.h, fit);
+    // A circle stays round: both sides follow the larger one.
+    if (n.kind === "box" && n.shape === "circle")
+      n.w = n.h = Math.max(n.w, n.h);
   });
   return doc;
 }

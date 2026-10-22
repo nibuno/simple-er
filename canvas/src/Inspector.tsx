@@ -445,13 +445,19 @@ export function SelectionBar({
                       value={Math.round(node[key])}
                       onChange={(e) => {
                         const value = e.target.valueAsNumber;
-                        if (Number.isFinite(value))
-                          patch({
-                            [key]: Math.max(
-                              i ? 50 : minimumWidth(node.shape),
-                              Math.min(i ? 20000 : 4000, value),
-                            ),
-                          });
+                        if (!Number.isFinite(value)) return;
+                        const size = Math.max(
+                          i && node.shape !== "circle"
+                            ? 50
+                            : minimumWidth(node.shape),
+                          Math.min(i ? 20000 : 4000, value),
+                        );
+                        // A circle's width and height move together.
+                        patch(
+                          node.shape === "circle"
+                            ? { w: size, h: size }
+                            : { [key]: size },
+                        );
                       }}
                     />
                   </label>

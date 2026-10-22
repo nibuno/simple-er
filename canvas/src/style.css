@@ -763,7 +763,8 @@ kbd {
   border-radius: 2px;
   background: var(--surface);
   pointer-events: auto;
-  z-index: 2;
+  /* Above the ports, which sit just outside the same edges. */
+  z-index: 4;
 }
 .resize-handle.n,
 .resize-handle.s {
@@ -881,10 +882,11 @@ kbd {
 .connection-port.left > svg {
   transform: rotate(180deg);
 }
+/* The hit area stays clear of the resize handle on the same side. */
 .connection-port::after {
   content: "";
   position: absolute;
-  inset: -8px;
+  inset: -4px;
   border-radius: 50%;
 }
 /* The hint shows as soon as the pointer rests on a port. */

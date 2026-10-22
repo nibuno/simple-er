@@ -3,6 +3,7 @@ import type { CanvasNode, NodeShape } from "./types";
 export const SHAPES = [
   "rectangle",
   "ellipse",
+  "circle",
   "diamond",
   "cylinder",
   "person",
@@ -13,6 +14,7 @@ export const SHAPES = [
 export const shapeLabels: Record<NodeShape, string> = {
   rectangle: "箱",
   ellipse: "楕円",
+  circle: "円",
   diamond: "ひし形",
   cylinder: "円柱",
   person: "人",
@@ -23,6 +25,7 @@ export const shapeLabels: Record<NodeShape, string> = {
 export const shapeIcons = {
   rectangle: "box",
   ellipse: "ellipse",
+  circle: "circle",
   diamond: "diamond",
   cylinder: "cylinder",
   person: "person",
@@ -46,10 +49,11 @@ const SCREEN_BAR = 18;
 const FOLD = 16;
 
 export const minimumWidth = (shape: NodeShape) =>
-  shape === "person" ? 80 : 160;
+  shape === "person" ? 80 : shape === "circle" ? 100 : 160;
 
 export function minimumBoxHeight(shape: NodeShape, textHeight: number) {
   if (shape === "ellipse") return Math.max(100, (textHeight + 12) / 0.64);
+  if (shape === "circle") return Math.max(100, (textHeight + 12) / 0.6);
   if (shape === "diamond") return Math.max(140, (textHeight + 12) / 0.44);
   if (shape === "cylinder") return Math.max(120, textHeight + 78);
   if (shape === "person") return Math.max(110, FIGURE_HEIGHT + textHeight + 8);
@@ -63,7 +67,7 @@ export function shapePaths({ shape, w, h }: CanvasNode): {
   outline: string;
   detail?: string;
 } {
-  if (shape === "ellipse")
+  if (shape === "ellipse" || shape === "circle")
     return {
       outline: `M 0 ${h / 2} A ${w / 2} ${h / 2} 0 1 1 ${w} ${h / 2} A ${w / 2} ${h / 2} 0 1 1 0 ${h / 2} Z`,
     };
@@ -118,6 +122,9 @@ export function shapePaths({ shape, w, h }: CanvasNode): {
 }
 
 export function boxTextArea({ shape, w, h }: CanvasNode) {
+  // A circle keeps its text inside the square that fits within it.
+  if (shape === "circle")
+    return { x: w * 0.15, y: h * 0.2, w: w * 0.7, h: h * 0.6, centered: true };
   if (shape === "ellipse")
     return {
       x: w * 0.18,

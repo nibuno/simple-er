@@ -4,6 +4,7 @@ export type NodeKind = "box" | "note" | "group";
 export type NodeShape =
   | "rectangle"
   | "ellipse"
+  | "circle"
   | "diamond"
   | "cylinder"
   | "person"

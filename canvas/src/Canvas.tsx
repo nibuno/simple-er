@@ -713,14 +713,23 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         start = { x: n.x, y: n.y, w: n.w, h: n.h };
       let w = dir.includes("e") ? n.w + dx : dir.includes("w") ? n.w - dx : n.w,
         h = dir.includes("s") ? n.h + dy : dir.includes("n") ? n.h - dy : n.h;
-      // Shift keeps the proportions when resizing from a corner.
-      if (e.shiftKey && dir.length === 2) {
+      // A circle always stays round; elsewhere Shift keeps the proportions
+      // when resizing from a corner.
+      if (n.shape === "circle") {
+        w = h =
+          dir.length === 2
+            ? Math.max(w, h)
+            : dir === "e" || dir === "w"
+              ? w
+              : h;
+      } else if (e.shiftKey && dir.length === 2) {
         const scale = Math.max(w / start.w, h / start.h);
         w = start.w * scale;
         h = start.h * scale;
       }
       n.w = Math.max(minimumWidth(n.shape), Math.min(4000, Math.round(w)));
       n.h = Math.max(minimumHeight(n, next), Math.min(20000, Math.round(h)));
+      if (n.shape === "circle") n.w = n.h = Math.max(n.w, n.h);
       if (dir.includes("w")) n.x = start.x + start.w - n.w;
       if (dir.includes("n")) n.y = start.y + start.h - n.h;
       p.onPreview(next);
@@ -963,6 +972,17 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                   if (!e.key.startsWith("Arrow")) return;
                   e.stopPropagation();
                   e.preventDefault();
+                  if (node.shape === "circle") {
+                    const size = Math.max(
+                      minimumWidth(node.shape),
+                      node.w +
+                        (e.key === "ArrowRight" || e.key === "ArrowDown"
+                          ? 16
+                          : -16),
+                    );
+                    p.onPatch(node.id, { w: size, h: size });
+                    return;
+                  }
                   p.onPatch(node.id, {
                     w: Math.max(
                       minimumWidth(node.shape),

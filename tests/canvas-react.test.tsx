@@ -240,6 +240,7 @@ test("a description alone creates a figure without a generated name, and creatio
 test("new shapes can be created, converted, connected and reloaded", async () => {
   for (const [shape, name] of [
     ["ellipse", "楕円"],
+    ["circle", "円"],
     ["diamond", "ひし形"],
     ["cylinder", "円柱"],
     ["person", "人"],
@@ -1030,4 +1031,29 @@ test("a box takes an icon from the selection bar, shown beside its name", async 
   );
   await click(label("アイコンなし"));
   assert.equal(saved().nodes.find((n) => n.id === "queue").icon, undefined);
+});
+test("a circle stays round when resized from a side or a corner", async () => {
+  await click(label("その他の図形"));
+  await click(label("円を追加"));
+  await type(label("名前を直接編集"), "注文確定");
+  await key(label("名前を直接編集"), "Enter", { metaKey: true });
+  const id = saved().nodes.find((n) => n.title === "注文確定").id,
+    circle = () => saved().nodes.find((n) => n.id === id),
+    stage = label("設計キャンバス");
+  assert.equal(circle().w, circle().h);
+  await click(label("注文確定を選択"));
+  for (const [dir, dx, dy] of [
+    ["e", 64, 0],
+    ["se", 16, 48],
+    ["n", 0, -40],
+  ]) {
+    const handle = document.querySelector(
+      `[data-node-id="${id}"] .resize-handle.${dir}`,
+    );
+    await pointer(handle, "pointerdown", 300, 300);
+    await pointer(stage, "pointermove", 300 + dx, 300 + dy);
+    await pointer(stage, "pointerup", 300 + dx, 300 + dy);
+    assert.equal(circle().w, circle().h, dir);
+  }
+  assert.ok(circle().w > 120);
 });

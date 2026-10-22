@@ -78,6 +78,7 @@ const paths = {
   arrange: "M3 4h7v5H3Z M14 4h7v5h-7Z M3 15h7v5H3Z M14 15h7v5h-7Z",
   person:
     "M12 8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5 M12 8v7 M7 11h10 M12 15l-4 6 M12 15l4 6",
+  circle: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18",
   cloud: "M7 18a4 4 0 0 1-.5-8 5.5 5.5 0 0 1 10.6-1.5A4 4 0 0 1 17 18Z",
   screen: "M3 4h18v16H3Z M3 8h18",
   document: "M6 3h9l4 4v14H6Z M15 3v4h4",
