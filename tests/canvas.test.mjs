@@ -83,7 +83,33 @@ test("all figure shapes retain their outline and safe text area through save, co
     assert.ok(area.x >= 0 && area.y >= 0 && area.w > 0 && area.h > 0);
     assert.ok(area.x + area.w <= node.w && area.y + area.h <= node.h);
   }
-  assert.equal(svg.querySelectorAll("[marker-end]").length, 3);
+  assert.equal(svg.querySelectorAll("[marker-end]").length, SHAPES.length - 1);
+});
+test("a box icon is saved, validated and drawn in the SVG export", async () => {
+  const { NODE_ICONS, iconPath } = await import("../canvas/src/Icons.tsx");
+  const doc = growNodes(sampleDocument());
+  doc.nodes.find((n) => n.id === "queue").icon = "queue";
+  assert.equal(
+    decode(encode(doc)).nodes.find((n) => n.id === "queue").icon,
+    "queue",
+  );
+  const svg = toSvg(doc);
+  assert.ok(svg.includes(iconPath("queue")));
+  assert.ok(NODE_ICONS.length >= 15);
+  const bad = clone(doc);
+  bad.nodes.find((n) => n.id === "queue").icon = "rocket";
+  assert.throws(() => decode(encode(bad)), /アイコン/);
+  const person = makeNode("box", { x: 0, y: 0 }, "person");
+  assert.ok(person.w < 160, "a person is narrower than a box");
+  assert.equal(
+    decode(
+      encode({
+        ...emptyDocument(),
+        nodes: [growNodes({ ...emptyDocument(), nodes: [person] }).nodes[0]],
+      }),
+    ).nodes[0].shape,
+    "person",
+  );
 });
 test("invalid documents fail rather than silently dropping relationships", () => {
   const invalids = [

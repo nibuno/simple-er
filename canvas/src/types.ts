@@ -1,7 +1,15 @@
 export type Point = { x: number; y: number };
 export type View = Point & { zoom: number };
 export type NodeKind = "box" | "note" | "group";
-export type NodeShape = "rectangle" | "ellipse" | "diamond" | "cylinder";
+export type NodeShape =
+  | "rectangle"
+  | "ellipse"
+  | "diamond"
+  | "cylinder"
+  | "person"
+  | "cloud"
+  | "screen"
+  | "document";
 export interface CanvasNode extends Point {
   id: string;
   kind: NodeKind;
@@ -13,6 +21,8 @@ export interface CanvasNode extends Point {
   body: string;
   fillColor?: string;
   strokeColor?: string;
+  // A small icon beside a box's name, one of NODE_ICONS.
+  icon?: string;
   groupId?: string;
   attachedTo?: string;
 }

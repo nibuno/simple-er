@@ -242,7 +242,14 @@ test("new shapes can be created, converted, connected and reloaded", async () =>
     ["ellipse", "楕円"],
     ["diamond", "ひし形"],
     ["cylinder", "円柱"],
+    ["person", "人"],
+    ["cloud", "クラウド"],
+    ["screen", "画面"],
+    ["document", "書類"],
   ]) {
+    // Shapes beyond the rail's four sit behind "その他の図形".
+    if (!document.querySelector(`[aria-label="${name}を追加"]`))
+      await click(label("その他の図形"));
     await click(label(name + "を追加"));
     await type(label("名前を直接編集"), name + "の図形");
     await key(label("名前を直接編集"), "Enter", { metaKey: true });
@@ -609,7 +616,9 @@ test("corrupt stored data is not overwritten by mounting or editing", async () =
   localStorage.setItem(STORAGE_KEY, "broken-original");
   await mount();
   assert.ok(
-    document.querySelector('[role="alert"]').textContent.includes("上書きしていません"),
+    document
+      .querySelector('[role="alert"]')
+      .textContent.includes("上書きしていません"),
   );
   await type(label("キャンバス名"), "新しく検討");
   await blur(label("キャンバス名"));
@@ -1010,4 +1019,15 @@ test("typing does not bring back the canvas focus ring; only Tab does", async ()
   assert.equal(stage.dataset.input, "pointer");
   await key(stage, "Tab");
   assert.equal(stage.dataset.input, "keyboard");
+});
+test("a box takes an icon from the selection bar, shown beside its name", async () => {
+  await click(label("Queueを選択"));
+  await panel("アイコン");
+  await click(label("キュー"));
+  assert.equal(saved().nodes.find((n) => n.id === "queue").icon, "queue");
+  assert.ok(
+    document.querySelector('[data-node-id="queue"] .node-title .node-icon'),
+  );
+  await click(label("アイコンなし"));
+  assert.equal(saved().nodes.find((n) => n.id === "queue").icon, undefined);
 });

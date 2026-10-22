@@ -304,6 +304,21 @@ kbd {
   left: 12px;
   flex-direction: column;
 }
+.rail-more {
+  position: relative;
+}
+.rail-popover {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: -4px;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--chip-shadow);
+}
 .rail-divider {
   width: 22px;
   margin: 3px 0;
@@ -629,6 +644,19 @@ kbd {
   color: var(--muted);
   font-size: 10px;
   line-height: 14px;
+}
+.memo-indicator.top {
+  top: 2px;
+  right: 2px;
+  bottom: auto;
+}
+.node-icon {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  margin-right: 5px;
+  vertical-align: -2px;
+  color: var(--node-muted, var(--muted));
 }
 .memo-indicator.centered {
   right: auto;
@@ -1307,7 +1335,30 @@ kbd {
 }
 .shape-choice {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
+}
+.icon-choice {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+}
+.icon-choice button {
+  min-height: 38px;
+  padding: 0;
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+.icon-choice button[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--selected);
+  color: var(--accent);
+}
+.icon-choice .node-icon {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  color: inherit;
 }
 .shape-choice button {
   width: 38px;

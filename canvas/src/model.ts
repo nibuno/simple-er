@@ -8,7 +8,14 @@ import type {
   History,
   HistoryAction,
 } from "./types";
-import { boxTextArea, minimumBoxHeight, SHAPES, shapeLabels } from "./shapes";
+import {
+  boxTextArea,
+  minimumBoxHeight,
+  minimumWidth,
+  SHAPES,
+  shapeLabels,
+} from "./shapes";
+import { NODE_ICONS } from "./Icons";
 import { arrangeBoxes } from "./layout";
 import { validColor } from "./colors";
 import { bounds } from "./spatial";
@@ -49,9 +56,11 @@ export function makeNode(
         ? 420
         : kind === "note"
           ? 280
-          : shape === "ellipse" || shape === "diamond"
-            ? 240
-            : 200,
+          : shape === "person"
+            ? 120
+            : shape === "ellipse" || shape === "diamond" || shape === "cloud"
+              ? 240
+              : 200,
     h:
       kind === "group"
         ? 280
@@ -61,7 +70,7 @@ export function makeNode(
             ? 180
             : shape === "cylinder"
               ? 140
-              : shape === "ellipse"
+              : shape === "ellipse" || shape === "person" || shape === "cloud"
                 ? 120
                 : 100,
     title: kind === "group" ? "囲み" : "",
@@ -199,7 +208,7 @@ export function decode(raw: string): CanvasDocument {
       if (!Number.isFinite(n[key]) || Math.abs(n[key]) > 100000)
         fail("位置・サイズが不正です。");
     if (
-      n.w < 160 ||
+      n.w < (n.kind === "box" ? minimumWidth(n.shape) : 160) ||
       n.h < 50 ||
       n.w > (n.kind === "group" ? 100000 : 4000) ||
       n.h > (n.kind === "group" ? 100000 : 20000)
@@ -211,6 +220,11 @@ export function decode(raw: string): CanvasDocument {
       !str(n.body, MAX_TEXT)
     )
       fail("テキストが長すぎるか、不正です。");
+    if (
+      n.icon !== undefined &&
+      (n.kind !== "box" || !NODE_ICONS.some((icon) => icon.id === n.icon))
+    )
+      fail("対応していないアイコンが含まれています。");
     if (n.groupId !== undefined && !str(n.groupId, 120))
       fail("囲みの参照が不正です。");
     if (n.attachedTo !== undefined && !str(n.attachedTo, 120))
