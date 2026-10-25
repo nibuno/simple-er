@@ -1217,18 +1217,6 @@ kbd {
   margin: 0 0 12px;
   font-weight: 600;
 }
-.empty-canvas p {
-  font-size: 13px;
-  color: var(--muted);
-  line-height: 1.9;
-  margin: 0 0 22px;
-}
-.empty-canvas small {
-  display: block;
-  color: var(--muted);
-  font-size: 11px;
-  margin-top: 16px;
-}
 .delete-button {
   color: var(--danger);
 }
@@ -1552,9 +1540,6 @@ kbd {
   }
   .canvas-controls button {
     min-height: 32px;
-  }
-  .empty-canvas small {
-    display: none;
   }
 }
 @media (pointer: coarse) {

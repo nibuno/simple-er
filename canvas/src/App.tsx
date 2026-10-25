@@ -1,5 +1,5 @@
 import { watchStorage } from "../../shared/storage.ts";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import type {
   CanvasDocument,
   CanvasNode,
@@ -79,25 +79,12 @@ export function App() {
     past: [],
     future: [],
   });
-  const [draftNode, setDraftNode] = useState<CanvasNode | null>(null),
-    draftRef = useRef<CanvasNode | null>(null);
-  // A figure added by dropping a line on empty space keeps that line as part
-  // of the draft, so it is added or discarded together with the figure.
-  const [draftEdge, setDraftEdge] = useState<CanvasEdge | null>(null),
-    draftEdgeRef = useRef<CanvasEdge | null>(null);
-  const doc = useMemo(
-    () =>
-      draftNode
-        ? {
-            ...history.present,
-            nodes: [...history.present.nodes, draftNode],
-            edges: draftEdge
-              ? [...history.present.edges, draftEdge]
-              : history.present.edges,
-          }
-        : history.present,
-    [history.present, draftNode, draftEdge],
-  );
+  // A figure is added to the document right away and keeps the name field
+  // open; leaving it empty is fine, the figure stays.
+  const [addedId, setAddedId] = useState<string | null>(null),
+    addedRef = useRef<string | null>(null);
+  addedRef.current = addedId;
+  const doc = history.present;
   const docRef = useRef(history.present);
   docRef.current = history.present;
   const historyRef = useRef(history);
@@ -135,6 +122,7 @@ export function App() {
     id: string;
     panel: Panel;
   } | null>(null);
+  const [savePoint, setSavePoint] = useState(0);
   const [saveState, setSaveState] = useState(""),
     [dirty, setDirty] = useState(false),
     [paused, setPaused] = useState(!!initial.current.raw);
@@ -172,24 +160,6 @@ export function App() {
     )
       active.blur();
   }
-  function setDraft(node: CanvasNode | null, edge: CanvasEdge | null = null) {
-    draftRef.current = node;
-    draftEdgeRef.current = edge;
-    setDraftNode(node);
-    setDraftEdge(edge);
-  }
-  function discardDraft() {
-    const id = draftRef.current?.id;
-    setDraft(null);
-    setEditing(null);
-    setDirty(false);
-    if (id) {
-      selectionRef.current = selectionRef.current.filter(
-        (selected) => selected !== id,
-      );
-      setSelection(selectionRef.current);
-    }
-  }
   function select(ids: string[]) {
     flushInput();
     setInspectorOpen(true);
@@ -210,15 +180,24 @@ export function App() {
     const timer = setTimeout(() => setStatus(""), 4000);
     return () => clearTimeout(timer);
   }, [status]);
-  function commit(next: CanvasDocument, before?: CanvasDocument) {
+  // `amend` folds the change into the previous step instead of adding one,
+  // so naming a figure right after adding it undoes in one go.
+  function commit(
+    next: CanvasDocument,
+    before?: CanvasDocument,
+    amend = false,
+  ) {
     try {
       growNodes(next);
       // Validate edits as well as imports, so every saved document is reloadable.
       const valid = decode(encode(next));
       docRef.current = valid;
-      const action = { type: "commit" as const, next: valid, before };
+      const action = amend
+        ? { type: "amend" as const, next: valid }
+        : { type: "commit" as const, next: valid, before };
       historyRef.current = historyReducer(historyRef.current, action);
       dispatch(action);
+      setSavePoint((n) => n + 1);
       setDirty(false);
       return true;
     } catch (e) {
@@ -235,27 +214,18 @@ export function App() {
     }
   }
   function patchNode(id: string, patch: Partial<CanvasNode>) {
-    if (draftRef.current?.id === id) {
-      const node = { ...draftRef.current, ...patch };
-      if (
-        ![node.title, node.description, node.body].some((text) => text.trim())
-      ) {
-        discardDraft();
-        return;
-      }
-      const next = clone(docRef.current);
-      next.nodes.push(node);
-      if (draftEdgeRef.current) next.edges.push(draftEdgeRef.current);
-      if (commit(next)) setDraft(null);
-      return;
-    }
     const next = clone(docRef.current),
       node = next.nodes.find((n) => n.id === id);
     if (!node) return;
     if (node.attachedTo && patch.body !== undefined) {
       next.nodes.find((n) => n.id === node.attachedTo)!.body = patch.body;
     } else Object.assign(node, patch);
-    commit(next);
+    const amend = addedRef.current === id;
+    if (amend) {
+      addedRef.current = null;
+      setAddedId(null);
+    }
+    commit(next, undefined, amend);
   }
   function patchEdge(id: string, patch: Partial<CanvasEdge>) {
     const next = clone(docRef.current),
@@ -281,9 +251,9 @@ export function App() {
     commit(next);
   }
   function edit(id: string | null) {
-    if (!id && draftRef.current) {
-      discardDraft();
-      return;
+    if (id !== addedRef.current) {
+      addedRef.current = null;
+      setAddedId(null);
     }
     if (id) flushInput();
     else setInspectorOpen(false);
@@ -299,7 +269,6 @@ export function App() {
     place = false,
   ) {
     flushInput();
-    discardDraft();
     const next = clone(docRef.current);
     if (next.nodes.length >= MAX_NODES) {
       setError("追加できるのは150個までです");
@@ -317,13 +286,21 @@ export function App() {
       node.y = Math.round((node.y - node.h / 2) / 8) * 8;
     }
     if (!point || place) placeInFreeSpace(node, next);
-    setDraft(
-      node,
-      from ? { id: uid(), from, to: node.id, label: "", dashed: false } : null,
-    );
+    next.nodes.push(node);
+    if (from)
+      next.edges.push({
+        id: uid(),
+        from,
+        to: node.id,
+        label: "",
+        dashed: false,
+      });
+    if (!commit(next)) return;
     clearPending();
     setTool("select");
     select([node.id]);
+    addedRef.current = node.id;
+    setAddedId(node.id);
     setEditing(node.id);
   }
   function connect(id: string, fromOverride?: string) {
@@ -401,10 +378,6 @@ export function App() {
     }
   }
   function undo() {
-    if (draftRef.current) {
-      discardDraft();
-      return;
-    }
     flushInput();
     const next = historyReducer(historyRef.current, { type: "undo" });
     docRef.current = next.present;
@@ -416,10 +389,6 @@ export function App() {
     notify("元に戻しました");
   }
   function redo() {
-    if (draftRef.current) {
-      discardDraft();
-      return;
-    }
     flushInput();
     const next = historyReducer(historyRef.current, { type: "redo" });
     docRef.current = next.present;
@@ -440,7 +409,6 @@ export function App() {
   }
   function replace(next: CanvasDocument) {
     flushInput();
-    discardDraft();
     commit(next);
     select([]);
     setEditing(null);
@@ -485,7 +453,7 @@ export function App() {
         "ブラウザに保存できませんでした。作業はファイルに保存してください。",
       );
     }
-  }, [history.past, history.future, paused]);
+  }, [history.past, history.future, savePoint, paused]);
   useEffect(() => {
     const ids = new Set([
       ...doc.nodes.map((n) => n.id),
@@ -715,7 +683,7 @@ export function App() {
           tool={tool}
           pending={pending}
           editing={editing}
-          draftId={draftNode?.id}
+          addedId={addedId}
           getDocument={() => docRef.current}
           onSelect={select}
           onConnect={connect}

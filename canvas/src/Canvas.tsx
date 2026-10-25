@@ -52,7 +52,7 @@ interface Props {
   tool: Tool;
   pending: string | null;
   editing: string | null;
-  draftId?: string;
+  addedId?: string | null;
   getDocument: () => CanvasDocument;
   onSelect: (ids: string[]) => void;
   onConnect: (id: string, from?: string) => void;
@@ -172,22 +172,22 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         : p.doc,
     [p.doc, p.editing, editedSize],
   );
-  // A figure being added without a line is left out of routing, so existing
-  // lines do not detour around it before it is confirmed.
+  // A figure just added without a line is left out of routing, so existing
+  // lines do not detour around it while its name is still being written.
   const routes = useMemo(
     () =>
       documentRoutes(
-        p.draftId &&
+        p.addedId &&
           !displayedDoc.edges.some(
-            (e) => e.from === p.draftId || e.to === p.draftId,
+            (e) => e.from === p.addedId || e.to === p.addedId,
           )
           ? {
               ...displayedDoc,
-              nodes: displayedDoc.nodes.filter((n) => n.id !== p.draftId),
+              nodes: displayedDoc.nodes.filter((n) => n.id !== p.addedId),
             }
           : displayedDoc,
       ),
-    [displayedDoc, p.draftId],
+    [displayedDoc, p.addedId],
   );
   // The selection bar sits centered above the selection, or below it when
   // the selection is near the top of the window.
@@ -805,7 +805,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
               node={node}
               doc={p.doc}
               target={editTarget.current}
-              isNew={p.draftId === node.id}
+              isNew={p.addedId === node.id}
               zoom={view.zoom}
               onDirty={p.onDirty}
               onSize={(height) => {
@@ -1291,7 +1291,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           <h2>空のキャンバス</h2>
           <div className="empty-actions">
             <button className="primary" onClick={p.onAddBox}>
-              箱を追加
+              図形を追加
             </button>
             <button
               className="secondary"
@@ -1300,7 +1300,6 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
               テキストを追加
             </button>
           </div>
-          <small>余白をダブルクリックすると文字を書けます</small>
         </div>
       )}
       <div className="canvas-controls" aria-label="表示操作">

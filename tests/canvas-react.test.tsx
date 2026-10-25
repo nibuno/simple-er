@@ -179,41 +179,26 @@ test("inline Japanese edits persist; Escape keeps edits and undo takes them back
   await click(label("やり直す"));
   assert.ok(saved().nodes.some((n) => n.title === "監視"));
 });
-test("empty additions never reach autosave or undo, whether submitted, dismissed, cancelled or reloaded", async () => {
-  const before = saved();
+test("a figure added without text stays, survives reload, and undo removes it", async () => {
+  const before = saved(),
+    added = () =>
+      saved().nodes.find((n) => !before.nodes.some((old) => old.id === n.id));
   await click(label("箱を追加"));
   assert.equal(label("名前を直接編集").value, "");
   assert.equal(label("説明を直接編集").value, "");
-  assert.deepEqual(saved(), before);
+  assert.ok(added(), "the figure is on the canvas while its name is open");
   await submit();
   assert.equal(document.querySelector("form"), null);
-  assert.deepEqual(saved(), before);
-  assert.ok(label("元に戻す").disabled);
-
-  await click(label("箱を追加"));
-  await click(label("Workerを選択"));
-  assert.equal(document.querySelector("form"), null);
+  assert.ok(added(), "an empty name keeps the figure");
+  await click(label("元に戻す"));
   assert.deepEqual(saved(), before);
 
   await click(label("箱を追加"));
   await key(label("名前を直接編集"), "Escape");
-  assert.deepEqual(saved(), before, "Escape on an empty figure adds nothing");
-
-  await click(label("箱を追加"));
-  await type(label("名前を直接編集"), "　 ");
-  await type(label("説明を直接編集"), "\n ");
-  await submit();
-  assert.deepEqual(saved(), before);
-
-  await click(label("箱を追加"));
-  await act(() =>
-    window.dispatchEvent(new Event("beforeunload", { cancelable: true })),
-  );
-  assert.deepEqual(saved(), before);
+  assert.ok(added(), "Escape keeps the figure too");
   await act(() => root.unmount());
   await mount();
-  assert.deepEqual(saved(), before);
-  assert.ok(label("元に戻す").disabled);
+  assert.ok(added(), "and it is still there after a reload");
 });
 test("a description alone creates a figure without a generated name, and creation is one undo step", async () => {
   const before = saved();
@@ -555,7 +540,7 @@ test("starting another connection commits the active line label before changing 
   await pointer(label("ブラウザから接続"), "pointerdown", 100, 200);
   document.elementFromPoint = () => label("ブラウザを選択");
   await pointer(label("設計キャンバス"), "pointerup", 100, 200);
-  assert.equal(saved().edges.at(-1).label, "入力中の接続名");
+  assert.ok(saved().edges.some((e) => e.label === "入力中の接続名"));
   delete document.elementFromPoint;
 });
 test("selecting two elements creates one connection and editing its label survives reload", async () => {
@@ -760,7 +745,7 @@ test("a figure being added does not reroute existing lines until it is confirmed
   assert.ok(document.querySelector(".canvas-node.editing"));
   assert.deepEqual(paths(), before);
 });
-test("dropping a line on empty space adds a connected figure as one undo step, or nothing if left empty", async () => {
+test("dropping a line on empty space adds a connected figure as one undo step, empty name or not", async () => {
   const before = saved(),
     stage = label("設計キャンバス");
   const drop = async () => {
@@ -772,9 +757,11 @@ test("dropping a line on empty space adds a connected figure as one undo step, o
   };
   await drop();
   assert.ok(label("名前を直接編集"));
-  assert.deepEqual(saved(), before);
   await key(label("名前を直接編集"), "Escape");
-  assert.deepEqual(saved(), before);
+  assert.equal(saved().nodes.length, before.nodes.length + 1);
+  assert.equal(saved().edges.length, before.edges.length + 1);
+  await click(label("元に戻す"));
+  assert.deepEqual(saved(), before, "the figure and its line go back together");
   await drop();
   await type(label("名前を直接編集"), "通知ログ");
   await key(label("名前を直接編集"), "Enter", { metaKey: true });
