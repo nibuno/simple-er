@@ -51,6 +51,7 @@ export interface History {
 export type HistoryAction =
   | { type: "commit"; next: CanvasDocument; before?: CanvasDocument }
   | { type: "preview"; next: CanvasDocument }
+  | { type: "amend"; next: CanvasDocument }
   | { type: "reset"; next: CanvasDocument }
   | { type: "undo" | "redo" };
 export type Tool = "select" | "connect" | "pan";

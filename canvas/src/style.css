@@ -1121,14 +1121,6 @@ kbd {
   color: var(--node-text, var(--text));
   outline: none;
 }
-.shape-text-editor textarea:focus {
-  outline: 1px dashed var(--accent);
-  outline-offset: 3px;
-}
-.shape-text-editor textarea::placeholder {
-  color: var(--node-muted, var(--muted));
-  font-weight: 400;
-}
 .shape-text-editor .node-title {
   font-size: 16px;
   font-weight: 600;
@@ -1187,47 +1179,23 @@ kbd {
   border-left: 1px solid var(--border);
   margin: 0 4px;
 }
-.empty-canvas {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: min(370px, calc(100% - 40px));
-  text-align: center;
-  z-index: 4;
-}
-.empty-symbol {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--line);
-  margin-bottom: 14px;
-}
-.empty-symbol svg {
-  width: 32px;
-  height: 32px;
-}
-.empty-actions {
+.rail-anchor {
+  position: relative;
   display: flex;
-  gap: 8px;
-  justify-content: center;
 }
-.empty-canvas h2 {
-  font-size: 20px;
-  margin: 0 0 12px;
-  font-weight: 600;
-}
-.empty-canvas p {
-  font-size: 13px;
+.rail-hint {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
   color: var(--muted);
-  line-height: 1.9;
-  margin: 0 0 22px;
+  font-size: 12px;
+  pointer-events: none;
 }
-.empty-canvas small {
-  display: block;
-  color: var(--muted);
-  font-size: 11px;
-  margin-top: 16px;
+/* The tooltips use the same spot, so the hint steps aside on hover. */
+.tool-rail:hover .rail-hint {
+  opacity: 0;
 }
 .delete-button {
   color: var(--danger);
@@ -1529,6 +1497,10 @@ kbd {
   .rail-button::after {
     display: none;
   }
+  /* The rail lies horizontally here, leaving no room beside a button. */
+  .rail-hint {
+    display: none;
+  }
   .color-picker {
     margin-bottom: 4px;
   }
@@ -1537,9 +1509,6 @@ kbd {
   }
   .color-expand {
     min-height: 22px;
-  }
-  .empty-canvas h2 {
-    font-size: 18px;
   }
 }
 @media (max-width: 430px) {
@@ -1552,9 +1521,6 @@ kbd {
   }
   .canvas-controls button {
     min-height: 32px;
-  }
-  .empty-canvas small {
-    display: none;
   }
 }
 @media (pointer: coarse) {

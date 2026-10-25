@@ -6,6 +6,9 @@ export interface History<T> {
 export type Action<T> =
   | { type: "commit"; next: T; before?: T }
   | { type: "preview"; next: T }
+  // Folds a change into the previous step: the present moves on, the undo
+  // stack does not grow.
+  | { type: "amend"; next: T }
   | { type: "reset"; next: T }
   | { type: "undo" | "redo" };
 export function reduceHistory<T>(
@@ -16,6 +19,8 @@ export function reduceHistory<T>(
   if (action.type === "reset")
     return { present: action.next, past: [], future: [] };
   if (action.type === "preview") return { ...state, present: action.next };
+  if (action.type === "amend")
+    return { ...state, present: action.next, future: [] };
   if (action.type === "commit") {
     const before = action.before ?? state.present;
     if (JSON.stringify(before) === JSON.stringify(action.next))
