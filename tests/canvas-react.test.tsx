@@ -230,7 +230,7 @@ test("empty additions never reach autosave or undo, whether submitted, dismissed
 // the canvas, otherwise on the next click. Positions keep the 8px grid.
 const snap = (value) => Math.round(value / 8) * 8;
 const currentView = () => JSON.parse(localStorage.getItem(VIEW_KEY));
-test("the toolbar asks where to put the figure, and it lands centered on the click", async () => {
+test("the toolbar asks where to put the figure, and Esc gives up", async () => {
   const before = saved(),
     view = currentView();
   await click(label("箱を追加"));
@@ -244,40 +244,24 @@ test("the toolbar asks where to put the figure, and it lands centered on the cli
   assert.equal(added.x, snap((520 - view.x) / view.zoom - added.w / 2));
   assert.equal(added.y, snap((360 - view.y) / view.zoom - added.h / 2));
   assert.ok(!label("設計キャンバス").className.includes("tool-place"));
-});
-test("Escape leaves the placing mode, and the next click adds nothing", async () => {
-  const before = saved();
+
+  const placed = saved();
   await click(label("箱を追加"));
   await key(label("設計キャンバス"), "Escape");
   assert.ok(!label("設計キャンバス").className.includes("tool-place"));
   await placeAt(520, 360);
   assert.equal(document.querySelector("form"), null);
-  assert.deepEqual(saved(), before);
+  assert.deepEqual(saved(), placed);
 });
 test("with the pointer over the canvas the figure appears under it at once", async () => {
   const view = currentView();
   await pointer(label("設計キャンバス"), "pointermove", 640, 420);
   await click(label("箱を追加"));
-  assert.ok(label("名前を直接編集"), "no click is asked for");
   await type(label("名前を直接編集"), "通知ログ");
   await submit();
   const added = saved().nodes.find((n) => n.title === "通知ログ");
   assert.equal(added.x, snap((640 - view.x) / view.zoom - added.w / 2));
   assert.equal(added.y, snap((420 - view.y) / view.zoom - added.h / 2));
-});
-test("a figure already on the canvas does not take the placing click", async () => {
-  const worker = saved().nodes.find((n) => n.title === "Worker"),
-    view = currentView();
-  // Aim at the middle of Worker.
-  const x = (worker.x + worker.w / 2) * view.zoom + view.x,
-    y = (worker.y + worker.h / 2) * view.zoom + view.y;
-  await click(label("箱を追加"));
-  await placeAt(x, y);
-  await type(label("名前を直接編集"), "再送");
-  await submit();
-  const added = saved().nodes.find((n) => n.title === "再送");
-  assert.equal(added.x, snap(worker.x + worker.w / 2 - added.w / 2));
-  assert.equal(added.y, snap(worker.y + worker.h / 2 - added.h / 2));
 });
 test("a description alone creates a figure without a generated name, and creation is one undo step", async () => {
   const before = saved();

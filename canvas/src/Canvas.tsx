@@ -532,8 +532,6 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   function startNode(e: ReactPointerEvent, node: CanvasNode, dir?: ResizeDir) {
     const resize = !!dir;
     if (e.button !== 0 && e.button !== 1) return;
-    // While placing, a figure under the pointer is just canvas.
-    if (p.tool === "place" && e.button === 0 && !space.current) return;
     e.stopPropagation();
     if (e.button === 1 || space.current || p.tool === "pan") {
       startPan(e);
