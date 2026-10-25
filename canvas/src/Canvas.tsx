@@ -68,7 +68,6 @@ interface Props {
   onPreview: (doc: CanvasDocument) => void;
   onCommit: (doc: CanvasDocument, before?: CanvasDocument) => void;
   onStatus: (value: string) => void;
-  onDirty: () => void;
 }
 type Drag =
   | {
@@ -828,7 +827,6 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
               target={editTarget.current}
               isNew={p.draftId === node.id}
               zoom={view.zoom}
-              onDirty={p.onDirty}
               onSize={(height) => {
                 const h = Math.min(
                   Math.max(original.h, height),
@@ -856,7 +854,6 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           <InlineEditor
             node={node}
             doc={p.doc}
-            onDirty={p.onDirty}
             onFinish={(patch) => {
               p.onPatch(node.id, patch);
               p.onEdit(null);

@@ -63,7 +63,6 @@ const keepNativeKeys = (target: EventTarget | null) =>
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 const SHORT_SAVE_STATES: Record<string, string> = {
-  このブラウザに保存済み: "保存済み",
   自動保存を停止中: "保存停止中",
   自動保存できません: "保存できません",
 };
@@ -156,20 +155,17 @@ function Editor({
     panel: Panel;
   } | null>(null);
   const [saveProblem, setSaveProblem] = useState(""),
-    [dirty, setDirty] = useState(false),
     [paused, setPaused] = useState(!!initial.error);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
   const [recovery, setRecovery] = useState(initial.error ? initial.raw : null),
     [remote, setRemote] = useState<string | null>(null),
     [exporting, setExporting] = useState<"png" | "markdown" | null>(null);
-  const saveText = paused
+  const saveWarning = paused
     ? "自動保存を停止中"
     : saveProblem
       ? "自動保存できません"
-      : dirty || editing
-        ? "編集中"
-        : "このブラウザに保存済み";
+      : "";
   const canvas = useRef<CanvasHandle>(null),
     file = useRef<HTMLInputElement>(null),
     menu = useRef<HTMLDetailsElement>(null),
@@ -204,7 +200,6 @@ function Editor({
     const id = draftRef.current?.id;
     setDraft(null);
     setEditing(null);
-    setDirty(false);
     if (id) {
       selectionRef.current = selectionRef.current.filter(
         (selected) => selected !== id,
@@ -240,7 +235,6 @@ function Editor({
       const action = { type: "commit" as const, next: valid, before };
       historyRef.current = historyReducer(historyRef.current, action);
       dispatch(action);
-      setDirty(false);
       return true;
     } catch (e) {
       setError(errorMessage(e));
@@ -308,7 +302,6 @@ function Editor({
     }
     if (id) flushInput();
     setEditing(id);
-    setDirty(!!id);
     if (id) select([id]);
   }
   function add(
@@ -431,7 +424,6 @@ function Editor({
     historyRef.current = next;
     dispatch({ type: "undo" });
     setEditing(null);
-    setDirty(false);
     clearPending();
     notify("元に戻しました");
   }
@@ -446,7 +438,6 @@ function Editor({
     historyRef.current = next;
     dispatch({ type: "redo" });
     setEditing(null);
-    setDirty(false);
     clearPending();
     notify("やり直しました");
   }
@@ -634,7 +625,6 @@ function Editor({
         edit(null);
         select([]);
         menu.current?.removeAttribute("open");
-        setDirty(false);
         return;
       }
       if (command) {
@@ -839,7 +829,6 @@ function Editor({
               next,
             });
             dispatch({ type: "preview", next });
-            setDirty(true);
           }}
           onCommit={commit}
           selectionBar={
@@ -868,12 +857,10 @@ function Editor({
               }}
               onFitGroup={(id) => commit(fitGroup(clone(docRef.current), id))}
               onSelect={select}
-              onDirty={() => setDirty(true)}
               request={barRequest}
             />
           }
           onStatus={notify}
-          onDirty={() => setDirty(true)}
         />
         <div className="floating doc-bar">
           <details
@@ -964,19 +951,16 @@ function Editor({
                 title,
               })
             }
-            onDirty={() => setDirty(true)}
           />
-          <span
-            className={
-              "save-status" + (paused || saveProblem ? " unsaved" : "")
-            }
-          >
-            <span className="save-long">{saveText}</span>
-            {/* Narrow screens keep a short form instead of hiding the state. */}
-            <span className="save-short" aria-hidden="true">
-              {SHORT_SAVE_STATES[saveText] ?? saveText}
+          {saveWarning && (
+            <span className="save-status">
+              <span className="save-long">{saveWarning}</span>
+              {/* Narrow screens keep a short form instead of hiding it. */}
+              <span className="save-short" aria-hidden="true">
+                {SHORT_SAVE_STATES[saveWarning] ?? saveWarning}
+              </span>
             </span>
-          </span>
+          )}
         </div>
         <div
           className="floating tool-rail"
