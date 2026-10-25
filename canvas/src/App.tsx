@@ -25,6 +25,7 @@ import {
   MAX_NODES,
   moveNodes,
   pasteDocument,
+  placeAdded,
   placeInFreeSpace,
   removeSelection,
   sampleDocument,
@@ -329,7 +330,14 @@ function Editor({
       node.x = Math.round((node.x - node.w / 2) / 8) * 8;
       node.y = Math.round((node.y - node.h / 2) / 8) * 8;
     }
-    if (!point || place) placeInFreeSpace(node, next);
+    // Without a point of its own the figure goes beside the selection, so
+    // adding several in a row lines them up instead of scattering them.
+    if (!point) {
+      const selected = next.nodes.filter((n) =>
+        selectionRef.current.includes(n.id),
+      );
+      placeAdded(node, next, selected.length ? bounds(selected) : null);
+    } else if (place) placeInFreeSpace(node, next);
     setDraft(
       node,
       from ? { id: uid(), from, to: node.id, label: "", dashed: false } : null,
@@ -338,6 +346,9 @@ function Editor({
     setTool("select");
     select([node.id]);
     setEditing(node.id);
+    // Placed by rule rather than by a click, so show where it landed. A
+    // figure put down at a point of its own is where the eye already is.
+    if (!point) canvas.current?.revealRect(node);
   }
   function connect(id: string, fromOverride?: string) {
     flushInput();
