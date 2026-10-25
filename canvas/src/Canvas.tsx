@@ -59,7 +59,6 @@ interface Props {
   onEdit: (id: string | null) => void;
   onPatch: (id: string, patch: Partial<CanvasNode>) => void;
   onAddNote: (point: Point) => void;
-  onAddBox: () => void;
   onEditEdge: (id: string) => void;
   // `place` asks for a free spot near the point rather than the exact point.
   onAddConnected: (from: string, point: Point, place?: boolean) => void;
@@ -638,7 +637,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       else if (
         !target &&
         dragged &&
-        !hit?.closest(".canvas-controls,.empty-canvas,.edge-control")
+        !hit?.closest(".canvas-controls,.edge-control")
       )
         latest.current.onAddConnected(d.from, point);
       else if (!dragged) addBeside(d.from, d.side);
@@ -1060,7 +1059,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         if (e.button !== 0 && e.button !== 1) return;
         if (
           (e.target as Element).closest(
-            ".canvas-node,.edge-control,.canvas-controls,.empty-canvas,.selection-anchor",
+            ".canvas-node,.edge-control,.canvas-controls,.selection-anchor",
           )
         )
           return;
@@ -1091,7 +1090,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       onDoubleClick={(e) => {
         if (
           (e.target as Element).closest(
-            ".canvas-node,.edge-control,.canvas-controls,.empty-canvas,.selection-anchor",
+            ".canvas-node,.edge-control,.canvas-controls,.selection-anchor",
           )
         )
           return;
@@ -1282,25 +1281,6 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
             />
           ))}
         </svg>
-      )}
-      {!p.doc.nodes.length && (
-        <div className="empty-canvas">
-          <span className="empty-symbol">
-            <Icon name="box" />
-          </span>
-          <h2>空のキャンバス</h2>
-          <div className="empty-actions">
-            <button className="primary" onClick={p.onAddBox}>
-              図形を追加
-            </button>
-            <button
-              className="secondary"
-              onClick={() => p.onAddNote({ x: 100, y: 100 })}
-            >
-              テキストを追加
-            </button>
-          </div>
-        </div>
       )}
       <div className="canvas-controls" aria-label="表示操作">
         <button aria-label="全体を表示" title="全体を表示 (1)" onClick={fit}>

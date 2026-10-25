@@ -690,7 +690,6 @@ export function App() {
           onEdit={edit}
           onPatch={patchNode}
           onAddNote={(point) => add("note", point)}
-          onAddBox={() => add("box")}
           onEditEdge={(id) => {
             select([id]);
             setBarRequest({ id, panel: "label" });
@@ -881,7 +880,20 @@ export function App() {
             <Icon name="pan" />
           </button>
           <span className="rail-divider" />
-          {RAIL_SHAPES.map((option) => shapeButton(option))}
+          {RAIL_SHAPES.map((option, index) =>
+            index === 0 ? (
+              <span className="rail-anchor" key={option}>
+                {shapeButton(option)}
+                {/* An empty canvas says where to start, next to the rail
+                    rather than over the drawing area. */}
+                {!doc.nodes.length && (
+                  <span className="rail-hint">← ここから図形を置きます</span>
+                )}
+              </span>
+            ) : (
+              shapeButton(option)
+            ),
+          )}
           <div className="rail-more">
             <button
               className="icon-button rail-button"
