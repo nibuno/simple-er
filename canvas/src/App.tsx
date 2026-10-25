@@ -25,7 +25,6 @@ import {
   MAX_NODES,
   moveNodes,
   pasteDocument,
-  placeAdded,
   placeInFreeSpace,
   removeSelection,
   sampleDocument,
@@ -107,6 +106,10 @@ export function App() {
     selectionRef = useRef(selection);
   selectionRef.current = selection;
   const [tool, setTool] = useState<Tool>("select"),
+    [placing, setPlacing] = useState<{
+      kind: "box" | "note";
+      shape: NodeShape;
+    } | null>(null),
     [shape, setShape] = useState<NodeShape>("rectangle"),
     [pending, setPending] = useState<string | null>(null),
     pendingRef = useRef<string | null>(null);
@@ -158,6 +161,7 @@ export function App() {
       undo: () => {},
       redo: () => {},
       add: (_kind: "box" | "note", _point?: Point, _shape?: NodeShape) => {},
+      requestAdd: (_kind: "box" | "note", _shape?: NodeShape) => {},
       duplicate: () => {},
       remove: () => {},
       group: () => {},
@@ -190,6 +194,11 @@ export function App() {
       );
       setSelection(selectionRef.current);
     }
+  }
+  // Any other tool ends placing; only requestAdd starts it.
+  function chooseTool(next: Tool | ((old: Tool) => Tool)) {
+    setPlacing(null);
+    setTool(next);
   }
   function select(ids: string[]) {
     flushInput();
@@ -298,6 +307,7 @@ export function App() {
     nodeShape = shape,
     from?: string,
     place = false,
+    centerOn = false,
   ) {
     flushInput();
     discardDraft();
@@ -312,30 +322,37 @@ export function App() {
     }
     const center = point || canvas.current?.center() || { x: 100, y: 100 },
       node = makeNode(kind, center, nodeShape);
-    // A dropped line places the figure centered on the drop point.
-    if (!point || from) {
+    // A dropped line, and a figure the pointer put down, sit centered on
+    // their point.
+    if (!point || from || centerOn) {
       node.x = Math.round((node.x - node.w / 2) / 8) * 8;
       node.y = Math.round((node.y - node.h / 2) / 8) * 8;
     }
-    // Without a point of its own the figure goes beside the selection, so
-    // adding several in a row lines them up instead of scattering them.
-    if (!point) {
-      const selected = next.nodes.filter((n) =>
-        selectionRef.current.includes(n.id),
-      );
-      placeAdded(node, next, selected.length ? bounds(selected) : null);
-    } else if (place) placeInFreeSpace(node, next);
+    if (!point || place) placeInFreeSpace(node, next);
     setDraft(
       node,
       from ? { id: uid(), from, to: node.id, label: "", dashed: false } : null,
     );
     clearPending();
-    setTool("select");
+    chooseTool("select");
     select([node.id]);
     setEditing(node.id);
-    // Placed by rule rather than by a click, so show where it landed. A
-    // figure put down at a point of its own is where the eye already is.
-    if (!point) canvas.current?.revealRect(node);
+  }
+  // The toolbar has no place of its own to put a figure, so the pointer
+  // says where: under the cursor when it is over the canvas, otherwise the
+  // next click on it.
+  function requestAdd(kind: "box" | "note", nodeShape = shape) {
+    const point = canvas.current?.pointerPoint();
+    if (point) {
+      add(kind, point, nodeShape, undefined, false, true);
+      return;
+    }
+    flushInput();
+    discardDraft();
+    clearPending();
+    setTool("place");
+    setPlacing({ kind, shape: nodeShape });
+    notify("置きたい場所をクリック（Escでやめる）");
   }
   function connect(id: string, fromOverride?: string) {
     flushInput();
@@ -371,7 +388,7 @@ export function App() {
     next.edges.push(edge);
     commit(next);
     clearPending();
-    setTool("select");
+    chooseTool("select");
     select([edge.id]);
     notify("接続しました");
   }
@@ -456,18 +473,19 @@ export function App() {
     select([]);
     setEditing(null);
     clearPending();
-    setTool("select");
+    chooseTool("select");
     requestAnimationFrame(() => canvas.current?.fit());
   }
   function connectMode() {
     flushInput();
     clearPending();
-    setTool((old) => (old === "connect" ? "select" : "connect"));
+    chooseTool((old) => (old === "connect" ? "select" : "connect"));
     notify("接続元を選択");
   }
   actions.current = {
     undo,
     redo,
+    requestAdd,
     add,
     duplicate,
     remove,
@@ -536,7 +554,7 @@ export function App() {
       if (isTyping(e.target)) return;
       if (e.key === "Escape") {
         clearPending();
-        setTool("select");
+        chooseTool("select");
         edit(null);
         select([]);
         menu.current?.removeAttribute("open");
@@ -585,16 +603,16 @@ export function App() {
         edit(selectionRef.current[0]);
       } else if (e.key.toLowerCase() === "b") {
         e.preventDefault();
-        actions.current.add("box");
+        actions.current.requestAdd("box");
       } else if (e.key.toLowerCase() === "n") {
         e.preventDefault();
-        actions.current.add("note");
+        actions.current.requestAdd("note");
       } else if (e.key.toLowerCase() === "c") actions.current.connectMode();
       else if (e.key.toLowerCase() === "v") {
-        setTool("select");
+        chooseTool("select");
         clearPending();
       } else if (e.key.toLowerCase() === "h") {
-        setTool("pan");
+        chooseTool("pan");
         clearPending();
       } else if (e.key === "1") actions.current.fit();
       else if (e.key === "?") help.current?.showModal();
@@ -706,11 +724,12 @@ export function App() {
       key={option}
       className="icon-button rail-button"
       aria-label={shapeLabels[option] + "を追加"}
+      aria-pressed={placing?.kind === "box" && placing.shape === option}
       data-tip={shapeLabels[option] + (option === shape ? " B" : "")}
       onClick={() => {
         setShape(option);
         setMoreShapes(false);
-        add("box", undefined, option);
+        requestAdd("box", option);
       }}
     >
       <Icon name={shapeIcons[option]} />
@@ -733,7 +752,12 @@ export function App() {
           onEdit={edit}
           onPatch={patchNode}
           onAddNote={(point) => add("note", point)}
-          onAddBox={() => add("box")}
+          onPlace={(point) => {
+            if (!placing) return;
+            chooseTool("select");
+            add(placing.kind, point, placing.shape, undefined, false, true);
+          }}
+          onAddBox={() => requestAdd("box")}
           onEditEdge={(id) => {
             select([id]);
             setBarRequest({ id, panel: "label" });
@@ -905,7 +929,7 @@ export function App() {
             data-tip="選択 V"
             aria-pressed={tool === "select"}
             onClick={() => {
-              setTool("select");
+              chooseTool("select");
               clearPending();
             }}
           >
@@ -917,7 +941,7 @@ export function App() {
             data-tip="手のひら H"
             aria-pressed={tool === "pan"}
             onClick={() => {
-              setTool("pan");
+              chooseTool("pan");
               clearPending();
             }}
           >
@@ -951,8 +975,9 @@ export function App() {
           <button
             className="icon-button rail-button"
             aria-label="テキストを追加"
+            aria-pressed={placing?.kind === "note"}
             data-tip="テキスト N"
-            onClick={() => add("note")}
+            onClick={() => requestAdd("note")}
           >
             <Icon name="text" />
           </button>
@@ -1165,7 +1190,8 @@ export function App() {
         </p>
         <dl>
           {[
-            ["図形 / テキストを追加", "B / N"],
+            ["図形 / テキストを追加", "B / N（カーソルの位置に出ます）"],
+            ["ツールバーから追加", "置きたい場所をクリック"],
             ["文字を編集", "ダブルクリック / Enter"],
             ["編集を確定", "Esc / ⌘ Enter"],
             ["線のラベル", "線をダブルクリック"],

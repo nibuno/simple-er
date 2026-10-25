@@ -132,6 +132,17 @@ async function pointer(el, event, x, y) {
     el.dispatchEvent(e);
   });
 }
+// The toolbar asks where the figure goes; jsdom has no pointer resting on
+// the canvas, so every addition is answered with a click.
+async function placeAt(x = 400, y = 300) {
+  const stage = label("設計キャンバス");
+  await pointer(stage, "pointerdown", x, y);
+  await pointer(stage, "click", x, y);
+}
+async function addFigure(name, x, y) {
+  await click(label(name));
+  await placeAt(x, y);
+}
 async function submit() {
   await act(() =>
     document
@@ -154,7 +165,7 @@ afterEach(async () => {
 
 test("inline Japanese edits persist; Escape keeps edits and undo takes them back", async () => {
   const before = saved();
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await type(label("名前を直接編集"), "監視");
   await type(label("説明を直接編集"), "失敗した通知に気づく");
   await act(() =>
@@ -181,7 +192,7 @@ test("inline Japanese edits persist; Escape keeps edits and undo takes them back
 });
 test("empty additions never reach autosave or undo, whether submitted, dismissed, cancelled or reloaded", async () => {
   const before = saved();
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   assert.equal(label("名前を直接編集").value, "");
   assert.equal(label("説明を直接編集").value, "");
   assert.deepEqual(saved(), before);
@@ -190,22 +201,22 @@ test("empty additions never reach autosave or undo, whether submitted, dismissed
   assert.deepEqual(saved(), before);
   assert.ok(label("元に戻す").disabled);
 
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await click(label("Workerを選択"));
   assert.equal(document.querySelector("form"), null);
   assert.deepEqual(saved(), before);
 
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await key(label("名前を直接編集"), "Escape");
   assert.deepEqual(saved(), before, "Escape on an empty figure adds nothing");
 
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await type(label("名前を直接編集"), "　 ");
   await type(label("説明を直接編集"), "\n ");
   await submit();
   assert.deepEqual(saved(), before);
 
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await act(() =>
     window.dispatchEvent(new Event("beforeunload", { cancelable: true })),
   );
@@ -215,53 +226,62 @@ test("empty additions never reach autosave or undo, whether submitted, dismissed
   assert.deepEqual(saved(), before);
   assert.ok(label("元に戻す").disabled);
 });
-// Adding from the toolbar follows a rule: beside the selection, 96 apart,
-// the same gap the ports leave, rounded to the 8px grid. Nothing selected
-// means the center of the view.
+// A figure goes where the pointer says: under the cursor when it rests on
+// the canvas, otherwise on the next click. Positions keep the 8px grid.
 const snap = (value) => Math.round(value / 8) * 8;
-async function addBox(name) {
+const currentView = () => JSON.parse(localStorage.getItem(VIEW_KEY));
+test("the toolbar asks where to put the figure, and it lands centered on the click", async () => {
+  const before = saved(),
+    view = currentView();
   await click(label("箱を追加"));
-  await type(label("名前を直接編集"), name);
+  assert.equal(document.querySelector("form"), null, "nothing placed yet");
+  assert.deepEqual(saved(), before);
+  assert.ok(label("設計キャンバス").className.includes("tool-place"));
+  await placeAt(520, 360);
+  await type(label("名前を直接編集"), "監視");
   await submit();
-  return saved().nodes.find((n) => n.title === name);
-}
-test("a figure added from the toolbar lines up to the right of the selection", async () => {
-  const db = saved().nodes.find((n) => n.title === "DB");
-  await click(label("DBを選択"));
-  const first = await addBox("通知ログ");
-  assert.equal(first.x, snap(db.x + db.w + 96));
-  assert.equal(first.y, snap(db.y + db.h / 2 - first.h / 2));
-  // The new figure stays selected, so the next one carries on to its right.
-  const second = await addBox("監視");
-  assert.equal(second.x, snap(first.x + first.w + 96));
-  assert.equal(second.y, first.y);
-  const third = await addBox("通報");
-  assert.equal(third.x, snap(second.x + second.w + 96));
-  assert.equal(third.y, second.y);
+  const added = saved().nodes.find((n) => n.title === "監視");
+  assert.equal(added.x, snap((520 - view.x) / view.zoom - added.w / 2));
+  assert.equal(added.y, snap((360 - view.y) / view.zoom - added.h / 2));
+  assert.ok(!label("設計キャンバス").className.includes("tool-place"));
 });
-test("the right of the selection gives way to below it when it is taken", async () => {
-  const queue = saved().nodes.find((n) => n.title === "Queue");
-  await click(label("Queueを選択"));
-  // Worker already sits to the right of Queue.
-  const added = await addBox("再送キュー");
-  assert.equal(added.y, snap(queue.y + queue.h + 96));
-  assert.equal(added.x, snap(queue.x + queue.w / 2 - added.w / 2));
+test("Escape leaves the placing mode, and the next click adds nothing", async () => {
+  const before = saved();
+  await click(label("箱を追加"));
+  await key(label("設計キャンバス"), "Escape");
+  assert.ok(!label("設計キャンバス").className.includes("tool-place"));
+  await placeAt(520, 360);
+  assert.equal(document.querySelector("form"), null);
+  assert.deepEqual(saved(), before);
 });
-test("with nothing selected a figure lands at the center of the view", async () => {
-  await act(() => root.unmount());
-  localStorage.setItem(STORAGE_KEY, encode(emptyDocument()));
-  await mount();
-  const view = JSON.parse(localStorage.getItem(VIEW_KEY));
-  const first = await addBox("はじめの箱");
-  assert.equal(first.x, snap((1200 / 2 - view.x) / view.zoom - first.w / 2));
-  assert.equal(first.y, snap((700 / 2 - view.y) / view.zoom - first.h / 2));
-  const second = await addBox("つぎの箱");
-  assert.equal(second.x, snap(first.x + first.w + 96));
-  assert.equal(second.y, first.y);
+test("with the pointer over the canvas the figure appears under it at once", async () => {
+  const view = currentView();
+  await pointer(label("設計キャンバス"), "pointermove", 640, 420);
+  await click(label("箱を追加"));
+  assert.ok(label("名前を直接編集"), "no click is asked for");
+  await type(label("名前を直接編集"), "通知ログ");
+  await submit();
+  const added = saved().nodes.find((n) => n.title === "通知ログ");
+  assert.equal(added.x, snap((640 - view.x) / view.zoom - added.w / 2));
+  assert.equal(added.y, snap((420 - view.y) / view.zoom - added.h / 2));
+});
+test("a figure already on the canvas does not take the placing click", async () => {
+  const worker = saved().nodes.find((n) => n.title === "Worker"),
+    view = currentView();
+  // Aim at the middle of Worker.
+  const x = (worker.x + worker.w / 2) * view.zoom + view.x,
+    y = (worker.y + worker.h / 2) * view.zoom + view.y;
+  await click(label("箱を追加"));
+  await placeAt(x, y);
+  await type(label("名前を直接編集"), "再送");
+  await submit();
+  const added = saved().nodes.find((n) => n.title === "再送");
+  assert.equal(added.x, snap(worker.x + worker.w / 2 - added.w / 2));
+  assert.equal(added.y, snap(worker.y + worker.h / 2 - added.h / 2));
 });
 test("a description alone creates a figure without a generated name, and creation is one undo step", async () => {
   const before = saved();
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await type(label("説明を直接編集"), "通知の送信を待つ");
   await click(label("Workerを選択"));
   const added = saved().nodes.find(
@@ -295,7 +315,7 @@ test("new shapes can be created, converted, connected and reloaded", async () =>
     // Shapes beyond the rail's four sit behind "その他の図形".
     if (!document.querySelector(`[aria-label="${name}を追加"]`))
       await click(label("その他の図形"));
-    await click(label(name + "を追加"));
+    await addFigure(name + "を追加");
     await type(label("名前を直接編集"), name + "の図形");
     await key(label("名前を直接編集"), "Enter", { metaKey: true });
     assert.equal(
@@ -1078,7 +1098,7 @@ test("a box takes an icon from the selection bar, shown beside its name", async 
 });
 test("a circle stays round when resized from a side or a corner", async () => {
   await click(label("その他の図形"));
-  await click(label("円を追加"));
+  await addFigure("円を追加");
   await type(label("名前を直接編集"), "注文確定");
   await key(label("名前を直接編集"), "Enter", { metaKey: true });
   const id = saved().nodes.find((n) => n.title === "注文確定").id,

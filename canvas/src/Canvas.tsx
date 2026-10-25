@@ -32,7 +32,7 @@ import {
 } from "./model";
 import { documentRoutes, sceneBounds } from "./geometry";
 import { snapToGuides } from "./spatial";
-import type { Guide, Rect } from "./spatial";
+import type { Guide } from "./spatial";
 import { Icon, NodeIcon } from "./Icons";
 import { InlineEditor } from "./Inspector";
 import { ShapeTextEditor } from "./ShapeTextEditor";
@@ -45,7 +45,7 @@ export interface CanvasHandle {
   center: () => Point;
   focus: () => void;
   reveal: () => void;
-  revealRect: (rect: Rect) => void;
+  pointerPoint: () => Point | null;
 }
 interface Props {
   doc: CanvasDocument;
@@ -60,6 +60,7 @@ interface Props {
   onEdit: (id: string | null) => void;
   onPatch: (id: string, patch: Partial<CanvasNode>) => void;
   onAddNote: (point: Point) => void;
+  onPlace: (point: Point) => void;
   onAddBox: () => void;
   onEditEdge: (id: string) => void;
   // `place` asks for a free spot near the point rather than the exact point.
@@ -160,6 +161,9 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     editView = useRef<{ before: View; focused: View } | null>(null);
   const drag = useRef<Drag | null>(null),
     space = useRef(false),
+    // The last place the pointer was seen over the canvas, in client
+    // coordinates so that panning and zooming cannot make it stale.
+    pointer = useRef<{ x: number; y: number } | null>(null),
     [panning, setPanning] = useState(false);
   const displayedDoc = useMemo(
     () =>
@@ -302,33 +306,13 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     focus: () => stage.current?.focus(),
     // After a memo or group is placed, bring it into view once it renders.
     reveal: () => requestAnimationFrame(revealSelection),
-    revealRect,
+    // Where the pointer rests over the canvas, if it is over it at all. A
+    // keyboard shortcut puts its figure there instead of asking for a click.
+    pointerPoint: () =>
+      pointer.current && stage.current
+        ? toWorld(pointer.current.x, pointer.current.y)
+        : null,
   }));
-  // Bring a rectangle into view. A figure just added is edited right away,
-  // which holds revealSelection back, so it says where to look itself.
-  function revealRect(rect: Rect) {
-    const el = stage.current;
-    if (!el?.clientWidth) return;
-    setView((v) => {
-      const left = rect.x * v.zoom + v.x,
-        right = (rect.x + rect.w) * v.zoom + v.x;
-      const top = rect.y * v.zoom + v.y,
-        bottom = (rect.y + rect.h) * v.zoom + v.y;
-      const dx =
-        left < 24 || rect.w * v.zoom > el.clientWidth - 48
-          ? 24 - left
-          : right > el.clientWidth - 24
-            ? el.clientWidth - 24 - right
-            : 0;
-      const dy =
-        top < 24 || rect.h * v.zoom > el.clientHeight - 92
-          ? 24 - top
-          : bottom > el.clientHeight - 68
-            ? el.clientHeight - 68 - bottom
-            : 0;
-      return dx || dy ? { ...v, x: v.x + dx, y: v.y + dy } : v;
-    });
-  }
   function revealSelection() {
     const el = stage.current,
       props = latest.current;
@@ -340,7 +324,26 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     )
       return;
     const node = props.doc.nodes.find((n) => n.id === props.selection[0]);
-    if (node) revealRect(node);
+    if (!node) return;
+    setView((v) => {
+      const left = node.x * v.zoom + v.x,
+        right = (node.x + node.w) * v.zoom + v.x;
+      const top = node.y * v.zoom + v.y,
+        bottom = (node.y + node.h) * v.zoom + v.y;
+      const dx =
+        left < 24 || node.w * v.zoom > el.clientWidth - 48
+          ? 24 - left
+          : right > el.clientWidth - 24
+            ? el.clientWidth - 24 - right
+            : 0;
+      const dy =
+        top < 24 || node.h * v.zoom > el.clientHeight - 92
+          ? 24 - top
+          : bottom > el.clientHeight - 68
+            ? el.clientHeight - 68 - bottom
+            : 0;
+      return dx || dy ? { ...v, x: v.x + dx, y: v.y + dy } : v;
+    });
   }
   useLayoutEffect(() => {
     settleInitialView();
@@ -529,6 +532,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   function startNode(e: ReactPointerEvent, node: CanvasNode, dir?: ResizeDir) {
     const resize = !!dir;
     if (e.button !== 0 && e.button !== 1) return;
+    // While placing, a figure under the pointer is just canvas.
+    if (p.tool === "place" && e.button === 0 && !space.current) return;
     e.stopPropagation();
     if (e.button === 1 || space.current || p.tool === "pan") {
       startPan(e);
@@ -1066,6 +1071,10 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         if (e.button !== 0 && e.button !== 1) return;
+        // While placing, the press does nothing; the click that follows
+        // puts the figure down. Placing on the press would lose the new
+        // text editor's focus to the browser's own focus handling.
+        if (p.tool === "place" && e.button === 0 && !space.current) return;
         if (
           (e.target as Element).closest(
             ".canvas-node,.edge-control,.canvas-controls,.empty-canvas,.selection-anchor",
@@ -1090,7 +1099,24 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         if (!e.shiftKey) p.onSelect([]);
         capture(e);
       }}
-      onPointerMove={move}
+      onClick={(e) => {
+        // The whole canvas is the target, figures and all, so the figure
+        // lands exactly where the pointer says.
+        if (
+          p.tool !== "place" ||
+          space.current ||
+          (e.target as Element).closest(".canvas-controls")
+        )
+          return;
+        p.onPlace(toWorld(e.clientX, e.clientY));
+      }}
+      onPointerMove={(e) => {
+        pointer.current = { x: e.clientX, y: e.clientY };
+        move(e);
+      }}
+      onPointerLeave={() => {
+        pointer.current = null;
+      }}
       onPointerUp={end}
       onPointerCancel={cancel}
       onLostPointerCapture={() => {

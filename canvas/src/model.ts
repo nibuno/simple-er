@@ -374,12 +374,13 @@ export const intersects = (
   a: { x: number; y: number; w: number; h: number },
   b: { x: number; y: number; w: number; h: number },
 ) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-// What a new figure has to stay clear of: other elements, lines and their
-// labels, with enough room around it for a line to pass.
-function freeSpace(node: CanvasNode, doc: CanvasDocument) {
-  const obstacles: Rect[] = doc.nodes.filter(
-    (n) => n.id !== node.id && n.kind !== "group",
-  );
+// Keep a new figure clear of other elements, lines and their labels, with
+// enough room around it for a line to pass.
+export function placeInFreeSpace(node: CanvasNode, doc: CanvasDocument) {
+  const start = { x: node.x, y: node.y },
+    obstacles: Rect[] = doc.nodes.filter(
+      (n) => n.id !== node.id && n.kind !== "group",
+    );
   documentRoutes(doc).forEach((r) => {
     r.points.slice(1).forEach((p, i) => {
       const q = r.points[i];
@@ -398,71 +399,14 @@ function freeSpace(node: CanvasNode, doc: CanvasDocument) {
         h: r.labelLines.length * 18 + 22,
       });
   });
-  const gap = 32;
-  return {
-    obstacles,
-    free: (x: number, y: number) =>
+  const gap = 32,
+    free = (x: number, y: number) =>
       !obstacles.some((n) =>
         intersects(
           { x: x - gap, y: y - gap, w: node.w + gap * 2, h: node.h + gap * 2 },
           n,
         ),
-      ),
-  };
-}
-// The gap the ports leave between a figure and the one added beside it. The
-// toolbar uses the same gap, so both ways of adding line figures up alike.
-export const ADD_GAP = 96;
-const snap = (value: number) => Math.round(value / 8) * 8;
-// Where a figure added without a point of its own goes: to the right of the
-// figure it follows, below it when the right is taken, then on along that
-// row. With nothing to follow it starts at the center of the view and steps
-// right, then down. A new figure stays selected, so adding several in a row
-// lines them up to the right.
-export function placeAdded(
-  node: CanvasNode,
-  doc: CanvasDocument,
-  anchor?: Rect | null,
-) {
-  const { free } = freeSpace(node, doc),
-    spots: Point[] = [];
-  if (anchor) {
-    spots.push({
-      x: anchor.x + anchor.w + ADD_GAP,
-      y: anchor.y + anchor.h / 2 - node.h / 2,
-    });
-    const below = {
-      x: anchor.x + anchor.w / 2 - node.w / 2,
-      y: anchor.y + anchor.h + ADD_GAP,
-    };
-    for (let col = 0; col < 24; col++)
-      spots.push({ x: below.x + col * (node.w + ADD_GAP), y: below.y });
-  } else {
-    for (let row = 0; row < 12; row++)
-      for (let col = 0; col < 12; col++)
-        spots.push({
-          x: node.x + col * (node.w + ADD_GAP),
-          y: node.y + row * (node.h + ADD_GAP),
-        });
-  }
-  for (const spot of spots) {
-    const x = snap(spot.x),
-      y = snap(spot.y);
-    if (free(x, y)) {
-      node.x = x;
-      node.y = y;
-      return node;
-    }
-  }
-  node.x = snap(spots[0].x);
-  node.y = snap(spots[0].y);
-  return placeInFreeSpace(node, doc);
-}
-// Nudge a figure to the nearest free spot, keeping it as close as it can be
-// to where it was asked to go.
-export function placeInFreeSpace(node: CanvasNode, doc: CanvasDocument) {
-  const start = { x: node.x, y: node.y },
-    { free, obstacles } = freeSpace(node, doc);
+      );
   if (free(start.x, start.y)) return node;
   for (let ring = 1; ring <= 40; ring++) {
     for (let i = -ring; i <= ring; i++) {

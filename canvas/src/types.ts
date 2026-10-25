@@ -53,4 +53,4 @@ export type HistoryAction =
   | { type: "preview"; next: CanvasDocument }
   | { type: "reset"; next: CanvasDocument }
   | { type: "undo" | "redo" };
-export type Tool = "select" | "connect" | "pan";
+export type Tool = "select" | "connect" | "pan" | "place";

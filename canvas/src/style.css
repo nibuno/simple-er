@@ -512,8 +512,17 @@ kbd {
 .is-panning:active {
   cursor: grabbing;
 }
-.tool-connect {
+.tool-connect,
+.tool-place {
   cursor: crosshair;
+}
+/* While placing, nothing on the canvas takes the click away from it. The
+   empty state stays visible, but the click goes through it. */
+.tool-place .canvas-node,
+.tool-place .connection-port,
+.tool-place .selection-anchor,
+.tool-place .empty-canvas {
+  pointer-events: none;
 }
 .world {
   position: absolute;
