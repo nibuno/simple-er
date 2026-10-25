@@ -32,7 +32,7 @@ import {
 } from "./model";
 import { documentRoutes, sceneBounds } from "./geometry";
 import { snapToGuides } from "./spatial";
-import type { Guide } from "./spatial";
+import type { Guide, Rect } from "./spatial";
 import { Icon, NodeIcon } from "./Icons";
 import { InlineEditor } from "./Inspector";
 import { ShapeTextEditor } from "./ShapeTextEditor";
@@ -45,6 +45,7 @@ export interface CanvasHandle {
   center: () => Point;
   focus: () => void;
   reveal: () => void;
+  revealRect: (rect: Rect) => void;
 }
 interface Props {
   doc: CanvasDocument;
@@ -301,7 +302,33 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     focus: () => stage.current?.focus(),
     // After a memo or group is placed, bring it into view once it renders.
     reveal: () => requestAnimationFrame(revealSelection),
+    revealRect,
   }));
+  // Bring a rectangle into view. A figure just added is edited right away,
+  // which holds revealSelection back, so it says where to look itself.
+  function revealRect(rect: Rect) {
+    const el = stage.current;
+    if (!el?.clientWidth) return;
+    setView((v) => {
+      const left = rect.x * v.zoom + v.x,
+        right = (rect.x + rect.w) * v.zoom + v.x;
+      const top = rect.y * v.zoom + v.y,
+        bottom = (rect.y + rect.h) * v.zoom + v.y;
+      const dx =
+        left < 24 || rect.w * v.zoom > el.clientWidth - 48
+          ? 24 - left
+          : right > el.clientWidth - 24
+            ? el.clientWidth - 24 - right
+            : 0;
+      const dy =
+        top < 24 || rect.h * v.zoom > el.clientHeight - 92
+          ? 24 - top
+          : bottom > el.clientHeight - 68
+            ? el.clientHeight - 68 - bottom
+            : 0;
+      return dx || dy ? { ...v, x: v.x + dx, y: v.y + dy } : v;
+    });
+  }
   function revealSelection() {
     const el = stage.current,
       props = latest.current;
@@ -313,26 +340,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     )
       return;
     const node = props.doc.nodes.find((n) => n.id === props.selection[0]);
-    if (!node) return;
-    setView((v) => {
-      const left = node.x * v.zoom + v.x,
-        right = (node.x + node.w) * v.zoom + v.x;
-      const top = node.y * v.zoom + v.y,
-        bottom = (node.y + node.h) * v.zoom + v.y;
-      const dx =
-        left < 24 || node.w * v.zoom > el.clientWidth - 48
-          ? 24 - left
-          : right > el.clientWidth - 24
-            ? el.clientWidth - 24 - right
-            : 0;
-      const dy =
-        top < 24 || node.h * v.zoom > el.clientHeight - 92
-          ? 24 - top
-          : bottom > el.clientHeight - 68
-            ? el.clientHeight - 68 - bottom
-            : 0;
-      return dx || dy ? { ...v, x: v.x + dx, y: v.y + dy } : v;
-    });
+    if (node) revealRect(node);
   }
   useLayoutEffect(() => {
     settleInitialView();

@@ -215,6 +215,50 @@ test("empty additions never reach autosave or undo, whether submitted, dismissed
   assert.deepEqual(saved(), before);
   assert.ok(label("元に戻す").disabled);
 });
+// Adding from the toolbar follows a rule: beside the selection, 96 apart,
+// the same gap the ports leave, rounded to the 8px grid. Nothing selected
+// means the center of the view.
+const snap = (value) => Math.round(value / 8) * 8;
+async function addBox(name) {
+  await click(label("箱を追加"));
+  await type(label("名前を直接編集"), name);
+  await submit();
+  return saved().nodes.find((n) => n.title === name);
+}
+test("a figure added from the toolbar lines up to the right of the selection", async () => {
+  const db = saved().nodes.find((n) => n.title === "DB");
+  await click(label("DBを選択"));
+  const first = await addBox("通知ログ");
+  assert.equal(first.x, snap(db.x + db.w + 96));
+  assert.equal(first.y, snap(db.y + db.h / 2 - first.h / 2));
+  // The new figure stays selected, so the next one carries on to its right.
+  const second = await addBox("監視");
+  assert.equal(second.x, snap(first.x + first.w + 96));
+  assert.equal(second.y, first.y);
+  const third = await addBox("通報");
+  assert.equal(third.x, snap(second.x + second.w + 96));
+  assert.equal(third.y, second.y);
+});
+test("the right of the selection gives way to below it when it is taken", async () => {
+  const queue = saved().nodes.find((n) => n.title === "Queue");
+  await click(label("Queueを選択"));
+  // Worker already sits to the right of Queue.
+  const added = await addBox("再送キュー");
+  assert.equal(added.y, snap(queue.y + queue.h + 96));
+  assert.equal(added.x, snap(queue.x + queue.w / 2 - added.w / 2));
+});
+test("with nothing selected a figure lands at the center of the view", async () => {
+  await act(() => root.unmount());
+  localStorage.setItem(STORAGE_KEY, encode(emptyDocument()));
+  await mount();
+  const view = JSON.parse(localStorage.getItem(VIEW_KEY));
+  const first = await addBox("はじめの箱");
+  assert.equal(first.x, snap((1200 / 2 - view.x) / view.zoom - first.w / 2));
+  assert.equal(first.y, snap((700 / 2 - view.y) / view.zoom - first.h / 2));
+  const second = await addBox("つぎの箱");
+  assert.equal(second.x, snap(first.x + first.w + 96));
+  assert.equal(second.y, first.y);
+});
 test("a description alone creates a figure without a generated name, and creation is one undo step", async () => {
   const before = saved();
   await click(label("箱を追加"));
