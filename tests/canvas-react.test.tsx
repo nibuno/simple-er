@@ -200,6 +200,38 @@ test("a figure added without text stays, survives reload, and undo removes it", 
   await mount();
   assert.ok(added(), "and it is still there after a reload");
 });
+test("the name and the explanation behave as one text: Enter down, arrows across, Backspace joins", async () => {
+  await dblclick(label("Workerを選択"));
+  const name = label("名前を直接編集"),
+    explanation = label("説明を直接編集");
+  assert.equal(explanation.getAttribute("placeholder"), null);
+  name.focus();
+  name.setSelectionRange(name.value.length, name.value.length);
+  await key(name, "Enter");
+  assert.equal(document.activeElement, explanation);
+  assert.equal(explanation.selectionStart, 0);
+  await key(explanation, "ArrowUp");
+  assert.equal(document.activeElement, name);
+  assert.equal(name.selectionStart, name.value.length);
+  await key(name, "ArrowDown");
+  assert.equal(document.activeElement, explanation);
+  await key(explanation, "ArrowLeft");
+  assert.equal(document.activeElement, name);
+
+  await type(name, "Worker");
+  await type(explanation, "通知を送る\n再試行もする");
+  explanation.focus();
+  explanation.setSelectionRange(0, 0);
+  await key(explanation, "Backspace");
+  assert.equal(document.activeElement, name);
+  assert.equal(name.value, "Worker通知を送る");
+  assert.equal(name.selectionStart, "Worker".length);
+  assert.equal(explanation.value, "再試行もする");
+  await submit();
+  const node = saved().nodes.find((n) => n.id === "worker");
+  assert.equal(node.title, "Worker通知を送る");
+  assert.equal(node.description, "再試行もする");
+});
 test("a description alone creates a figure without a generated name, and creation is one undo step", async () => {
   const before = saved();
   await click(label("箱を追加"));

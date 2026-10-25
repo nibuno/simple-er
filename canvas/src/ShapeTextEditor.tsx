@@ -69,6 +69,36 @@ export function ShapeTextEditor({
     );
   }, [title, description, node.w, node.h]);
 
+  // The name and the explanation are two fields, but they read as one text:
+  // the caret crosses between them and Backspace joins them back together.
+  function collapsedAt(input: HTMLTextAreaElement, at: number) {
+    return input.selectionStart === at && input.selectionEnd === at;
+  }
+  function focusTitleEnd() {
+    const name = titleInput.current!;
+    name.focus();
+    name.setSelectionRange(name.value.length, name.value.length);
+  }
+  function focusDescriptionStart() {
+    const explanation = descriptionInput.current!;
+    explanation.focus();
+    explanation.setSelectionRange(0, 0);
+  }
+  function joinIntoTitle() {
+    const name = titleInput.current!,
+      explanation = descriptionInput.current!,
+      [firstLine = "", ...rest] = explanation.value.split("\n"),
+      junction = name.value.length,
+      joined = (name.value + firstLine).slice(0, 200);
+    name.value = joined;
+    explanation.value = rest.join("\n");
+    setTitle(joined);
+    setDescription(explanation.value);
+    onDirty();
+    name.focus();
+    name.setSelectionRange(junction, junction);
+  }
+
   function finish(form: HTMLFormElement) {
     if (done.current) return;
     done.current = true;
@@ -109,9 +139,38 @@ export function ShapeTextEditor({
         ) {
           e.preventDefault();
           finish(e.currentTarget);
-        } else if (e.key === "Enter" && e.target === titleInput.current) {
+          return;
+        }
+        const input = e.target as HTMLTextAreaElement,
+          inTitle = e.target === titleInput.current,
+          inDescription = e.target === descriptionInput.current;
+        if (e.shiftKey && e.key.startsWith("Arrow")) return;
+        if (inTitle && e.key === "Enter") {
           e.preventDefault();
-          descriptionInput.current?.focus();
+          focusDescriptionStart();
+        } else if (
+          inDescription &&
+          e.key === "Backspace" &&
+          collapsedAt(input, 0)
+        ) {
+          e.preventDefault();
+          joinIntoTitle();
+        } else if (
+          inDescription &&
+          ((e.key === "ArrowLeft" && collapsedAt(input, 0)) ||
+            (e.key === "ArrowUp" &&
+              !input.value.slice(0, input.selectionStart).includes("\n")))
+        ) {
+          e.preventDefault();
+          focusTitleEnd();
+        } else if (
+          inTitle &&
+          ((e.key === "ArrowRight" && collapsedAt(input, input.value.length)) ||
+            (e.key === "ArrowDown" &&
+              !input.value.slice(input.selectionEnd).includes("\n")))
+        ) {
+          e.preventDefault();
+          focusDescriptionStart();
         }
       }}
     >
@@ -142,7 +201,6 @@ export function ShapeTextEditor({
             }
             aria-label="説明を直接編集"
             name="description"
-            placeholder="説明（任意）"
             defaultValue={node.description}
             maxLength={500}
             rows={1}
