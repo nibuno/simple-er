@@ -291,9 +291,6 @@ kbd {
 .save-status {
   white-space: nowrap;
   font-size: 11px;
-  color: var(--muted);
-}
-.save-status.unsaved {
   color: var(--danger);
 }
 .save-short {

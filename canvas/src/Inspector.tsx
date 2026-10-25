@@ -14,7 +14,6 @@ export function TextField({
   multiline = false,
   maxLength = 200,
   placeholder = "",
-  onDirty,
   autoFocus = false,
   className = "",
 }: {
@@ -24,7 +23,6 @@ export function TextField({
   multiline?: boolean;
   maxLength?: number;
   placeholder?: string;
-  onDirty?: () => void;
   autoFocus?: boolean;
   className?: string;
 }) {
@@ -47,7 +45,6 @@ export function TextField({
       e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
     ) => {
       setDraft(e.target.value);
-      onDirty?.();
     },
     onBlur: () => onCommit(draft),
     onKeyDown: (
@@ -88,7 +85,6 @@ export function SelectionBar({
   onAttach,
   onFitGroup,
   onSelect,
-  onDirty,
   request,
 }: {
   doc: CanvasDocument;
@@ -109,7 +105,6 @@ export function SelectionBar({
   onAttach: (id: string) => void;
   onFitGroup: (id: string) => void;
   onSelect: (ids: string[]) => void;
-  onDirty: () => void;
 }) {
   const [open, setOpen] = useState<Panel | null>(null);
   const key = selection.join(",");
@@ -361,7 +356,6 @@ export function SelectionBar({
                 label="メモ"
                 value={parent ? parent.body : node.body}
                 onCommit={(body) => onPatch(parent?.id || node.id, { body })}
-                onDirty={onDirty}
                 multiline
                 maxLength={MAX_TEXT}
                 autoFocus
@@ -383,7 +377,6 @@ export function SelectionBar({
               label="線のラベル"
               value={edge.label}
               onCommit={(label) => onEdge(edge.id, { label })}
-              onDirty={onDirty}
               autoFocus
             />
           )}
@@ -408,7 +401,6 @@ export function SelectionBar({
                   label="見出し"
                   value={node.title}
                   onCommit={(title) => patch({ title })}
-                  onDirty={onDirty}
                 />
               )}
               {node.kind !== "group" && hasGroups && (
@@ -477,12 +469,10 @@ export function InlineEditor({
   node,
   doc,
   onFinish,
-  onDirty,
 }: {
   node: CanvasNode;
   doc: CanvasDocument;
   onFinish: (patch: Partial<CanvasNode>) => void;
-  onDirty: () => void;
 }) {
   const content = noteContent(node, doc),
     done = useRef(false),
@@ -502,7 +492,6 @@ export function InlineEditor({
         finish(e.currentTarget);
       }}
       onPointerDown={(e) => e.stopPropagation()}
-      onChange={onDirty}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget)) finish(e.currentTarget);
       }}
