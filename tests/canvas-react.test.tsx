@@ -204,6 +204,7 @@ test("the name and the explanation behave as one text: Enter down, arrows across
   await dblclick(label("Workerを選択"));
   const name = label("名前を直接編集"),
     explanation = label("説明を直接編集");
+  assert.equal(name.getAttribute("placeholder"), null);
   assert.equal(explanation.getAttribute("placeholder"), null);
   name.focus();
   name.setSelectionRange(name.value.length, name.value.length);

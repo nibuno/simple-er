@@ -31,9 +31,10 @@ export function ShapeTextEditor({
     done = useRef(false),
     composing = useRef(false);
   const area = boxTextArea(node);
-  // Keep an empty optional field from shifting existing centered text.
-  const floatingTitle = !isNew && !title && !!description,
-    floatingDescription = !isNew && !description && !!title;
+  // An empty field is taken out of the flow, so the text sits where the
+  // finished figure will show it instead of shifting when the editor closes.
+  const floatingTitle = !title && !!description,
+    floatingDescription = !description;
 
   useLayoutEffect(() => {
     const input =
@@ -54,9 +55,14 @@ export function ShapeTextEditor({
         descriptionHeight,
         Math.max(21, area.h - Math.min(titleHeight, area.h - 28) - 7),
       ) + "px";
+    // A field that is out of the flow asks for no room of its own.
+    const writtenHeight =
+      (floatingTitle ? 0 : titleHeight) +
+      (floatingDescription ? 0 : descriptionHeight) +
+      (floatingTitle || floatingDescription ? 0 : 7);
     onSize(
       Math.max(
-        minimumBoxHeight(node.shape, titleHeight + descriptionHeight + 7),
+        minimumBoxHeight(node.shape, writtenHeight),
         minimumHeight(
           {
             ...node,
@@ -184,7 +190,6 @@ export function ShapeTextEditor({
             className={"node-title" + (floatingTitle ? " empty-title" : "")}
             aria-label="名前を直接編集"
             name="title"
-            placeholder="名前"
             defaultValue={node.title}
             maxLength={200}
             rows={1}

@@ -1121,14 +1121,6 @@ kbd {
   color: var(--node-text, var(--text));
   outline: none;
 }
-.shape-text-editor textarea:focus {
-  outline: 1px dashed var(--accent);
-  outline-offset: 3px;
-}
-.shape-text-editor textarea::placeholder {
-  color: var(--node-muted, var(--muted));
-  font-weight: 400;
-}
 .shape-text-editor .node-title {
   font-size: 16px;
   font-weight: 600;
