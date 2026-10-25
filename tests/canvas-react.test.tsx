@@ -644,7 +644,7 @@ test("another tab's write pauses autosave until the user explicitly resolves it"
   assert.ok(document.body.textContent.includes("自動保存を停止中"));
   await click(button("最新の内容を開く"));
   assert.equal(saved().title, "別画面で更新");
-  assert.ok(document.body.textContent.includes("このブラウザに保存済み"));
+  assert.equal(document.querySelector(".save-status"), null);
 });
 
 test("reload flushes the active editor rather than losing its unblurred text", async () => {
@@ -829,18 +829,27 @@ test("the canvas records whether the last input was a pointer or the keyboard", 
   await key(stage, "Shift");
   assert.equal(stage.dataset.input, "keyboard");
 });
-test("the save state has a short form for narrow screens", async () => {
+test("saving leaves no mark, but a stopped autosave does, short on narrow screens", async () => {
   await click(label("Workerを選択"));
   await panel("メモを開く");
   await type(label("メモ"), "保存状態の確認");
   await blur(label("メモ"));
+  assert.equal(document.querySelector(".save-status"), null);
+  const other = sampleDocument();
+  other.title = "別画面で更新";
+  await act(() =>
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: STORAGE_KEY,
+        newValue: encode(other),
+      }),
+    ),
+  );
   assert.equal(
     document.querySelector(".save-long").textContent,
-    "このブラウザに保存済み",
+    "自動保存を停止中",
   );
-  assert.equal(document.querySelector(".save-short").textContent, "保存済み");
-  await type(label("メモ"), "編集中の文章");
-  assert.equal(document.querySelector(".save-short").textContent, "編集中");
+  assert.equal(document.querySelector(".save-short").textContent, "保存停止中");
 });
 test("a figure with a memo shows a labeled marker that previews its first line", async () => {
   const marker = document.querySelector(

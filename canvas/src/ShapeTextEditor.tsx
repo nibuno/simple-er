@@ -12,7 +12,6 @@ export function ShapeTextEditor({
   isNew,
   zoom,
   onSize,
-  onDirty,
   onFinish,
 }: {
   node: CanvasNode;
@@ -21,7 +20,6 @@ export function ShapeTextEditor({
   isNew: boolean;
   zoom: number;
   onSize: (height: number) => void;
-  onDirty: () => void;
   onFinish: (patch: Partial<CanvasNode>) => void;
 }) {
   const [title, setTitle] = useState(node.title),
@@ -131,7 +129,6 @@ export function ShapeTextEditor({
             rows={1}
             onChange={(e) => {
               setTitle(e.target.value);
-              onDirty();
             }}
           />
           <textarea
@@ -148,7 +145,6 @@ export function ShapeTextEditor({
             rows={1}
             onChange={(e) => {
               setDescription(e.target.value);
-              onDirty();
             }}
           />
         </div>
