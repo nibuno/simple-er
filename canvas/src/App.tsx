@@ -751,7 +751,10 @@ export function App() {
           onConnect={connect}
           onEdit={edit}
           onPatch={patchNode}
-          onAddNote={(point) => add("note", point)}
+          onAddFigure={(point) =>
+            add("box", point, shape, undefined, false, true)
+          }
+          onAddText={() => requestAdd("note")}
           onPlace={(point) => {
             if (!placing) return;
             chooseTool("select");
@@ -1190,8 +1193,9 @@ export function App() {
         </p>
         <dl>
           {[
-            ["図形 / テキストを追加", "B / N（カーソルの位置に出ます）"],
-            ["ツールバーから追加", "置きたい場所をクリック"],
+            ["図形を置く", "余白をダブルクリック / B（カーソルの位置）"],
+            ["テキストを置く", "N（カーソルの位置）"],
+            ["ツールバーから置く", "置きたい場所をクリック"],
             ["文字を編集", "ダブルクリック / Enter"],
             ["編集を確定", "Esc / ⌘ Enter"],
             ["線のラベル", "線をダブルクリック"],

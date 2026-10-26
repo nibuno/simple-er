@@ -59,7 +59,8 @@ interface Props {
   onConnect: (id: string, from?: string) => void;
   onEdit: (id: string | null) => void;
   onPatch: (id: string, patch: Partial<CanvasNode>) => void;
-  onAddNote: (point: Point) => void;
+  onAddFigure: (point: Point) => void;
+  onAddText: () => void;
   onPlace: (point: Point) => void;
   onAddBox: () => void;
   onEditEdge: (id: string) => void;
@@ -1139,7 +1140,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           p.onEdit(node.id);
           return;
         }
-        p.onAddNote(toWorld(e.clientX, e.clientY));
+        p.onAddFigure(toWorld(e.clientX, e.clientY));
       }}
     >
       <div
@@ -1325,14 +1326,11 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
             <button className="primary" onClick={p.onAddBox}>
               箱を追加
             </button>
-            <button
-              className="secondary"
-              onClick={() => p.onAddNote({ x: 100, y: 100 })}
-            >
+            <button className="secondary" onClick={p.onAddText}>
               テキストを追加
             </button>
           </div>
-          <small>余白をダブルクリックすると文字を書けます</small>
+          <small>余白をダブルクリックすると図形を置けます</small>
         </div>
       )}
       <div className="canvas-controls" aria-label="表示操作">

@@ -936,24 +936,24 @@ test("the selection bar appears over a selection and steps aside while editing o
   assert.ok(bar());
   await click(label("元に戻す"));
 });
-test("double-clicking empty space writes text in place, and existing text keeps its heading", async () => {
+test("double-clicking empty space puts a figure there, and existing text keeps its heading", async () => {
   const before = saved(),
     stage = label("設計キャンバス"),
-    view = localStorage.getItem(VIEW_KEY);
+    view = currentView();
   await act(() =>
     stage.dispatchEvent(
       new MouseEvent("dblclick", { bubbles: true, clientX: 900, clientY: 600 }),
     ),
   );
-  const field = label("テキストを直接編集");
+  const field = label("名前を直接編集");
   assert.equal(document.activeElement, field);
-  assert.equal(document.querySelector(".inline-editor label"), null);
-  assert.equal(localStorage.getItem(VIEW_KEY), view, "the view stays put");
+  assert.deepEqual(currentView(), view, "the view stays put");
   await type(field, "非同期にする理由");
   await key(field, "Enter", { metaKey: true });
-  const added = saved().nodes.find((n) => n.body === "非同期にする理由");
-  assert.equal(added.kind, "note");
-  assert.equal(added.title, "");
+  const added = saved().nodes.find((n) => n.title === "非同期にする理由");
+  assert.equal(added.kind, "box");
+  assert.equal(added.x, snap((900 - view.x) / view.zoom - added.w / 2));
+  assert.equal(added.y, snap((600 - view.y) / view.zoom - added.h / 2));
 
   const policy = before.nodes.find((n) => n.title === "今回の方針");
   await dblclick(label("今回の方針を選択"));
