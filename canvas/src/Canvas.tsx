@@ -45,6 +45,7 @@ export interface CanvasHandle {
   center: () => Point;
   focus: () => void;
   reveal: () => void;
+  pointerPoint: () => Point | null;
 }
 interface Props {
   doc: CanvasDocument;
@@ -58,7 +59,9 @@ interface Props {
   onConnect: (id: string, from?: string) => void;
   onEdit: (id: string | null) => void;
   onPatch: (id: string, patch: Partial<CanvasNode>) => void;
-  onAddNote: (point: Point) => void;
+  onAddFigure: (point: Point) => void;
+  onAddText: () => void;
+  onPlace: (point: Point) => void;
   onAddBox: () => void;
   onEditEdge: (id: string) => void;
   // `place` asks for a free spot near the point rather than the exact point.
@@ -159,6 +162,9 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     editView = useRef<{ before: View; focused: View } | null>(null);
   const drag = useRef<Drag | null>(null),
     space = useRef(false),
+    // The last place the pointer was seen over the canvas, in client
+    // coordinates so that panning and zooming cannot make it stale.
+    pointer = useRef<{ x: number; y: number } | null>(null),
     [panning, setPanning] = useState(false);
   const displayedDoc = useMemo(
     () =>
@@ -301,6 +307,12 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     focus: () => stage.current?.focus(),
     // After a memo or group is placed, bring it into view once it renders.
     reveal: () => requestAnimationFrame(revealSelection),
+    // Where the pointer rests over the canvas, if it is over it at all. A
+    // keyboard shortcut puts its figure there instead of asking for a click.
+    pointerPoint: () =>
+      pointer.current && stage.current
+        ? toWorld(pointer.current.x, pointer.current.y)
+        : null,
   }));
   function revealSelection() {
     const el = stage.current,
@@ -1058,6 +1070,10 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         if (e.button !== 0 && e.button !== 1) return;
+        // While placing, the press does nothing; the click that follows
+        // puts the figure down. Placing on the press would lose the new
+        // text editor's focus to the browser's own focus handling.
+        if (p.tool === "place" && e.button === 0 && !space.current) return;
         if (
           (e.target as Element).closest(
             ".canvas-node,.edge-control,.canvas-controls,.empty-canvas,.selection-anchor",
@@ -1082,7 +1098,24 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         if (!e.shiftKey) p.onSelect([]);
         capture(e);
       }}
-      onPointerMove={move}
+      onClick={(e) => {
+        // The whole canvas is the target, figures and all, so the figure
+        // lands exactly where the pointer says.
+        if (
+          p.tool !== "place" ||
+          space.current ||
+          (e.target as Element).closest(".canvas-controls")
+        )
+          return;
+        p.onPlace(toWorld(e.clientX, e.clientY));
+      }}
+      onPointerMove={(e) => {
+        pointer.current = { x: e.clientX, y: e.clientY };
+        move(e);
+      }}
+      onPointerLeave={() => {
+        pointer.current = null;
+      }}
       onPointerUp={end}
       onPointerCancel={cancel}
       onLostPointerCapture={() => {
@@ -1107,7 +1140,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           p.onEdit(node.id);
           return;
         }
-        p.onAddNote(toWorld(e.clientX, e.clientY));
+        p.onAddFigure(toWorld(e.clientX, e.clientY));
       }}
     >
       <div
@@ -1293,14 +1326,11 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
             <button className="primary" onClick={p.onAddBox}>
               箱を追加
             </button>
-            <button
-              className="secondary"
-              onClick={() => p.onAddNote({ x: 100, y: 100 })}
-            >
+            <button className="secondary" onClick={p.onAddText}>
               テキストを追加
             </button>
           </div>
-          <small>余白をダブルクリックすると文字を書けます</small>
+          <small>余白をダブルクリックすると図形を置けます</small>
         </div>
       )}
       <div className="canvas-controls" aria-label="表示操作">

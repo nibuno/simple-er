@@ -132,6 +132,17 @@ async function pointer(el, event, x, y) {
     el.dispatchEvent(e);
   });
 }
+// The toolbar asks where the figure goes; jsdom has no pointer resting on
+// the canvas, so every addition is answered with a click.
+async function placeAt(x = 400, y = 300) {
+  const stage = label("設計キャンバス");
+  await pointer(stage, "pointerdown", x, y);
+  await pointer(stage, "click", x, y);
+}
+async function addFigure(name, x, y) {
+  await click(label(name));
+  await placeAt(x, y);
+}
 async function submit() {
   await act(() =>
     document
@@ -154,7 +165,7 @@ afterEach(async () => {
 
 test("inline Japanese edits persist; Escape keeps edits and undo takes them back", async () => {
   const before = saved();
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await type(label("名前を直接編集"), "監視");
   await type(label("説明を直接編集"), "失敗した通知に気づく");
   await act(() =>
@@ -181,7 +192,7 @@ test("inline Japanese edits persist; Escape keeps edits and undo takes them back
 });
 test("empty additions never reach autosave or undo, whether submitted, dismissed, cancelled or reloaded", async () => {
   const before = saved();
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   assert.equal(label("名前を直接編集").value, "");
   assert.equal(label("説明を直接編集").value, "");
   assert.deepEqual(saved(), before);
@@ -190,22 +201,22 @@ test("empty additions never reach autosave or undo, whether submitted, dismissed
   assert.deepEqual(saved(), before);
   assert.ok(label("元に戻す").disabled);
 
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await click(label("Workerを選択"));
   assert.equal(document.querySelector("form"), null);
   assert.deepEqual(saved(), before);
 
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await key(label("名前を直接編集"), "Escape");
   assert.deepEqual(saved(), before, "Escape on an empty figure adds nothing");
 
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await type(label("名前を直接編集"), "　 ");
   await type(label("説明を直接編集"), "\n ");
   await submit();
   assert.deepEqual(saved(), before);
 
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await act(() =>
     window.dispatchEvent(new Event("beforeunload", { cancelable: true })),
   );
@@ -215,9 +226,46 @@ test("empty additions never reach autosave or undo, whether submitted, dismissed
   assert.deepEqual(saved(), before);
   assert.ok(label("元に戻す").disabled);
 });
+// A figure goes where the pointer says: under the cursor when it rests on
+// the canvas, otherwise on the next click. Positions keep the 8px grid.
+const snap = (value) => Math.round(value / 8) * 8;
+const currentView = () => JSON.parse(localStorage.getItem(VIEW_KEY));
+test("the toolbar asks where to put the figure, and Esc gives up", async () => {
+  const before = saved(),
+    view = currentView();
+  await click(label("箱を追加"));
+  assert.equal(document.querySelector("form"), null, "nothing placed yet");
+  assert.deepEqual(saved(), before);
+  assert.ok(label("設計キャンバス").className.includes("tool-place"));
+  await placeAt(520, 360);
+  await type(label("名前を直接編集"), "監視");
+  await submit();
+  const added = saved().nodes.find((n) => n.title === "監視");
+  assert.equal(added.x, snap((520 - view.x) / view.zoom - added.w / 2));
+  assert.equal(added.y, snap((360 - view.y) / view.zoom - added.h / 2));
+  assert.ok(!label("設計キャンバス").className.includes("tool-place"));
+
+  const placed = saved();
+  await click(label("箱を追加"));
+  await key(label("設計キャンバス"), "Escape");
+  assert.ok(!label("設計キャンバス").className.includes("tool-place"));
+  await placeAt(520, 360);
+  assert.equal(document.querySelector("form"), null);
+  assert.deepEqual(saved(), placed);
+});
+test("with the pointer over the canvas the figure appears under it at once", async () => {
+  const view = currentView();
+  await pointer(label("設計キャンバス"), "pointermove", 640, 420);
+  await click(label("箱を追加"));
+  await type(label("名前を直接編集"), "通知ログ");
+  await submit();
+  const added = saved().nodes.find((n) => n.title === "通知ログ");
+  assert.equal(added.x, snap((640 - view.x) / view.zoom - added.w / 2));
+  assert.equal(added.y, snap((420 - view.y) / view.zoom - added.h / 2));
+});
 test("a description alone creates a figure without a generated name, and creation is one undo step", async () => {
   const before = saved();
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await type(label("説明を直接編集"), "通知の送信を待つ");
   await click(label("Workerを選択"));
   const added = saved().nodes.find(
@@ -251,7 +299,7 @@ test("new shapes can be created, converted, connected and reloaded", async () =>
     // Shapes beyond the rail's four sit behind "その他の図形".
     if (!document.querySelector(`[aria-label="${name}を追加"]`))
       await click(label("その他の図形"));
-    await click(label(name + "を追加"));
+    await addFigure(name + "を追加");
     await type(label("名前を直接編集"), name + "の図形");
     await key(label("名前を直接編集"), "Enter", { metaKey: true });
     assert.equal(
@@ -888,24 +936,24 @@ test("the selection bar appears over a selection and steps aside while editing o
   assert.ok(bar());
   await click(label("元に戻す"));
 });
-test("double-clicking empty space writes text in place, and existing text keeps its heading", async () => {
+test("double-clicking empty space puts a figure there, and existing text keeps its heading", async () => {
   const before = saved(),
     stage = label("設計キャンバス"),
-    view = localStorage.getItem(VIEW_KEY);
+    view = currentView();
   await act(() =>
     stage.dispatchEvent(
       new MouseEvent("dblclick", { bubbles: true, clientX: 900, clientY: 600 }),
     ),
   );
-  const field = label("テキストを直接編集");
+  const field = label("名前を直接編集");
   assert.equal(document.activeElement, field);
-  assert.equal(document.querySelector(".inline-editor label"), null);
-  assert.equal(localStorage.getItem(VIEW_KEY), view, "the view stays put");
+  assert.deepEqual(currentView(), view, "the view stays put");
   await type(field, "非同期にする理由");
   await key(field, "Enter", { metaKey: true });
-  const added = saved().nodes.find((n) => n.body === "非同期にする理由");
-  assert.equal(added.kind, "note");
-  assert.equal(added.title, "");
+  const added = saved().nodes.find((n) => n.title === "非同期にする理由");
+  assert.equal(added.kind, "box");
+  assert.equal(added.x, snap((900 - view.x) / view.zoom - added.w / 2));
+  assert.equal(added.y, snap((600 - view.y) / view.zoom - added.h / 2));
 
   const policy = before.nodes.find((n) => n.title === "今回の方針");
   await dblclick(label("今回の方針を選択"));
@@ -1034,7 +1082,7 @@ test("a box takes an icon from the selection bar, shown beside its name", async 
 });
 test("a circle stays round when resized from a side or a corner", async () => {
   await click(label("その他の図形"));
-  await click(label("円を追加"));
+  await addFigure("円を追加");
   await type(label("名前を直接編集"), "注文確定");
   await key(label("名前を直接編集"), "Enter", { metaKey: true });
   const id = saved().nodes.find((n) => n.title === "注文確定").id,
