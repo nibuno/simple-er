@@ -612,6 +612,25 @@ test("invalid JSON import keeps the current work; valid replacement can be undon
   await click(label("元に戻す"));
   assert.deepEqual(saved(), before);
 });
+test("opening the sample keeps the replaced canvas for after a reload", async () => {
+  const mine = sampleDocument();
+  mine.title = "自分の図";
+  localStorage.setItem(STORAGE_KEY, encode(growNodes(mine)));
+  await act(() => root.unmount());
+  await mount();
+  const before = saved();
+  assert.equal(button("前の図に戻す").disabled, true);
+  await click(button("サンプルを開く"));
+  assert.equal(
+    document.querySelector(".toast").textContent,
+    "サンプルを開きました（⌘Z で戻る）",
+  );
+  await act(() => root.unmount());
+  await mount();
+  assert.notEqual(saved().title, "自分の図");
+  await click(button("前の図に戻す"));
+  assert.deepEqual(saved(), before);
+});
 test("corrupt stored data is not overwritten by mounting or editing", async () => {
   await act(() => root.unmount());
   localStorage.setItem(STORAGE_KEY, "broken-original");

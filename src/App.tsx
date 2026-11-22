@@ -1,4 +1,4 @@
-import { watchStorage } from "../shared/storage.ts";
+import { keepPrevious, readPrevious, watchStorage } from "../shared/storage.ts";
 import { messageOf, overlaps } from "./utils.ts";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type {
@@ -99,6 +99,9 @@ export function App() {
   const [hint, setHint] = useState(loaded.message);
   const [saveError, setSaveError] = useState("");
   const [storageConflict, setStorageConflict] = useState(false);
+  const [hasPrevious, setHasPrevious] = useState(
+    () => readPrevious(STORAGE) !== null,
+  );
   const pausedSave = useRef(false);
   const lastSaved = useRef<string | null>(null);
   useEffect(() => {
@@ -175,6 +178,24 @@ export function App() {
     clear();
     setHint(message);
     if (fit) setFitRequest((n) => n + 1);
+  }
+  // A new or opened diagram replaces the current one; keep it for 「前の図に戻す」.
+  function replaceAll(next: Diagram, message: string) {
+    if (
+      state.tables.length &&
+      keepPrevious(STORAGE, encodeDocument(history.present))
+    )
+      setHasPrevious(true);
+    replace(next, message, true);
+  }
+  function restorePrevious() {
+    const raw = readPrevious(STORAGE);
+    if (!raw) return;
+    try {
+      replaceAll(decode(raw), "前の図に戻しました（⌘Z で戻る）");
+    } catch (error) {
+      setHint(`前の図を読み込めませんでした：${messageOf(error)}`);
+    }
   }
   function undo() {
     if (!history.past.length) return;
@@ -537,12 +558,20 @@ export function App() {
             <summary>ファイル</summary>
             <div className="file-options-panel">
               <button
-                onClick={() => replace({ tables: [], edges: [] }, "", true)}
+                onClick={() =>
+                  replaceAll(
+                    { tables: [], edges: [] },
+                    "新しい図を作成しました（⌘Z で戻る）",
+                  )
+                }
               >
                 新しい図
               </button>
               <button onClick={() => file.current?.click()}>
                 ファイルを開く
+              </button>
+              <button disabled={!hasPrevious} onClick={restorePrevious}>
+                前の図に戻す
               </button>
               <button onClick={download}>ファイルに保存</button>
             </div>
@@ -564,7 +593,10 @@ export function App() {
               try {
                 if (selectedFile.size > 2_000_000)
                   throw new Error("ファイルの上限は2MBです。");
-                replace(decode(await selectedFile.text()), "", true);
+                replaceAll(
+                  decode(await selectedFile.text()),
+                  "ファイルを開きました（⌘Z で戻る）",
+                );
               } catch (error) {
                 setHint(
                   `読み込めませんでした：${messageOf(error)} 現在の図は保持しています。`,
