@@ -212,6 +212,46 @@ test("a replaced diagram can be brought back after a reload", async () => {
   assert.equal(saved().tables.length, 0);
 });
 
+test("an empty diagram offers next steps, samples and help", async () => {
+  assert.equal(document.querySelector(".empty-diagram"), null);
+  await click(byText("新しい図"));
+  const empty = document.querySelector(".empty-diagram");
+  assert.ok(empty);
+  await click(
+    [...empty.querySelectorAll("button")].find(
+      (b) => b.textContent === "サンプルを開く",
+    ),
+  );
+  const sample = [...document.querySelectorAll(".sample-list button")].find(
+    (b) => b.textContent.startsWith("ライブ配信"),
+  );
+  assert.ok(sample);
+  await act(async () => {
+    sample.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  assert.equal(document.querySelector("#sample-dialog"), null);
+  assert.deepEqual(
+    saved().tables.map((t) => t.name),
+    ["Users", "LiveStreams", "Comments"],
+  );
+  assert.equal(document.querySelector(".empty-diagram"), null);
+  assert.ok(document.body.textContent.includes("サンプルを開きました"));
+  await click(byLabel("元に戻す"));
+  assert.ok(document.querySelector(".empty-diagram"));
+
+  await key(document.body, "?");
+  assert.ok(document.querySelector("#help-dialog"));
+  assert.ok(document.body.textContent.includes("カラム端の点から"));
+  // Shortcuts stay off while help is open.
+  await key(document.body, "t");
+  assert.equal(document.querySelector("#table-editor"), null);
+  await click(byLabel("使い方を閉じる"));
+  assert.equal(document.querySelector("#help-dialog"), null);
+  await click(byText("使い方 ?"));
+  assert.ok(document.querySelector("#help-dialog"));
+});
+
 test("multiple relationships share one column attachment and remain individually selectable", async () => {
   const { graph } = await import("./layout-fixtures.mjs");
   await act(() => root.unmount());

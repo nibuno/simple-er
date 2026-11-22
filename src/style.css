@@ -2332,6 +2332,94 @@ dialog::backdrop {
 #infer-dialog .dialog-heading h2 {
   margin-right: auto;
 }
+#help-dialog,
+#sample-dialog {
+  width: 560px;
+  padding: 20px;
+}
+#help-dialog .dialog-heading h2,
+#sample-dialog .dialog-heading h2 {
+  margin-right: auto;
+}
+#help-dialog .explanation {
+  margin: 0;
+  font-size: 13px;
+}
+#help-dialog dl {
+  margin: 0 0 16px;
+  font-size: 12.5px;
+}
+#help-dialog dl > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+#help-dialog dd {
+  margin: 0;
+  color: var(--muted);
+}
+#help-dialog .dialog-actions {
+  margin-top: 16px;
+}
+.sample-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sample-list button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  height: auto;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  text-align: left;
+}
+.sample-list button:hover {
+  background: var(--hover);
+}
+.sample-list span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.file-options-panel hr {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+}
+.file-options-panel .kbd {
+  margin-left: auto;
+}
+.empty-diagram {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100% - 32px));
+  text-align: center;
+}
+.empty-diagram h2 {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+.empty-actions .kbd {
+  margin-left: 2px;
+  background: transparent;
+  border-color: rgb(255 255 255 / 40%);
+  color: inherit;
+}
 
 @media (max-width: 960px) {
   .sidebar {
@@ -2473,4 +2561,10 @@ dialog::backdrop {
 .sidebar-toggle[aria-pressed="true"] {
   background: var(--hover);
   color: var(--text);
+}
+@media (max-width: 480px) {
+  #help-dialog dl > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
 }
