@@ -175,7 +175,7 @@ export function TableEditor({
   initialForeignKey?: string;
   state: Diagram;
   onClose: () => void;
-  onApply: (next: Diagram, message?: string, fit?: boolean) => void;
+  onApply: (next: Diagram, message?: string, created?: boolean) => void;
 }) {
   const [draft, setDraft] = useState(() => structuredClone(initial)),
     [error, setError] = useState("");

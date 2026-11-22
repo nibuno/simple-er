@@ -25,7 +25,8 @@ interface Props {
   selected: string | null;
   selectedTable?: string | null;
   onSelectTable?: (id: string) => void;
-  revealRequest?: { id: string; n: number } | null;
+  // `nearest` pans only as far as needed instead of centering the table.
+  revealRequest?: { id: string; n: number; nearest?: boolean } | null;
   adjustingLine?: boolean;
   onAdjustable?: (value: boolean) => void;
   pending: Endpoint | null;
@@ -195,7 +196,9 @@ export function DiagramCanvas(p: Props) {
         ) + 100,
       size = viewport();
     zoom(
-      reset ? 100 : Math.min(size.w / (right - x), size.h / (bottom - y)) * 100,
+      reset
+        ? 100
+        : Math.min(1, size.w / (right - x), size.h / (bottom - y)) * 100,
       (x + right) / 2,
       (y + bottom) / 2,
     );
@@ -233,6 +236,25 @@ export function DiagramCanvas(p: Props) {
         t.x + w <= v.x + v.w - margin &&
         t.y + h <= v.y + v.h - margin;
       if (inside) return v;
+      if (p.revealRequest!.nearest) {
+        // Move one axis just enough to fit the table inside the margins.
+        const nearest = (
+          start: number,
+          size: number,
+          from: number,
+          span: number,
+        ) =>
+          start < from + margin || size > span - margin * 2
+            ? start - margin
+            : start + size > from + span - margin
+              ? start + size - span + margin
+              : from;
+        return {
+          ...v,
+          x: nearest(t.x, w, v.x, v.w),
+          y: nearest(t.y, h, v.y, v.h),
+        };
+      }
       return {
         ...v,
         x: t.x + w / 2 - v.w / 2,

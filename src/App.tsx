@@ -92,6 +92,7 @@ export function App() {
   const [revealRequest, setRevealRequest] = useState<{
     id: string;
     n: number;
+    nearest?: boolean;
   } | null>(null);
   const [adjustingLine, setAdjustingLine] = useState(false);
   const [adjustable, setAdjustable] = useState(false);
@@ -965,7 +966,16 @@ export function App() {
           initialForeignKey={editingForeignKey}
           state={state}
           onClose={() => setDraft(null)}
-          onApply={replace}
+          onApply={(next, message, created) => {
+            replace(next, message);
+            // Keep the zoom and pan only far enough to show the new table.
+            if (created)
+              setRevealRequest((r) => ({
+                id: draft.id,
+                n: (r?.n ?? 0) + 1,
+                nearest: true,
+              }));
+          }}
         />
       )}
       {infer && (

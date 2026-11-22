@@ -463,6 +463,32 @@ test("pinch zoom anchors the cursor, clamps scale and leaves the diagram and his
   assert.equal(outside.defaultPrevented, false);
   assert.deepEqual(currentView(), view);
 });
+test("adding tables keeps the zoom and only pans enough to show each one", async () => {
+  await click(byText("新しい図"));
+  await click(byLabel("拡大率 100%。100%に戻す"));
+  await click(byLabel("拡大"));
+  await click(byLabel("拡大"));
+  const zoom = document.querySelector("#zoom-label").textContent;
+  assert.notEqual(zoom, "100%");
+  for (let i = 0; i < 5; i++) {
+    const before = currentView();
+    await click(byText("テーブルを追加"));
+    await submit();
+    assert.equal(document.querySelector("#zoom-label").textContent, zoom);
+    const [x, y, w, h] = currentView();
+    assert.deepEqual([w, h], [before[2], before[3]]);
+    const table = saved().tables.at(-1);
+    assert.ok(table.x >= x && table.y >= y, `table ${i + 1} is in view`);
+    assert.ok(table.x < x + w && table.y < y + h, `table ${i + 1} is in view`);
+  }
+});
+test("fit to view never zooms in past 100%", async () => {
+  await click(byText("新しい図"));
+  await click(byText("テーブルを追加"));
+  await submit();
+  await click(document.querySelector("#fit"));
+  assert.equal(document.querySelector("#zoom-label").textContent, "100%");
+});
 async function gesture(type, scale) {
   const event = new Event(type, { bubbles: true, cancelable: true });
   Object.assign(event, { scale, clientX: 300, clientY: 240 });
