@@ -899,6 +899,7 @@ test("the selection bar appears over a selection and steps aside while editing o
   await key(label("設計キャンバス"), "Enter");
   assert.equal(bar(), null);
   await key(label("名前を直接編集"), "Escape");
+  assert.ok(bar(), "finishing the text brings the bar back");
   const stage = label("設計キャンバス");
   await pointer(label("Workerを選択"), "pointerdown", 300, 200);
   await pointer(stage, "pointermove", 340, 230);
@@ -1050,6 +1051,18 @@ test("a box takes an icon from the selection bar, shown beside its name", async 
   );
   await click(label("アイコンなし"));
   assert.equal(saved().nodes.find((n) => n.id === "queue").icon, undefined);
+});
+test("the selection bar names its buttons and shows the current color", async () => {
+  await click(label("Queueを選択"));
+  assert.equal(label("アイコン").dataset.tip, "アイコン");
+  assert.equal(label("色").textContent, "色");
+  await panel("色");
+  await click(label("塗り：赤"));
+  const swatch = label("色").querySelector(".bar-swatch");
+  assert.equal(
+    swatch.style.getPropertyValue("--swatch-fill"),
+    saved().nodes.find((n) => n.id === "queue").fillColor,
+  );
 });
 test("a circle stays round when resized from a side or a corner", async () => {
   await click(label("その他の図形"));

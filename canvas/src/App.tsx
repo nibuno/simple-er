@@ -116,7 +116,6 @@ export function App() {
   const [editing, setEditing] = useState<string | null>(null),
     [status, setStatus] = useState(""),
     [error, setError] = useState(initial.current.error);
-  const [inspectorOpen, setInspectorOpen] = useState(true);
   const [hasPrevious, setHasPrevious] = useState(
     () => readPrevious(STORAGE_KEY) !== null,
   );
@@ -199,7 +198,6 @@ export function App() {
   }
   function select(ids: string[]) {
     flushInput();
-    setInspectorOpen(true);
     setBarRequest(null);
     setSelection(ids);
     selectionRef.current = ids;
@@ -293,7 +291,6 @@ export function App() {
       return;
     }
     if (id) flushInput();
-    else setInspectorOpen(false);
     setEditing(id);
     setDirty(!!id);
     if (id) select([id]);
@@ -776,36 +773,34 @@ export function App() {
           }}
           onCommit={commit}
           selectionBar={
-            inspectorOpen && (
-              <SelectionBar
-                doc={doc}
-                node={node}
-                edge={edge}
-                count={selection.length}
-                selection={selection}
-                onColors={patchColors}
-                onPatch={patchNode}
-                onEdge={patchEdge}
-                onDelete={remove}
-                onDuplicate={duplicate}
-                onGroup={group}
-                onAttach={(id) => {
-                  try {
-                    flushInput();
-                    const result = attachNote(docRef.current, id);
-                    commit(result.doc);
-                    select([result.id]);
-                    canvas.current?.reveal();
-                  } catch (e) {
-                    setError(errorMessage(e));
-                  }
-                }}
-                onFitGroup={(id) => commit(fitGroup(clone(docRef.current), id))}
-                onSelect={select}
-                onDirty={() => setDirty(true)}
-                request={barRequest}
-              />
-            )
+            <SelectionBar
+              doc={doc}
+              node={node}
+              edge={edge}
+              count={selection.length}
+              selection={selection}
+              onColors={patchColors}
+              onPatch={patchNode}
+              onEdge={patchEdge}
+              onDelete={remove}
+              onDuplicate={duplicate}
+              onGroup={group}
+              onAttach={(id) => {
+                try {
+                  flushInput();
+                  const result = attachNote(docRef.current, id);
+                  commit(result.doc);
+                  select([result.id]);
+                  canvas.current?.reveal();
+                } catch (e) {
+                  setError(errorMessage(e));
+                }
+              }}
+              onFitGroup={(id) => commit(fitGroup(clone(docRef.current), id))}
+              onSelect={select}
+              onDirty={() => setDirty(true)}
+              request={barRequest}
+            />
           }
           onStatus={notify}
           onDirty={() => setDirty(true)}
