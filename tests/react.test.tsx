@@ -103,9 +103,16 @@ async function type(element, value) {
     element.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
-async function key(element, key) {
+async function key(element, key, options = {}) {
   await act(() =>
-    element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })),
+    element.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+        ...options,
+      }),
+    ),
   );
 }
 async function submit() {
@@ -631,7 +638,7 @@ test("inline physical and logical rename supports cancel, validation, undo and r
   const before = saved();
   await key(byLabel("usersを移動。矢印キーで移動できます。"), "Enter");
   await type(byLabel("図上で物理名を編集"), "members");
-  await submit();
+  await key(byLabel("図上で物理名を編集"), "Enter");
   assert.equal(saved().tables[0].name, "members");
   assert.deepEqual(saved().edges, before.edges);
   await click(byLabel("元に戻す"));
@@ -645,7 +652,7 @@ test("inline physical and logical rename supports cancel, validation, undo and r
   await click(document.querySelector('input[value="logical"]'));
   await key(byLabel("members.id を接続"), "F2");
   await type(byLabel("図上で論理名を編集"), "会員番号");
-  await submit();
+  await key(byLabel("図上で論理名を編集"), "Enter");
   assert.equal(saved().tables[0].columns[0].logicalName, "会員番号");
   await key(byLabel("members.name を接続"), "F2");
   await key(byLabel("図上で論理名を編集"), "Escape");
@@ -671,13 +678,148 @@ test("inline duplicate name keeps the editor open and does not change saved data
   const before = saved();
   await key(byLabel("usersを移動。矢印キーで移動できます。"), "Enter");
   await type(byLabel("図上で物理名を編集"), "orders");
-  await submit();
+  await key(byLabel("図上で物理名を編集"), "Enter");
   assert.match(
     document.querySelector('.inline-name [role="alert"]').textContent,
     /重複/,
   );
   assert.deepEqual(saved(), before);
   await key(byLabel("図上で物理名を編集"), "Escape");
+});
+
+test("add columns on the selected table one at a time and undo from the next empty row", async () => {
+  const before = saved();
+  assert.equal(document.querySelector(".inline-add-column"), null);
+  await click(byLabel("users.id を接続"));
+  await click(byLabel("usersにカラムを追加"));
+  const input = () => byLabel("追加するカラムの物理名");
+  assert.equal(document.activeElement, input());
+  await key(input(), "Enter");
+  await type(input(), " ID ");
+  await key(input(), "Enter");
+  assert.match(
+    document.querySelector('.inline-name [role="alert"]').textContent,
+    /重複/,
+  );
+  assert.deepEqual(saved(), before);
+
+  await type(input(), " nickname ");
+  await key(input(), "Enter");
+  const first = saved();
+  const { id, ...column } = first.tables[0].columns.at(-1);
+  assert.ok(id);
+  assert.deepEqual(column, {
+    name: "nickname",
+    type: "text",
+    key: "",
+    logicalName: "",
+  });
+  assert.deepEqual(first.tables[0].keys, before.tables[0].keys);
+  assert.deepEqual(first.edges, before.edges);
+  assert.equal(document.activeElement, input());
+  assert.equal(input().value, "");
+  await type(input(), "timezone");
+  await key(input(), "Enter");
+  const second = saved();
+  assert.equal(
+    second.tables[0].columns.length,
+    before.tables[0].columns.length + 2,
+  );
+  await key(input(), "z", { metaKey: true });
+  assert.deepEqual(saved(), first);
+  await key(input(), "z", { metaKey: true, shiftKey: true });
+  assert.deepEqual(saved(), second);
+  await type(input(), "draft");
+  await type(input(), "");
+  await key(input(), "z", { metaKey: true });
+  assert.deepEqual(saved(), second);
+  await type(input(), "unfinished");
+  await key(input(), "Escape");
+  assert.equal(document.querySelector(".inline-name"), null);
+  assert.deepEqual(saved(), second);
+  await key(document.body, "z", { metaKey: true });
+  await key(document.body, "z", { metaKey: true });
+  assert.deepEqual(saved(), before);
+});
+
+test("Enter after a logical rename starts a new column, ignoring IME confirmation in either field", async () => {
+  await click(byLabel("users.id を接続"));
+  await click(byLabel("usersにカラムを追加"));
+  await type(document.activeElement, "COLUMN_1");
+  await key(document.activeElement, "Enter");
+  await key(document.activeElement, "Escape");
+  await click(document.querySelector('input[value="logical"]'));
+  await key(byLabel("users.name を接続"), "F2");
+  const rename = byLabel("図上で論理名を編集");
+  await type(rename, "名前");
+  await key(rename, "Enter", { isComposing: true });
+  assert.equal(document.activeElement, rename);
+  assert.equal(saved().tables[0].columns[1].logicalName, "");
+  await key(rename, "Enter");
+  const input = byLabel("追加するカラムの論理名");
+  assert.equal(document.activeElement, input);
+  const before = saved();
+  assert.equal(before.tables[0].columns[1].logicalName, "名前");
+  await type(input, "連絡先");
+  await key(input, "Enter", { isComposing: true });
+  await key(input, "Enter", { keyCode: 229 });
+  assert.equal(document.activeElement, input);
+  assert.deepEqual(saved(), before);
+  await key(input, "Enter");
+  const added = saved().tables[0].columns.at(-1);
+  assert.equal(added.name, "column_2");
+  assert.equal(added.logicalName, "連絡先");
+  await click(byLabel("orders.id を接続"));
+  assert.equal(document.querySelector(".inline-name"), null);
+  assert.ok(byLabel("ordersにカラムを追加"));
+  await click(byLabel("users.連絡先 を接続"));
+  assert.equal(document.querySelector(".inline-name"), null);
+});
+
+test("adding the sixtieth column from the canvas ends entry and disables the add button", async () => {
+  await act(() => root.unmount());
+  const diagram = saved();
+  const { columns } = diagram.tables[0];
+  while (columns.length < 59) {
+    const name = `col_${columns.length}`;
+    columns.push({ id: name, name, type: "text", key: "", logicalName: "" });
+  }
+  localStorage.setItem(storageKey, encode(diagram));
+  await mount();
+  await key(byLabel("users.id を接続"), "F2");
+  await key(byLabel("図上で物理名を編集"), "Enter");
+  const input = byLabel("追加するカラムの物理名");
+  const [, y, , h] = currentView();
+  assert.ok(y + h > diagram.tables[0].y + 52 + 59 * 38);
+  await type(input, "last_column");
+  await key(input, "Enter");
+  assert.equal(document.querySelector(".inline-name"), null);
+  assert.equal(saved().tables[0].columns.length, 60);
+  assert.equal(byLabel("usersにカラムを追加").disabled, true);
+  await key(document.body, "z", { metaKey: true });
+  assert.deepEqual(saved(), diagram);
+  assert.equal(byLabel("usersにカラムを追加").disabled, false);
+});
+
+test("a column that would grow into a neighboring table stays an editable draft", async () => {
+  await act(() => root.unmount());
+  const diagram = saved();
+  diagram.tables[1].x = diagram.tables[0].x;
+  diagram.tables[1].y = diagram.tables[0].y + 265;
+  localStorage.setItem(storageKey, encode(diagram));
+  await mount();
+  const before = saved();
+  await click(byLabel("users.id を接続"));
+  await click(byLabel("usersにカラムを追加"));
+  const input = byLabel("追加するカラムの物理名");
+  await type(input, "nickname");
+  await key(input, "Enter");
+  assert.match(
+    document.querySelector('.inline-name [role="alert"]').textContent,
+    /移動/,
+  );
+  assert.equal(document.activeElement, input);
+  assert.deepEqual(saved(), before);
 });
 test("table deletion retains incoming foreign keys as unresolved and undo restores them", async () => {
   const before = saved();

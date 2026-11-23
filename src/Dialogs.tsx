@@ -10,6 +10,8 @@ import type {
   ForeignKey,
 } from "./types.ts";
 import {
+  createColumn,
+  MAX_COLUMNS,
   referenceImpacts,
   editTable,
   removeTable,
@@ -353,17 +355,9 @@ export function TableEditor({
     }));
   }
   function addColumn() {
-    let i = 1;
-    while (draft.columns.some((c) => c.name === `column_${i}`)) i++;
-    const id = uid();
-    addedColumn.current = id;
-    setDraft({
-      ...draft,
-      columns: [
-        ...draft.columns,
-        { name: `column_${i}`, type: "text", key: "", id, logicalName: "" },
-      ],
-    });
+    const column = createColumn(draft.columns);
+    addedColumn.current = column.id;
+    setDraft({ ...draft, columns: [...draft.columns, column] });
   }
   // Enter in a column name moves down a row instead of submitting the form.
   function nextColumn(e: React.KeyboardEvent<HTMLInputElement>, i: number) {
@@ -383,7 +377,7 @@ export function TableEditor({
       );
       next?.focus();
       next?.select();
-    } else if (draft.columns.length < 60) addColumn();
+    } else if (draft.columns.length < MAX_COLUMNS) addColumn();
   }
   function move(id: string, to: number) {
     setDraft((d) => {
@@ -742,7 +736,7 @@ export function TableEditor({
               <button
                 type="button"
                 className="add-column"
-                disabled={draft.columns.length >= 60}
+                disabled={draft.columns.length >= MAX_COLUMNS}
                 onClick={addColumn}
               >
                 カラムを追加
@@ -961,6 +955,7 @@ const SHORTCUTS = [
   ["キーボードで外部キーを登録", "カラム行で Enter（接続元と接続先で2回）"],
   ["テーブルを追加", "T"],
   ["名前を変更", "ダブルクリック / F2（カラム行）"],
+  ["次のカラムを追加", "カラム名の入力中に Enter"],
   ["選択中のものを削除", "Delete / ⌫"],
   ["選択や編集をやめる", "Esc"],
   ["元に戻す / やり直す", "⌘ Z / ⇧⌘ Z"],

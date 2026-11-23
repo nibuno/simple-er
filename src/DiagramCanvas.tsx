@@ -11,16 +11,18 @@ import {
 } from "./geometry.ts";
 import { RelationshipDecorations } from "./RelationshipDecorations.tsx";
 import { relationshipLabels } from "./relationships.ts";
-import { overlaps } from "./utils.ts";
+import { MAX_COLUMNS } from "./model.ts";
+import { messageOf, overlaps } from "./utils.ts";
 import { Icon } from "./icons.tsx";
+
+type NameTarget =
+  { kind: "table" } | { kind: "column"; id: string } | { kind: "add" };
 
 interface Props {
   logical?: boolean;
-  onRename?: (
-    table: string,
-    columnId: string | undefined,
-    value: string,
-  ) => void;
+  onSaveName: (table: Table, target: NameTarget, value: string) => void;
+  onUndo: () => void;
+  onRedo: () => void;
   state: Diagram;
   selected: string | null;
   selectedTable?: string | null;
@@ -66,28 +68,34 @@ type Drag =
   | { kind: "pan"; start: Point; view: View; pointer: number }
   | { kind: "link"; from: Endpoint; origin: Point; pointer: number };
 const steps = [25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 400];
+const entryHeight = 52;
+// Pan just enough to show this interval, keeping an oversized one at its start.
+function nearest(
+  start: number,
+  size: number,
+  from: number,
+  span: number,
+  margin: number,
+) {
+  if (start < from + margin || size > span - 2 * margin) return start - margin;
+  return Math.max(from, start + size - span + margin);
+}
 export function DiagramCanvas(p: Props) {
-  const [renaming, setRenaming] = useState<{
+  const [editing, setEditing] = useState<{
     table: string;
-    columnId?: string;
-    value: string;
+    target: NameTarget;
   } | null>(null);
-  const [renameError, setRenameError] = useState("");
   function beginRename(t: Table, c?: Column) {
-    p.onClear();
-    setRenameError("");
-    setRenaming({
+    p.onSelectTable?.(t.id);
+    setEditing({
       table: t.id,
-      columnId: c?.id,
-      value: c
-        ? p.logical
-          ? (c.logicalName ?? "")
-          : c.name
-        : p.logical
-          ? (t.logicalName ?? "")
-          : (t.name ?? t.id),
+      target: c ? { kind: "column", id: c.id } : { kind: "table" },
     });
   }
+  useEffect(() => {
+    setEditing((edit) => (edit?.table === p.selectedTable ? edit : null));
+  }, [p.selectedTable]);
+  useEffect(() => setEditing(null), [p.logical]);
 
   const svg = useRef<SVGSVGElement>(null),
     drag = useRef<Drag | null>(null);
@@ -140,6 +148,16 @@ export function DiagramCanvas(p: Props) {
   const latest = useRef(p);
   latest.current = p;
   p.viewRef.current = view;
+  function beginAdd(t: Table, row = t.columns.length) {
+    setEditing({ table: t.id, target: { kind: "add" } });
+    // Keep the next input in view as the table grows.
+    const top = t.y + HEADER + row * ROW;
+    setView((v) => {
+      const x = nearest(t.x, tableWidth(t), v.x, v.w, 12);
+      const y = nearest(top, entryHeight, v.y, v.h, 24);
+      return x === v.x && y === v.y ? v : { ...v, x, y };
+    });
+  }
   const routes = useMemo(
     () => routeEdges(p.state.edges, p.state.tables),
     [p.state],
@@ -237,22 +255,10 @@ export function DiagramCanvas(p: Props) {
         t.y + h <= v.y + v.h - margin;
       if (inside) return v;
       if (p.revealRequest!.nearest) {
-        // Move one axis just enough to fit the table inside the margins.
-        const nearest = (
-          start: number,
-          size: number,
-          from: number,
-          span: number,
-        ) =>
-          start < from + margin || size > span - margin * 2
-            ? start - margin
-            : start + size > from + span - margin
-              ? start + size - span + margin
-              : from;
         return {
           ...v,
-          x: nearest(t.x, w, v.x, v.w),
-          y: nearest(t.y, h, v.y, v.h),
+          x: nearest(t.x, w, v.x, v.w, margin),
+          y: nearest(t.y, h, v.y, v.h, margin),
         };
       }
       return {
@@ -545,16 +551,28 @@ export function DiagramCanvas(p: Props) {
         <g id="tables">
           {p.state.tables.map((t) => {
             const width = tableWidth(t);
+            const selected = focused === t.id;
+            const target =
+              selected && editing?.table === t.id ? editing.target : null;
+            const column =
+              target?.kind === "column"
+                ? t.columns.find((c) => c.id === target.id)
+                : undefined;
+            const rowEnd = HEADER + t.columns.length * ROW;
+            const adding = target?.kind === "add";
+            const full = t.columns.length >= MAX_COLUMNS;
             return (
               <g
                 key={t.id}
                 data-table={t.id}
-                className={`table${focused === t.id ? " selected" : ""}`}
+                className={`table${selected ? " selected" : ""}`}
                 transform={`translate(${t.x} ${t.y})`}
               >
                 <rect
                   width={width}
-                  height={height(t)}
+                  height={
+                    height(t) + (selected ? (adding ? entryHeight : ROW) : 0)
+                  }
                   rx={9}
                   className="table-box"
                 />
@@ -764,78 +782,66 @@ export function DiagramCanvas(p: Props) {
                     </g>
                   );
                 })}
-                {renaming?.table === t.id && (
+                {selected && !adding && (
+                  <foreignObject
+                    x={8}
+                    y={rowEnd + 4}
+                    width={width - 16}
+                    height={ROW}
+                  >
+                    <button
+                      type="button"
+                      className="inline-add-column"
+                      aria-label={`${p.displayTable(t)}にカラムを追加`}
+                      disabled={full}
+                      title={full ? "カラムは60個までです" : undefined}
+                      onClick={() => beginAdd(t)}
+                    >
+                      <Icon name="plus" size={14} />
+                      カラム
+                    </button>
+                  </foreignObject>
+                )}
+                {target && (
                   <foreignObject
                     x={8}
                     y={
-                      renaming.columnId
-                        ? HEADER +
-                          t.columns.findIndex(
-                            (c) => c.id === renaming.columnId,
-                          ) *
-                            ROW
-                        : 0
+                      adding
+                        ? rowEnd + 4
+                        : column
+                          ? HEADER + t.columns.indexOf(column) * ROW
+                          : 0
                     }
                     width={width - 16}
                     height={100}
-                    style={{ overflow: "visible" }}
+                    style={{ overflow: "visible", pointerEvents: "none" }}
                   >
-                    <form
-                      className="inline-name"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                      onDoubleClick={(e) => e.stopPropagation()}
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        try {
-                          p.onRename?.(
-                            renaming.table,
-                            renaming.columnId,
-                            renaming.value,
-                          );
-                          setRenaming(null);
-                        } catch (error) {
-                          setRenameError(
-                            error instanceof Error
-                              ? error.message
-                              : String(error),
-                          );
-                        }
+                    <InlineNameEditor
+                      key={
+                        adding
+                          ? `add-${t.columns.length}`
+                          : column
+                            ? `column-${column.id}`
+                            : "table"
+                      }
+                      target={target}
+                      logical={!!p.logical}
+                      initialValue={
+                        adding
+                          ? ""
+                          : (column ?? t)[p.logical ? "logicalName" : "name"]
+                      }
+                      onSave={(value) => {
+                        p.onSaveName(t, target, value);
+                        const count = t.columns.length + (adding ? 1 : 0);
+                        if (target.kind !== "table" && count < MAX_COLUMNS)
+                          beginAdd(t, count);
+                        else setEditing(null);
                       }}
-                    >
-                      <label>
-                        {p.logical ? "論理名" : "物理名"}{" "}
-                        <input
-                          autoFocus
-                          aria-label={
-                            p.logical
-                              ? "図上で論理名を編集"
-                              : "図上で物理名を編集"
-                          }
-                          required={!p.logical}
-                          maxLength={80}
-                          value={renaming.value}
-                          onChange={(e) =>
-                            setRenaming({ ...renaming, value: e.target.value })
-                          }
-                          onKeyDown={(e) => {
-                            e.stopPropagation();
-                            if (e.key === "Escape") {
-                              e.preventDefault();
-                              setRenaming(null);
-                            }
-                            if (e.key === "Enter" && e.nativeEvent.isComposing)
-                              e.preventDefault();
-                          }}
-                        />
-                      </label>
-                      <small>Enterで確定・Escでキャンセル</small>
-                      {renameError && (
-                        <p role="alert" className="error">
-                          {renameError}
-                        </p>
-                      )}
-                    </form>
+                      onClose={() => setEditing(null)}
+                      onUndo={p.onUndo}
+                      onRedo={p.onRedo}
+                    />
                   </foreignObject>
                 )}
               </g>
@@ -926,6 +932,94 @@ export function DiagramCanvas(p: Props) {
           <Icon name="plus" size={14} />
         </button>
       </div>
+    </div>
+  );
+}
+
+function InlineNameEditor({
+  target,
+  logical,
+  initialValue,
+  onSave,
+  onClose,
+  onUndo,
+  onRedo,
+}: {
+  target: NameTarget;
+  logical: boolean;
+  initialValue: string;
+  onSave: (value: string) => void;
+  onClose: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+}) {
+  const [value, setValue] = useState(initialValue);
+  const [error, setError] = useState("");
+  const typed = useRef(false);
+  const adding = target.kind === "add";
+  const field = logical ? "論理名" : "物理名";
+  return (
+    <div className={`inline-name${adding ? " adding-column" : ""}`}>
+      <label>
+        {field}
+        <input
+          autoFocus
+          aria-label={
+            adding ? `追加するカラムの${field}` : `図上で${field}を編集`
+          }
+          aria-describedby="inline-name-hint"
+          aria-invalid={error ? true : undefined}
+          enterKeyHint={target.kind === "table" ? "done" : "next"}
+          placeholder={adding ? "カラム名" : undefined}
+          required={!logical && !adding}
+          maxLength={80}
+          value={value}
+          onChange={(e) => {
+            typed.current = true;
+            setValue(e.target.value);
+            setError("");
+          }}
+          onBlur={onClose}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (adding && !value.trim()) return;
+              if (!e.currentTarget.reportValidity()) return;
+              try {
+                onSave(value.trim());
+              } catch (err) {
+                setError(messageOf(err));
+              }
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              onClose();
+            } else if (
+              adding &&
+              !typed.current &&
+              (e.metaKey || e.ctrlKey) &&
+              e.key.toLowerCase() === "z"
+            ) {
+              // A fresh row has no text history. Undo the last diagram edit.
+              e.preventDefault();
+              if (e.shiftKey) onRedo();
+              else onUndo();
+            }
+          }}
+        />
+      </label>
+      {error ? (
+        <small id="inline-name-hint" role="alert" className="error">
+          {error}
+        </small>
+      ) : (
+        <small id="inline-name-hint">
+          {target.kind === "table"
+            ? "Enterで確定・Escでキャンセル"
+            : "Enter で次へ・Esc で終了"}
+        </small>
+      )}
     </div>
   );
 }
