@@ -292,6 +292,53 @@ test("adding and deleting a table can be undone without losing existing relation
   assert.equal(saved().tables.length, 4);
 });
 
+test("add-table dialog focuses the name, Enter moves down columns and Command+Enter adds", async () => {
+  await click(byText("テーブルを追加"));
+  const name = document.querySelector('input[placeholder="例: users"]');
+  assert.equal(document.activeElement, name);
+  assert.equal(name.selectionStart, 0);
+  assert.equal(name.selectionEnd, "table_1".length);
+  assert.ok(byText("追加"));
+  const rows = () => document.querySelectorAll(".column-edit-row").length;
+  const count = rows();
+  await click(byText("カラムを追加"));
+  assert.equal(rows(), count + 1);
+  const first = byLabel(`カラム${count}の物理名`);
+  await key(first, "Enter");
+  assert.equal(document.activeElement, byLabel(`カラム${count + 1}の物理名`));
+  await act(() =>
+    document.activeElement.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        isComposing: true,
+        bubbles: true,
+      }),
+    ),
+  );
+  assert.equal(rows(), count + 1);
+  await key(byLabel(`カラム${count + 1}の論理名`), "Enter");
+  assert.equal(rows(), count + 2);
+  assert.equal(document.activeElement, byLabel(`カラム${count + 2}の物理名`));
+  assert.ok(document.querySelector("dialog[open]"));
+  await act(() =>
+    document.activeElement.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        metaKey: true,
+        bubbles: true,
+      }),
+    ),
+  );
+  assert.equal(document.querySelector("dialog[open]"), null);
+  const added = saved().tables.find((t) => t.name === "table_1");
+  assert.equal(added.columns.length, count + 2);
+});
+
+test("editing a table keeps the apply button label", async () => {
+  await click(byLabel("usersを編集"));
+  assert.ok(byText("変更を反映"));
+});
+
 test("invalid import preserves current data; valid legacy import is undoable", async () => {
   const before = saved(),
     input = document.querySelector('input[type="file"]');

@@ -318,7 +318,14 @@ export function TableEditor({
     pointerY: number;
   } | null>(null);
   const creating = !state.tables.some((t) => t.id === draft.id);
+  const nameInput = useRef<HTMLInputElement>(null);
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
+  // showModal() focuses the first button, so take focus back to the name.
+  useEffect(() => {
+    if (!creating) return;
+    nameInput.current?.focus({ preventScroll: true });
+    nameInput.current?.select();
+  }, []);
   useLayoutEffect(() => {
     const id = addedColumn.current;
     if (!id || !list.current) return;
@@ -341,6 +348,39 @@ export function TableEditor({
       ...d,
       columns: d.columns.map((c, i) => (i === index ? { ...c, ...patch } : c)),
     }));
+  }
+  function addColumn() {
+    let i = 1;
+    while (draft.columns.some((c) => c.name === `column_${i}`)) i++;
+    const id = uid();
+    addedColumn.current = id;
+    setDraft({
+      ...draft,
+      columns: [
+        ...draft.columns,
+        { name: `column_${i}`, type: "text", key: "", id, logicalName: "" },
+      ],
+    });
+  }
+  // Enter in a column name moves down a row instead of submitting the form.
+  function nextColumn(e: React.KeyboardEvent<HTMLInputElement>, i: number) {
+    if (
+      e.key !== "Enter" ||
+      e.metaKey ||
+      e.ctrlKey ||
+      e.nativeEvent.isComposing ||
+      e.keyCode === 229
+    )
+      return;
+    e.preventDefault();
+    if (i < draft.columns.length - 1) {
+      const field = e.currentTarget.getAttribute("data-field");
+      const next = list.current?.querySelector<HTMLInputElement>(
+        `[data-column="${CSS.escape(draft.columns[i + 1].id)}"] [data-field="${field}"]`,
+      );
+      next?.focus();
+      next?.select();
+    } else if (draft.columns.length < 60) addColumn();
   }
   function move(id: string, to: number) {
     setDraft((d) => {
@@ -389,6 +429,16 @@ export function TableEditor({
     <Modal id="table-editor" onClose={onClose}>
       <form
         id="table-form"
+        onKeyDown={(e) => {
+          if (
+            e.key === "Enter" &&
+            (e.metaKey || e.ctrlKey) &&
+            !e.nativeEvent.isComposing
+          ) {
+            e.preventDefault();
+            e.currentTarget.requestSubmit();
+          }
+        }}
         onSubmit={(e) => {
           e.preventDefault();
           try {
@@ -442,7 +492,7 @@ export function TableEditor({
               <label className="field">
                 物理名
                 <input
-                  autoFocus
+                  ref={nameInput}
                   required
                   maxLength={80}
                   autoComplete="off"
@@ -557,17 +607,21 @@ export function TableEditor({
                           placeholder="例: user_id"
                           required
                           maxLength={80}
+                          data-field="name"
                           value={c.name}
                           onChange={(e) => column(i, { name: e.target.value })}
+                          onKeyDown={(e) => nextColumn(e, i)}
                         />
                         <input
                           aria-label={`カラム${i + 1}の論理名`}
                           placeholder="論理名"
                           maxLength={80}
+                          data-field="logicalName"
                           value={c.logicalName ?? ""}
                           onChange={(e) =>
                             column(i, { logicalName: e.target.value })
                           }
+                          onKeyDown={(e) => nextColumn(e, i)}
                         />
                       </div>
                       <TypeControl
@@ -686,26 +740,7 @@ export function TableEditor({
                 type="button"
                 className="add-column"
                 disabled={draft.columns.length >= 60}
-                onClick={() => {
-                  let i = 1;
-                  while (draft.columns.some((c) => c.name === `column_${i}`))
-                    i++;
-                  const id = uid();
-                  addedColumn.current = id;
-                  setDraft({
-                    ...draft,
-                    columns: [
-                      ...draft.columns,
-                      {
-                        name: `column_${i}`,
-                        type: "text",
-                        key: "",
-                        id,
-                        logicalName: "",
-                      },
-                    ],
-                  });
-                }}
+                onClick={addColumn}
               >
                 カラムを追加
               </button>
@@ -815,8 +850,12 @@ export function TableEditor({
           <button type="button" onClick={onClose}>
             キャンセル
           </button>
-          <button type="submit" className="primary">
-            変更を反映
+          <button
+            type="submit"
+            className="primary"
+            title={`${creating ? "追加" : "変更を反映"} (⌘Enter)`}
+          >
+            {creating ? "追加" : "変更を反映"}
           </button>
         </div>
       </form>
