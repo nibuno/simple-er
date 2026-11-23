@@ -5,20 +5,13 @@ import { boxTextArea, shapePaths } from "./shapes";
 import { DEFAULT_COLORS, nodeAppearance, safeColor } from "./colors";
 import { iconPath } from "./Icons";
 import { textWidth } from "./text";
-const esc = (value: string) =>
-  value
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, "")
-    .replace(
-      /[&<>"']/g,
-      (c) =>
-        ({
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&apos;",
-        })[c]!,
-    );
+import {
+  escapeXml as esc,
+  downloadPng,
+  filename,
+} from "../../shared/export.ts";
+export { downloadFile, filename } from "../../shared/export.ts";
+
 function textBlock(
   value: string,
   x: number,
@@ -240,66 +233,6 @@ export function toSvg(doc: CanvasDocument) {
     "</g></svg>"
   );
 }
-export function downloadFile(
-  content: Blob | string,
-  name: string,
-  type = "application/json",
-) {
-  const url = URL.createObjectURL(
-    typeof content === "string" ? new Blob([content], { type }) : content,
-  );
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 3000);
-}
-export function filename(title: string) {
-  return (
-    title.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").trim() || "canvas"
-  ).slice(0, 100);
-}
-export async function exportPng(doc: CanvasDocument) {
-  const svg = toSvg(doc),
-    b = sceneBounds(doc),
-    width = b.w + 96,
-    height = b.h + 96;
-  const scale = Math.min(
-    2,
-    8192 / width,
-    8192 / height,
-    Math.sqrt(24000000 / (width * height)),
-  );
-  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
-  try {
-    const image = new Image();
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () =>
-        reject(
-          new Error("画像の変換に失敗しました。SVGでの保存を試してください。"),
-        );
-      image.src = url;
-    });
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.ceil(width * scale);
-    canvas.height = Math.ceil(height * scale);
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("このブラウザでは画像に変換できません。");
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob(
-        (value) =>
-          value
-            ? resolve(value)
-            : reject(new Error("PNGの保存に失敗しました。")),
-        "image/png",
-      ),
-    );
-    downloadFile(blob, filename(doc.title) + ".png");
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+export function exportPng(doc: CanvasDocument) {
+  return downloadPng(toSvg(doc), filename(doc.title) + ".png");
 }

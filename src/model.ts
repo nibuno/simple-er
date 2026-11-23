@@ -177,6 +177,7 @@ export function documentFromDiagram(diagram: Diagram): DiagramDocument {
   return {
     format: "er-sketch",
     version: 2,
+    ...(valid.title && { title: valid.title }),
     schema: {
       tables: valid.tables.map((t) => ({
         id: t.id,
@@ -261,6 +262,7 @@ export function projectDocument(document: DiagramDocument): Diagram {
   });
   const valid = validateDiagram({
     schemaVersion: 2,
+    title: document.title,
     tables,
     edges: [],
     unresolvedEdges: document.unresolvedEdges ?? [],
@@ -661,7 +663,14 @@ function normalizeRelations(diagram: Diagram): Diagram {
   validateConstraints(tables);
   const edges = deriveEdges(tables, diagram.edges);
   recomputeKeyFlags(tables);
-  return { schemaVersion: 2, tables, edges, unresolvedEdges: unresolved };
+  const title = typeof diagram.title === "string" ? diagram.title.trim() : "";
+  return {
+    schemaVersion: 2,
+    ...(title && { title }),
+    tables,
+    edges,
+    unresolvedEdges: unresolved,
+  };
 }
 
 function validateConstraints(tables: Table[]) {

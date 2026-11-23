@@ -38,6 +38,7 @@ export interface Presentation {
 export interface DiagramDocument {
   format: "er-sketch";
   version: 2;
+  title?: string;
   schema: Schema;
   presentation: Presentation;
   unresolvedEdges: Edge[];
@@ -69,6 +70,7 @@ export interface Edge {
 /** Derived editing/rendering projection; never the history or storage source of truth. */
 export interface Diagram {
   schemaVersion?: 2;
+  title?: string;
   unresolvedEdges?: Edge[];
   tables: Table[];
   edges: Edge[];

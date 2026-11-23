@@ -24,6 +24,25 @@ export function tableWidth(t: Table) {
   return Math.ceil(Math.max(WIDTH, heading, 39 + name + 24 + type + 14));
 }
 export const height = (t: Table) => HEADER + t.columns.length * ROW + 10;
+export function diagramBounds(
+  tables: Table[],
+  routes: Iterable<Route>,
+  labels: Iterable<Point & { width: number; height: number }>,
+) {
+  const points = tables.flatMap((t) => [
+    { x: t.x, y: t.y },
+    { x: t.x + tableWidth(t), y: t.y + height(t) },
+  ]);
+  for (const r of routes) points.push(...r.points);
+  for (const l of labels)
+    points.push(l, { x: l.x + l.width, y: l.y + l.height });
+  if (!points.length) return { x: 0, y: 0, width: 0, height: 0 };
+  const xs = points.map((p) => p.x),
+    ys = points.map((p) => p.y);
+  const x = Math.min(...xs),
+    y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+}
 export const boxes = (ts: Table[], padding = PREFERRED_CLEARANCE) =>
   ts.map((t) => ({
     id: t.id,

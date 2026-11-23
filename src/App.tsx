@@ -1,4 +1,7 @@
 import { keepPrevious, readPrevious, watchStorage } from "../shared/storage.ts";
+import { downloadFile, downloadPng } from "../shared/export.ts";
+import { diagramSvg, exportFilename, titleFromFile } from "./export.ts";
+import { diagramDDL } from "./ddl.ts";
 import { messageOf, overlaps } from "./utils.ts";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type {
@@ -35,7 +38,7 @@ import {
   HelpDialog,
   SampleDialog,
 } from "./Dialogs.tsx";
-import { loadSample } from "./samples.ts";
+import { loadSample, samples } from "./samples.ts";
 import { Sidebar } from "./Panels.tsx";
 import { Icon, Logo } from "./icons.tsx";
 
@@ -140,6 +143,7 @@ export function App() {
   const [infer, setInfer] = useState(false);
   const [help, setHelp] = useState(false);
   const [sampleList, setSampleList] = useState(false);
+  const [exportingPng, setExportingPng] = useState(false);
   const [fitRequest, setFitRequest] = useState(0);
   const view = useRef<View>({ x: 0, y: 0, w: 1200, h: 720, zoom: 100 });
   const file = useRef<HTMLInputElement>(null);
@@ -190,13 +194,13 @@ export function App() {
     if (fit) setFitRequest((n) => n + 1);
   }
   // A new or opened diagram replaces the current one; keep it for 「前の図に戻す」.
-  function replaceAll(next: Diagram, message: string) {
+  function replaceAll(next: Diagram, message: string, fallbackTitle?: string) {
     if (
       state.tables.length &&
       keepPrevious(STORAGE, encodeDocument(history.present))
     )
       setHasPrevious(true);
-    replace(next, message, true);
+    replace({ ...next, title: next.title ?? fallbackTitle }, message, true);
   }
   function restorePrevious() {
     const raw = readPrevious(STORAGE);
@@ -213,6 +217,7 @@ export function App() {
       replaceAll(
         decode(await loadSample(index)),
         "サンプルを開きました（⌘Z で戻る）",
+        samples[index].name,
       );
     } catch (error) {
       setHint(`サンプルを開けませんでした：${messageOf(error)}`);
@@ -423,21 +428,37 @@ export function App() {
       setHint(messageOf(error));
     }
   }
-  function download() {
+  async function download(format: "json" | "svg" | "png" | "sql") {
+    const name = exportFilename(state.title) + "." + format;
     try {
-      const url = URL.createObjectURL(
-        new Blob([encodeDocument(history.present)], {
-          type: "application/json",
-        }),
-      );
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `er-sketch-${new Date().toISOString().slice(0, 10)}.json`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (format === "json")
+        downloadFile(encodeDocument(history.present), name);
+      else if (format === "sql")
+        downloadFile(diagramDDL(state), name, "application/sql;charset=utf-8");
+      else {
+        const svg = diagramSvg(state, displayTable, displayColumn);
+        if (format === "svg")
+          downloadFile(svg, name, "image/svg+xml;charset=utf-8");
+        else {
+          setExportingPng(true);
+          await downloadPng(svg, name);
+        }
+      }
       setHint("");
     } catch (error) {
       setHint(`保存できませんでした：${messageOf(error)}`);
+    } finally {
+      if (format === "png") setExportingPng(false);
+    }
+  }
+  async function copyDDL() {
+    try {
+      await navigator.clipboard.writeText(diagramDDL(state));
+      setHint("全テーブルの DDL をコピーしました。");
+    } catch {
+      setHint(
+        "コピーできませんでした。ファイルメニューから DDL を保存できます。",
+      );
     }
   }
   // Keep the optional browser model-context integration on the React state path.
@@ -607,7 +628,29 @@ export function App() {
               <button disabled={!hasPrevious} onClick={restorePrevious}>
                 前の図に戻す
               </button>
-              <button onClick={download}>ファイルに保存</button>
+              <button onClick={() => download("json")}>ファイルに保存</button>
+              <hr />
+              <button
+                disabled={!state.tables.length}
+                onClick={() => download("svg")}
+              >
+                SVG で保存
+              </button>
+              <button
+                disabled={!state.tables.length || exportingPng}
+                onClick={() => download("png")}
+              >
+                {exportingPng ? "PNG に変換中…" : "PNG で保存"}
+              </button>
+              <button disabled={!state.tables.length} onClick={copyDDL}>
+                全テーブルの DDL をコピー
+              </button>
+              <button
+                disabled={!state.tables.length}
+                onClick={() => download("sql")}
+              >
+                全テーブルの DDL を保存
+              </button>
               <hr />
               <button onClick={() => setSampleList(true)}>
                 サンプルを開く
@@ -637,6 +680,7 @@ export function App() {
                 replaceAll(
                   decode(await selectedFile.text()),
                   "ファイルを開きました（⌘Z で戻る）",
+                  titleFromFile(selectedFile.name),
                 );
               } catch (error) {
                 setHint(

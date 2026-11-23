@@ -1,18 +1,18 @@
 import type { Diagram, Table } from "./types.ts";
 
-const RESERVED = new Set([
-  "user",
-  "order",
-  "group",
-  "select",
-  "table",
-  "from",
-  "where",
-  "index",
-  "key",
-  "primary",
-  "references",
-]);
+// PostgreSQL 19 pg_get_keywords() categories R and T, plus the previously quoted index and key.
+const RESERVED = new Set(
+  `all analyse analyze and any array as asc asymmetric authorization binary both case
+   cast check collate collation column concurrently constraint create cross
+   current_catalog current_date current_role current_schema current_time
+   current_timestamp current_user default deferrable desc distinct do else end except
+   false fetch for foreign freeze from full grant group having ilike in index
+   initially inner intersect into is isnull join key lateral leading left like limit
+   localtime localtimestamp natural not notnull null offset on only or order outer
+   overlaps placing primary references returning right select session_user similar
+   some symmetric system_user table tablesample then to trailing true union unique
+   user using variadic verbose when where window with`.split(/\s+/),
+);
 /** Quote only identifiers that would not be valid as written. */
 export function identifier(name: string) {
   return /^[a-z_][a-z0-9_]*$/.test(name) && !RESERVED.has(name)
@@ -26,7 +26,11 @@ const literal = (text: string) => `'${text.replaceAll("'", "''")}'`;
  * editor, so incomplete drafts (unnamed columns, missing targets) are skipped
  * instead of rejected.
  */
-export function tableDDL(table: Table, state: Diagram) {
+export function tableDDL(
+  table: Table,
+  state: Diagram,
+  forwardReferences?: string[],
+) {
   const columnName = (id: string) =>
     table.columns.find((c) => c.id === id)?.name.trim() ?? "";
   const named = (ids: string[]) => {
@@ -62,9 +66,13 @@ export function tableDDL(table: Table, state: Diagram) {
       (id) => parent?.columns.find((c) => c.id === id)?.name.trim() ?? "",
     );
     if (!parent || !targets.every(Boolean)) continue;
-    lines.push(
-      `  ${fk.name ? `CONSTRAINT ${identifier(fk.name)} ` : ""}FOREIGN KEY (${named(fk.columnIds)}) REFERENCES ${identifier(parent.name?.trim() || parent.id)} (${targets.map(identifier).join(", ")})`,
-    );
+    const constraint = `${fk.name ? `CONSTRAINT ${identifier(fk.name)} ` : ""}FOREIGN KEY (${named(fk.columnIds)}) REFERENCES ${identifier(parent.name?.trim() || parent.id)} (${targets.map(identifier).join(", ")})`;
+    if (
+      forwardReferences &&
+      state.tables.indexOf(parent) > state.tables.indexOf(table)
+    )
+      forwardReferences.push(`ALTER TABLE ${name} ADD ${constraint};`);
+    else lines.push(`  ${constraint}`);
   }
   const statements = [`CREATE TABLE ${name} (\n${lines.join(",\n")}\n);`];
   keys
@@ -84,4 +92,13 @@ export function tableDDL(table: Table, state: Diagram) {
         `COMMENT ON COLUMN ${name}.${identifier(c.name)} IS ${literal(c.logicalName.trim())};`,
       );
   return statements.join("\n");
+}
+
+/** Install references to later tables after CREATE TABLE, including cycles. */
+export function diagramDDL(state: Diagram) {
+  const forwardReferences: string[] = [];
+  const tables = state.tables.map((table) =>
+    tableDDL(table, state, forwardReferences),
+  );
+  return [...tables, ...forwardReferences].join("\n\n");
 }

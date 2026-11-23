@@ -1731,9 +1731,17 @@ select:focus {
 }
 .file-options-panel {
   min-width: 180px;
+  max-height: calc(100dvh - 52px);
+  overflow-y: auto;
   padding: 4px;
   border-radius: 8px;
   box-shadow: var(--shadow-md);
+}
+@media (max-width: 360px) {
+  .file-options-panel {
+    right: 0;
+    left: auto;
+  }
 }
 .file-options-panel button {
   display: flex;
