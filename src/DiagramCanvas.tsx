@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent, ReactNode, RefObject } from "react";
 import type { Column, Diagram, Endpoint, Point, Table, View } from "./types.ts";
 import {
+  diagramBounds,
   height,
   HEADER,
   ROW,
@@ -192,33 +193,22 @@ export function DiagramCanvas(p: Props) {
       zoom(100, 0, 0);
       return;
     }
-    const points = [
-      ...[...latestRoutes.current.values()].flatMap((r) => r.points),
-      ...[...latestLabels.current.values()].flatMap((l) => [
-        { x: l.x, y: l.y },
-        { x: l.x + l.width, y: l.y + l.height },
-      ]),
-    ];
-    const x =
-        Math.min(...tables.map((t) => t.x), ...points.map((p) => p.x)) - 70,
-      y = Math.min(...tables.map((t) => t.y), ...points.map((p) => p.y)) - 80;
-    const right =
-        Math.max(
-          ...tables.map((t) => t.x + tableWidth(t)),
-          ...points.map((p) => p.x),
-        ) + 70,
-      bottom =
-        Math.max(
-          ...tables.map((t) => t.y + height(t)),
-          ...points.map((p) => p.y),
-        ) + 100,
-      size = viewport();
+    const bounds = diagramBounds(
+      tables,
+      latestRoutes.current.values(),
+      latestLabels.current.values(),
+    );
+    const size = viewport();
     zoom(
       reset
         ? 100
-        : Math.min(1, size.w / (right - x), size.h / (bottom - y)) * 100,
-      (x + right) / 2,
-      (y + bottom) / 2,
+        : Math.min(
+            1,
+            size.w / (bounds.width + 140),
+            size.h / (bounds.height + 180),
+          ) * 100,
+      bounds.x + bounds.width / 2,
+      bounds.y + bounds.height / 2 + 10,
     );
   }
   useLayoutEffect(() => {

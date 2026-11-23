@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { tableDDL, identifier } from "../src/ddl.ts";
+import { diagramDDL, tableDDL, identifier } from "../src/ddl.ts";
 
 const users = {
   id: "users",
@@ -83,6 +83,35 @@ test("DDL skips incomplete drafts instead of failing", () => {
 test("identifiers are quoted only when needed", () => {
   assert.equal(identifier("order_items"), "order_items");
   assert.equal(identifier("user"), '"user"');
+  assert.equal(identifier("column"), '"column"');
+  assert.equal(identifier("join"), '"join"');
   assert.equal(identifier("注文"), '"注文"');
   assert.equal(identifier('a"b'), '"a""b"');
+});
+
+test("diagram DDL joins the previews and defers forward references in a cycle", () => {
+  assert.equal(
+    diagramDDL(state),
+    [users, orders].map((t) => tableDDL(t, state)).join("\n\n"),
+  );
+  const cycle = structuredClone(state);
+  cycle.tables[0].foreignKeys.push({
+    id: "later",
+    name: "最新注文",
+    columnIds: ["u-id"],
+    target: { tableId: "orders", columnIds: ["o-id"] },
+  });
+  const ddl = diagramDDL(cycle);
+  assert.equal(ddl.match(/CREATE TABLE /g).length, 2);
+  assert.equal(ddl.match(/FOREIGN KEY /g).length, 2);
+  assert.ok(
+    ddl.endsWith(
+      'ALTER TABLE users ADD CONSTRAINT "最新注文" FOREIGN KEY (id) REFERENCES orders (id);',
+    ),
+  );
+  assert.match(
+    tableDDL(cycle.tables[0], cycle),
+    /CONSTRAINT "最新注文" FOREIGN KEY/,
+  );
+  assert.equal(diagramDDL({ tables: [], edges: [] }), "");
 });

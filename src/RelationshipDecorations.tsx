@@ -1,5 +1,5 @@
 import type { ForeignKey, Point, Port, Table } from "./types.ts";
-import { childMaximum } from "./relationships.ts";
+import { cardinalityMarker, childMaximum } from "./relationships.ts";
 
 function EndMarker({
   point,
@@ -12,21 +12,17 @@ function EndMarker({
   maximum: "one" | "many";
   minimum?: 0 | 1;
 }) {
+  const marker = cardinalityMarker(point, side, maximum, minimum);
   return (
     <g
       className="cardinality"
       data-maximum={maximum}
       data-minimum={minimum ?? "unknown"}
-      transform={`translate(${point.x} ${point.y}) scale(${side === "right" ? 1 : -1} 1)`}
+      transform={marker.transform}
       aria-hidden="true"
     >
-      {maximum === "many" ? (
-        <path d="M 5 -6 L 15 0 L 5 6" />
-      ) : (
-        <path d="M 8 -6 V 6" />
-      )}
+      <path d={marker.path} />
       {minimum === 0 && <circle cx={23} cy={0} r={3.5} />}
-      {minimum === 1 && <path d="M 21 -6 V 6" />}
     </g>
   );
 }

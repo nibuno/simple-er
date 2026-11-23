@@ -1,4 +1,11 @@
-import type { Diagram, ForeignKey, Route, Table } from "./types.ts";
+import type {
+  Diagram,
+  ForeignKey,
+  Point,
+  Port,
+  Route,
+  Table,
+} from "./types.ts";
 import { height, tableWidth } from "./geometry.ts";
 
 // An FK is at most one-to-one only when its columns contain a unique key.
@@ -12,6 +19,19 @@ export function childMaximum(table: Table, fk: ForeignKey): "one" | "many" {
   )
     ? "one"
     : "many";
+}
+
+export function cardinalityMarker(
+  point: Point,
+  side: Port["side"],
+  maximum: "one" | "many",
+  minimum?: 0 | 1,
+) {
+  const end = maximum === "many" ? "M 5 -6 L 15 0 L 5 6" : "M 8 -6 V 6";
+  return {
+    path: end + (minimum === 1 ? " M 21 -6 V 6" : ""),
+    transform: `translate(${point.x} ${point.y}) scale(${side === "right" ? 1 : -1} 1)`,
+  };
 }
 
 export function labelLines(label: string) {

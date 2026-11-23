@@ -392,7 +392,9 @@ test("invalid import preserves current data; valid legacy import is undoable", a
   async function upload(text) {
     Object.defineProperty(input, "files", {
       configurable: true,
-      value: [{ size: text.length, text: async () => text }],
+      value: [
+        { name: "受注管理.json", size: text.length, text: async () => text },
+      ],
     });
     await act(async () => {
       input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -406,8 +408,48 @@ test("invalid import preserves current data; valid legacy import is undoable", a
   );
   await upload(encode(validateDiagram({ tables: [], edges: [] })));
   assert.equal(saved().tables.length, 0);
+  assert.equal(saved().title, "受注管理");
   await click(byLabel("元に戻す"));
   assert.deepEqual(saved(), before);
+});
+
+test("file menu copies and saves the same DDL and disables exports on an empty diagram", async (t) => {
+  let copied, blob, filename;
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (text) => {
+        copied = text;
+      },
+    },
+  });
+  t.after(() => {
+    delete navigator.clipboard;
+  });
+  t.mock.method(URL, "createObjectURL", (value) => {
+    blob = value;
+    return "blob:test";
+  });
+  t.mock.method(dom.window.HTMLAnchorElement.prototype, "click", function () {
+    filename = this.download;
+  });
+  await click(byText("全テーブルの DDL をコピー"));
+  assert.equal(copied.match(/CREATE TABLE /g).length, initial.tables.length);
+  assert.match(
+    document.querySelector(".instruction").textContent,
+    /コピーしました/,
+  );
+  await click(byText("全テーブルの DDL を保存"));
+  assert.equal(await blob.text(), copied);
+  assert.match(filename, /^simple-er-\d{4}-\d{2}-\d{2}\.sql$/);
+  await click(byText("新しい図"));
+  for (const label of [
+    "SVG で保存",
+    "PNG で保存",
+    "全テーブルの DDL をコピー",
+    "全テーブルの DDL を保存",
+  ])
+    assert.equal(byText(label).disabled, true);
 });
 
 async function pointer(element, type, x, y) {
