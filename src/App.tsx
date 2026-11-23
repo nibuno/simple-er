@@ -28,7 +28,13 @@ import { tableWidth } from "./geometry.ts";
 import { tidyDiagram } from "./layout.ts";
 import { historyReducer } from "./history.ts";
 import { DiagramCanvas } from "./DiagramCanvas.tsx";
-import { TableEditor, InferDialog } from "./Dialogs.tsx";
+import {
+  TableEditor,
+  InferDialog,
+  HelpDialog,
+  SampleDialog,
+} from "./Dialogs.tsx";
+import { loadSample } from "./samples.ts";
 import { Sidebar } from "./Panels.tsx";
 import { Icon, Logo } from "./icons.tsx";
 
@@ -131,6 +137,8 @@ export function App() {
     string | undefined
   >();
   const [infer, setInfer] = useState(false);
+  const [help, setHelp] = useState(false);
+  const [sampleList, setSampleList] = useState(false);
   const [fitRequest, setFitRequest] = useState(0);
   const view = useRef<View>({ x: 0, y: 0, w: 1200, h: 720, zoom: 100 });
   const file = useRef<HTMLInputElement>(null);
@@ -198,6 +206,17 @@ export function App() {
       setHint(`前の図を読み込めませんでした：${messageOf(error)}`);
     }
   }
+  async function openSample(index: number) {
+    setSampleList(false);
+    try {
+      replaceAll(
+        decode(await loadSample(index)),
+        "サンプルを開きました（⌘Z で戻る）",
+      );
+    } catch (error) {
+      setHint(`サンプルを開けませんでした：${messageOf(error)}`);
+    }
+  }
   function undo() {
     if (!history.past.length) return;
     dispatch({ type: "undo" });
@@ -232,11 +251,24 @@ export function App() {
       if (
         draft ||
         infer ||
+        help ||
+        sampleList ||
         (e.target instanceof Element &&
           e.target.matches("input,select,textarea"))
       )
         return;
       if (e.key === "Escape") clear();
+      if (
+        e.key === "?" &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !(e.target instanceof Element && e.target.closest("[contenteditable]"))
+      ) {
+        e.preventDefault();
+        setHelp(true);
+        return;
+      }
       if (
         e.key.toLowerCase() === "t" &&
         !e.ctrlKey &&
@@ -575,6 +607,13 @@ export function App() {
                 前の図に戻す
               </button>
               <button onClick={download}>ファイルに保存</button>
+              <hr />
+              <button onClick={() => setSampleList(true)}>
+                サンプルを開く
+              </button>
+              <button onClick={() => setHelp(true)}>
+                使い方 <kbd className="kbd">?</kbd>
+              </button>
             </div>
           </details>
           {(saveError || storageConflict) && (
@@ -902,6 +941,24 @@ export function App() {
             fitRequest={fitRequest}
             viewRef={view}
           >
+            {!state.tables.length && (
+              <div className="empty-diagram">
+                <h2>空の図</h2>
+                <div className="empty-actions">
+                  <button className="primary" onClick={() => open()}>
+                    <Icon name="plus" size={14} />
+                    テーブルを追加
+                    <kbd className="kbd">T</kbd>
+                  </button>
+                  <button onClick={() => file.current?.click()}>
+                    ファイルを開く
+                  </button>
+                  <button onClick={() => setSampleList(true)}>
+                    サンプルを開く
+                  </button>
+                </div>
+              </div>
+            )}
             {pendingTable && pendingColumn && (
               <div className="connect-hint" role="status">
                 <span className="mono">
@@ -983,6 +1040,13 @@ export function App() {
           state={state}
           onClose={() => setInfer(false)}
           onApply={replace}
+        />
+      )}
+      {help && <HelpDialog onClose={() => setHelp(false)} />}
+      {sampleList && (
+        <SampleDialog
+          onClose={() => setSampleList(false)}
+          onOpen={openSample}
         />
       )}
     </>

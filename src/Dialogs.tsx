@@ -20,6 +20,7 @@ import {
 import { messageOf, overlaps } from "./utils.ts";
 import { tableDDL } from "./ddl.ts";
 import { Icon } from "./icons.tsx";
+import { samples } from "./samples.ts";
 const TYPES = [
   "uuid",
   "integer",
@@ -107,7 +108,9 @@ function Modal({
         backdropPress.current = false;
       }}
       aria-labelledby={
-        id === "table-editor" ? "editor-heading" : "infer-heading"
+        id === "table-editor"
+          ? "editor-heading"
+          : id.replace("dialog", "heading")
       }
       onCancel={(e) => {
         e.preventDefault();
@@ -950,6 +953,73 @@ export function InferDialog({
           選択した候補を接続
         </button>
       </div>
+    </Modal>
+  );
+}
+const SHORTCUTS = [
+  ["外部キーを登録", "カラム端の点から別のカラムへドラッグ"],
+  ["キーボードで外部キーを登録", "カラム行で Enter（接続元と接続先で2回）"],
+  ["テーブルを追加", "T"],
+  ["名前を変更", "ダブルクリック / F2（カラム行）"],
+  ["選択中のものを削除", "Delete / ⌫"],
+  ["選択や編集をやめる", "Esc"],
+  ["元に戻す / やり直す", "⌘ Z / ⇧⌘ Z"],
+  ["使い方", "?"],
+];
+export function HelpDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <Modal id="help-dialog" onClose={onClose}>
+      <div className="dialog-heading">
+        <h2 id="help-heading">使い方</h2>
+        <button aria-label="使い方を閉じる" onClick={onClose}>
+          ×
+        </button>
+      </div>
+      <dl>
+        {SHORTCUTS.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="explanation">
+        変更はこのブラウザに自動保存されます。ほかの端末で使うときは「ファイルに保存」してください。Windowsでは⌘をCtrlに読み替えてください。
+      </p>
+      <div className="dialog-actions">
+        <span />
+        <button className="primary" onClick={onClose}>
+          閉じる
+        </button>
+      </div>
+    </Modal>
+  );
+}
+export function SampleDialog({
+  onClose,
+  onOpen,
+}: {
+  onClose: () => void;
+  onOpen: (index: number) => void;
+}) {
+  return (
+    <Modal id="sample-dialog" onClose={onClose}>
+      <div className="dialog-heading">
+        <h2 id="sample-heading">サンプルを開く</h2>
+        <button aria-label="サンプルを閉じる" onClick={onClose}>
+          ×
+        </button>
+      </div>
+      <ul className="sample-list">
+        {samples.map((sample, i) => (
+          <li key={sample.name}>
+            <button onClick={() => onOpen(i)}>
+              <strong>{sample.name}</strong>
+              <span>{sample.description}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
     </Modal>
   );
 }
