@@ -952,6 +952,13 @@ kbd {
   pointer-events: none;
   z-index: 2;
 }
+.attachment-wire {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-dasharray: 0 4;
+}
 .edge-control {
   pointer-events: all;
   cursor: pointer;

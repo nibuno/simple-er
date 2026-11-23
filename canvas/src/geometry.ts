@@ -77,7 +77,7 @@ interface RouteContext {
   row?: number;
 }
 export function routeEdge(
-  edge: CanvasEdge,
+  edge: Pick<CanvasEdge, "from" | "to" | "label">,
   nodes: CanvasNode[],
   context: RouteContext = {},
 ): Route {
@@ -368,6 +368,28 @@ export function documentRoutes(doc: CanvasDocument) {
   placeLabels(doc, routes);
   return routes;
 }
+// Route memo links after the diagram's connections so they can avoid them.
+export function memoRoutes(doc: CanvasDocument, routes: Map<string, Route>) {
+  const memos = new Map<string, Route>(),
+    occupied = [...routes.values()].flatMap((r) => segments(r.points));
+  for (const note of doc.nodes) {
+    if (!note.attachedTo) continue;
+    // Keep the dots clear of other outlines, even when a route follows a side.
+    const nodes = doc.nodes.map((n) =>
+      n === note || n.id === note.attachedTo
+        ? n
+        : { ...n, x: n.x - 8, y: n.y - 8, w: n.w + 16, h: n.h + 16 },
+    );
+    const route = routeEdge(
+      { from: note.attachedTo, to: note.id, label: "" },
+      nodes,
+      { occupied },
+    );
+    memos.set(note.id, route);
+    occupied.push(...segments(route.points));
+  }
+  return memos;
+}
 function placeLabels(doc: CanvasDocument, routes: Map<string, Route>) {
   const placed: { x: number; y: number; w: number; h: number }[] = [];
   for (const edge of [...doc.edges].sort((a, b) => a.id.localeCompare(b.id))) {
@@ -434,9 +456,13 @@ function placeLabels(doc: CanvasDocument, routes: Map<string, Route>) {
     });
   }
 }
-export function sceneBounds(doc: CanvasDocument, routes = documentRoutes(doc)) {
+export function sceneBounds(
+  doc: CanvasDocument,
+  routes = documentRoutes(doc),
+  memos = memoRoutes(doc, routes),
+) {
   const all = doc.nodes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h }));
-  routes.forEach((r) => {
+  for (const r of [...routes.values(), ...memos.values()]) {
     r.points.forEach((p) => all.push({ ...p, w: 0, h: 0 }));
     if (r.labelLines.some(Boolean))
       all.push({
@@ -445,6 +471,6 @@ export function sceneBounds(doc: CanvasDocument, routes = documentRoutes(doc)) {
         w: 220,
         h: r.labelLines.length * 18 + 22,
       });
-  });
+  }
   return bounds(all as CanvasNode[]);
 }

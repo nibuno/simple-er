@@ -111,7 +111,7 @@ export function sampleDocument(): CanvasDocument {
     "通知は非同期にする。\nメール送信を待たずに、\n注文結果を返す。";
   decision.w = 270;
   doc.nodes.push(decision, {
-    ...makeNode("note", { x: 1010, y: 260 }),
+    ...makeNode("note", { x: 680, y: 466 }),
     id: "worker-note",
     attachedTo: "worker",
     h: 270,

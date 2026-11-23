@@ -1118,7 +1118,26 @@ test("pointing at a memo lights up its figure, and the other way round", async (
     worker.dispatchEvent(new MouseEvent("pointerover", { bubbles: true })),
   );
   assert.ok(lit("worker-note"));
-  assert.equal(document.querySelector(".attachment-wire"), null);
+});
+test("a visible memo link follows the dragged note and is removed with its owner", async () => {
+  const stage = label("設計キャンバス"),
+    path = () => document.querySelector(".attachment-wire")?.getAttribute("d"),
+    before = path();
+  assert.ok(before);
+  await pointer(label("Worker のメモを選択"), "pointerdown", 700, 400);
+  await pointer(stage, "pointermove", 920, 460);
+  const dragging = path();
+  assert.ok(dragging);
+  assert.notEqual(dragging, before);
+  await pointer(stage, "pointerup", 920, 460);
+  assert.equal(path(), dragging);
+  await click(label("元に戻す"));
+  assert.equal(path(), before);
+
+  await click(label("Workerを選択"));
+  await click(label("削除"));
+  assert.ok(label("Worker のメモを選択"));
+  assert.equal(path(), undefined);
 });
 test("clicking a port adds a connected figure on that side, clear of others", async () => {
   const stage = label("設計キャンバス"),
