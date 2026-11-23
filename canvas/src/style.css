@@ -412,6 +412,35 @@ kbd {
 .bar-button.text {
   color: var(--text);
 }
+/* Like the tool rail, each button is named as soon as the pointer rests on
+   it. The hint goes toward the selection, clear of the panel, which opens
+   on the far side of the bar. */
+.bar-button[data-tip] {
+  position: relative;
+}
+.bar-button[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--text);
+  color: var(--surface);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+}
+.selection-anchor.below .bar-button[data-tip]::after {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+.bar-button[data-tip]:hover::after,
+.bar-button[data-tip]:focus-visible::after {
+  opacity: 1;
+}
 .bar-button.danger:hover {
   color: var(--danger);
   background: var(--danger-bg);

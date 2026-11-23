@@ -146,27 +146,32 @@ export function SelectionBar({
     <button
       className={"bar-button" + (open === panel ? " open" : "")}
       aria-label={label}
-      title={label}
+      data-tip={label}
       aria-expanded={open === panel}
       onClick={() => toggle(panel)}
     >
       {content}
     </button>
   );
+  // The button shows the color itself: a figure's fill inside its line, or
+  // a line's own color.
   const colorButton = panelButton(
     "color",
     "色",
-    <span
-      className="bar-swatch"
-      style={
-        {
-          "--swatch-fill":
-            (fill.value !== "transparent" && fill.value) ||
-            (nodes.length ? "var(--surface)" : "transparent"),
-          "--swatch-stroke": stroke.value || "var(--shape-line)",
-        } as CSSProperties
-      }
-    />,
+    <>
+      <span
+        className="bar-swatch"
+        style={
+          {
+            "--swatch-fill": nodes.length
+              ? (fill.value !== "transparent" && fill.value) || "var(--surface)"
+              : stroke.value || "var(--shape-line)",
+            "--swatch-stroke": stroke.value || "var(--shape-line)",
+          } as CSSProperties
+        }
+      />
+      <span>色</span>
+    </>,
   );
   const hasGroups = doc.nodes.some((n) => n.kind === "group");
   return (
@@ -197,7 +202,7 @@ export function SelectionBar({
           panelButton(
             "icon",
             "アイコン",
-            node.icon ? <NodeIcon id={node.icon} /> : <Icon name="plus" />,
+            node.icon ? <NodeIcon id={node.icon} /> : <Icon name="smile" />,
           )}
         {edge &&
           panelButton(
@@ -214,7 +219,7 @@ export function SelectionBar({
             <button
               className="bar-button"
               aria-label="破線"
-              title="破線"
+              data-tip="破線"
               aria-pressed={edge.dashed}
               onClick={() => onEdge(edge.id, { dashed: !edge.dashed })}
             >
@@ -223,7 +228,7 @@ export function SelectionBar({
             <button
               className="bar-button"
               aria-label="向きを反転"
-              title="向きを反転"
+              data-tip="向きを反転"
               onClick={() => onEdge(edge.id, { from: edge.to, to: edge.from })}
             >
               <Icon name="swap" />
@@ -243,7 +248,7 @@ export function SelectionBar({
           <button
             className="bar-button"
             aria-label="囲む"
-            title="囲む (⌘ G)"
+            data-tip="囲む ⌘G"
             onClick={onGroup}
           >
             <Icon name="group" />
@@ -253,7 +258,7 @@ export function SelectionBar({
           <button
             className="bar-button"
             aria-label="内容に合わせる"
-            title="内容に合わせる"
+            data-tip="内容に合わせる"
             onClick={() => onFitGroup(node.id)}
           >
             <Icon name="fit" />
@@ -264,7 +269,7 @@ export function SelectionBar({
           <button
             className="bar-button"
             aria-label="複製"
-            title="複製 (⌘ D)"
+            data-tip="複製 ⌘D"
             onClick={onDuplicate}
           >
             <Icon name="duplicate" />
@@ -273,7 +278,7 @@ export function SelectionBar({
         <button
           className="bar-button danger"
           aria-label={node?.kind === "group" ? "囲みを解除" : "削除"}
-          title={node?.kind === "group" ? "囲みを解除" : "削除 (Delete)"}
+          data-tip={node?.kind === "group" ? "囲みを解除" : "削除 Delete"}
           onClick={onDelete}
         >
           <Icon name="trash" />
