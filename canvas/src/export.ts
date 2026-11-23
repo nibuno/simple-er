@@ -1,6 +1,6 @@
 import type { CanvasDocument, CanvasNode } from "./types";
 import { noteContent, wrapText } from "./model";
-import { documentRoutes, sceneBounds } from "./geometry";
+import { documentRoutes, memoRoutes, sceneBounds } from "./geometry";
 import { boxTextArea, shapePaths } from "./shapes";
 import { DEFAULT_COLORS, nodeAppearance, safeColor } from "./colors";
 import { iconPath } from "./Icons";
@@ -47,7 +47,8 @@ function textBlock(
 }
 export function toSvg(doc: CanvasDocument) {
   const routes = documentRoutes(doc),
-    b = sceneBounds(doc, routes),
+    memos = memoRoutes(doc, routes),
+    b = sceneBounds(doc, routes, memos),
     pad = 48;
   const width = Math.ceil(b.w + pad * 2),
     height = Math.ceil(b.h + pad * 2);
@@ -165,6 +166,12 @@ export function toSvg(doc: CanvasDocument) {
     .filter((n) => n.kind === "group")
     .map(nodeSvg)
     .join("");
+  const memoLinks = [...memos.values()]
+    .map(
+      (r) =>
+        `<path d="${r.path}" fill="none" stroke="${DEFAULT_COLORS.muted}" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="0 4"/>`,
+    )
+    .join("");
   const wires = doc.edges
     .map((e, i) => {
       const r = routes.get(e.id)!;
@@ -228,6 +235,7 @@ export function toSvg(doc: CanvasDocument) {
     height +
     '" fill="#f8faf9"/><g font-family="system-ui,-apple-system,BlinkMacSystemFont,Noto Sans JP,sans-serif">' +
     frames +
+    memoLinks +
     wires +
     content +
     "</g></svg>"

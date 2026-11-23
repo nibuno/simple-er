@@ -20,7 +20,11 @@ import {
   sampleDocument,
   selectionDocument,
 } from "../canvas/src/model.ts";
-import { documentRoutes, routeEdge } from "../canvas/src/geometry.ts";
+import {
+  documentRoutes,
+  memoRoutes,
+  routeEdge,
+} from "../canvas/src/geometry.ts";
 import { toSvg } from "../canvas/src/export.ts";
 import { boxTextArea, SHAPES, shapePaths } from "../canvas/src/shapes.ts";
 import {
@@ -417,11 +421,16 @@ test("portable SVG is valid XML, escapes text and draws attached memos as cards"
     parsed.window.document.querySelectorAll("[marker-end]").length,
     doc.edges.length,
   );
-  assert.equal(documentRoutes(doc).size, doc.edges.length);
-  // A memo is a card headed by its figure's name, not a dotted leader line.
+  const routes = documentRoutes(doc),
+    links = parsed.window.document.querySelectorAll(
+      "path[stroke-dasharray]:not([marker-end])",
+    );
+  assert.equal(routes.size, doc.edges.length);
+  assert.equal(links.length, 1);
+  assert.equal(links[0].getAttribute("stroke-linecap"), "round");
   assert.equal(
-    parsed.window.document.querySelectorAll('[stroke-dasharray="3 5"]').length,
-    0,
+    links[0].getAttribute("d"),
+    memoRoutes(doc, routes).get("worker-note").path,
   );
   assert.equal(
     parsed.window.document.querySelectorAll('rect[rx="8"]').length,

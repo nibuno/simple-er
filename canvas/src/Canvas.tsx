@@ -29,7 +29,7 @@ import {
   moveNodes,
   noteContent,
 } from "./model";
-import { documentRoutes, sceneBounds } from "./geometry";
+import { documentRoutes, memoRoutes, sceneBounds } from "./geometry";
 import { snapToGuides } from "./spatial";
 import type { Guide } from "./spatial";
 import { Icon, NodeIcon } from "./Icons";
@@ -174,21 +174,20 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   );
   // A figure being added without a line is left out of routing, so existing
   // lines do not detour around it before it is confirmed.
-  const routes = useMemo(
-    () =>
-      documentRoutes(
-        p.draftId &&
-          !displayedDoc.edges.some(
-            (e) => e.from === p.draftId || e.to === p.draftId,
-          )
-          ? {
-              ...displayedDoc,
-              nodes: displayedDoc.nodes.filter((n) => n.id !== p.draftId),
-            }
-          : displayedDoc,
-      ),
-    [displayedDoc, p.draftId],
-  );
+  const { routes, memos } = useMemo(() => {
+    const doc =
+      p.draftId &&
+      !displayedDoc.edges.some(
+        (e) => e.from === p.draftId || e.to === p.draftId,
+      )
+        ? {
+            ...displayedDoc,
+            nodes: displayedDoc.nodes.filter((n) => n.id !== p.draftId),
+          }
+        : displayedDoc;
+    const routes = documentRoutes(doc);
+    return { routes, memos: memoRoutes(doc, routes) };
+  }, [displayedDoc, p.draftId]);
   // The selection bar sits centered above the selection, or below it when
   // the selection is near the top of the window.
   const barAnchor = (() => {
@@ -1156,6 +1155,14 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
             "translate(" + view.x + "," + view.y + ") scale(" + view.zoom + ")"
           }
         >
+          {[...memos].map(([id, route]) => (
+            <path
+              key={id}
+              className="attachment-wire"
+              d={route.path}
+              aria-hidden="true"
+            />
+          ))}
           {p.doc.edges.map((edge) => {
             const route = routes.get(edge.id)!;
             return (

@@ -12,7 +12,12 @@ import {
   attachNote,
   noteContent,
 } from "../canvas/src/model.ts";
-import { documentRoutes, routeEdge } from "../canvas/src/geometry.ts";
+import {
+  documentRoutes,
+  memoRoutes,
+  routeEdge,
+  sceneBounds,
+} from "../canvas/src/geometry.ts";
 import { toSvg } from "../canvas/src/export.ts";
 
 function graph(specs, links) {
@@ -530,6 +535,29 @@ test("figure movement recalculates every endpoint and the exported routes", () =
   for (const edge of doc.edges) {
     assert.notEqual(routes.get(edge.id).path, before.get(edge.id).path);
     assert.ok(svg.includes('d="' + routes.get(edge.id).path + '"'));
+  }
+});
+test("a memo link goes around a blocking figure without covering a diagram connection", () => {
+  const doc = graph([["owner"], ["block"], ["memo"]], [["owner", "memo"]]);
+  Object.assign(byId(doc, "memo"), { kind: "note", attachedTo: "owner" });
+  growNodes(doc);
+  const { x, y, w, h } = byId(doc, "block"),
+    outline = { x: x - 1, y: y - 1, w: w + 2, h: h + 2 };
+  for (const edges of [[], doc.edges]) {
+    const diagram = { ...doc, edges },
+      routes = documentRoutes(diagram),
+      link = memoRoutes(diagram, routes).get("memo"),
+      scene = sceneBounds(diagram),
+      wire = routes.get("link-0");
+    if (wire) {
+      assert.notDeepEqual(link.points[0], wire.points[0]);
+      assert.notDeepEqual(link.points.at(-1), wire.points.at(-1));
+    }
+    for (const [i, point] of link.points.entries()) {
+      assert.ok(point.x >= scene.x && point.x <= scene.x + scene.w);
+      assert.ok(point.y >= scene.y && point.y <= scene.y + scene.h);
+      if (i) assert.ok(!crossesBox(link.points[i - 1], point, outline));
+    }
   }
 });
 test("routing can turn around multiple staggered obstacles", () => {
