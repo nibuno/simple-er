@@ -53,9 +53,10 @@ const React = await import("react"),
   { act } = React;
 const { createRoot } = await import("react-dom/client");
 const { App } = await import("../canvas/src/App.tsx");
+const { isDiagramKey, listDiagrams, restoreDiagram } =
+  await import("../canvas/src/library.ts");
 const {
   encode,
-  decode,
   growNodes,
   sampleDocument,
   STORAGE_KEY,
@@ -64,7 +65,12 @@ const {
   makeNode,
 } = await import("../canvas/src/model.ts");
 let root;
-const saved = () => decode(localStorage.getItem(STORAGE_KEY));
+const saved = () => {
+  const current = restoreDiagram();
+  assert.notEqual(current.raw, null);
+  assert.equal(current.error, undefined);
+  return current.doc;
+};
 function label(text) {
   const el = [...document.querySelectorAll("[aria-label]")].find(
     (el) => el.getAttribute("aria-label") === text,
@@ -145,6 +151,7 @@ async function mount() {
 }
 beforeEach(async () => {
   localStorage.clear();
+  window.sessionStorage.clear();
   localStorage.setItem(STORAGE_KEY, encode(growNodes(sampleDocument())));
   await mount();
 });
@@ -585,10 +592,10 @@ test("a box memo and its canvas note remain in sync through edits and undo", asy
   await click(label("やり直す"));
   assert.ok(label("Worker のメモを選択").textContent.includes("失敗時は3回"));
 });
-test("invalid JSON import keeps the current work; valid replacement can be undone", async () => {
-  const before = saved(),
-    input = document.querySelector('input[type="file"]');
+test("invalid files keep the current work, and importing the same file twice makes independent drawings", async () => {
+  const before = saved();
   async function load(text) {
+    const input = document.querySelector('input[type="file"]');
     Object.defineProperty(input, "files", {
       value: [{ size: text.length, text: async () => text }],
       configurable: true,
@@ -609,27 +616,123 @@ test("invalid JSON import keeps the current work; valid replacement can be undon
   imported.title = "別の設計";
   await load(encode(imported));
   assert.equal(saved().title, "別の設計");
-  await click(label("元に戻す"));
+  assert.equal(label("元に戻す").disabled, true);
+  const firstKey = restoreDiagram().key;
+  await load(encode(imported));
+  assert.notEqual(restoreDiagram().key, firstKey);
+  assert.equal(listDiagrams().length, 3);
+  await click(button("図の一覧"));
+  await click(label(before.title + "を開く"));
   assert.deepEqual(saved(), before);
 });
-test("opening the sample keeps the replaced canvas for after a reload", async () => {
-  const mine = sampleDocument();
+test("the old document and its previous version remain separate, even with the same document ID", async () => {
+  await act(() => root.unmount());
+  const mine = growNodes(sampleDocument());
   mine.title = "自分の図";
-  localStorage.setItem(STORAGE_KEY, encode(growNodes(mine)));
-  await act(() => root.unmount());
+  const previous = { ...mine, title: "前の案" };
+  localStorage.setItem(STORAGE_KEY, encode(mine));
+  localStorage.setItem(STORAGE_KEY + ".previous", encode(previous));
   await mount();
-  const before = saved();
-  assert.equal(button("前の図に戻す").disabled, true);
+  assert.deepEqual(saved(), mine);
+  assert.equal(listDiagrams().length, 2);
+  assert.ok(listDiagrams().every((entry) => entry.updatedAt === null));
   await click(button("サンプルを開く"));
-  assert.equal(
-    document.querySelector(".toast").textContent,
-    "サンプルを開きました（⌘Z で戻る）",
-  );
+  await click(button("図の一覧"));
+  await click(button("新しく作る"));
+  assert.equal(listDiagrams().length, 4);
+  await click(button("図の一覧"));
+  await click(label("前の案を開く"));
   await act(() => root.unmount());
   await mount();
-  assert.notEqual(saved().title, "自分の図");
-  await click(button("前の図に戻す"));
-  assert.deepEqual(saved(), before);
+  assert.deepEqual(saved(), previous);
+  assert.equal(localStorage.getItem(STORAGE_KEY), encode(mine));
+  assert.equal(
+    localStorage.getItem(STORAGE_KEY + ".previous"),
+    encode(previous),
+  );
+  assert.equal(listDiagrams().length, 4);
+});
+test("the list creates, copies, renames and deletes drawings, including the last one", async () => {
+  const original = saved();
+  const options = async (title) => click(label(title + "の操作"));
+  const list = async () => click(button("図の一覧"));
+  await list();
+  await options(original.title);
+  await click(button("複製"));
+  const copy = saved();
+  assert.notEqual(copy.id, original.id);
+  assert.deepEqual(copy.nodes, original.nodes);
+  assert.deepEqual(copy.edges, original.edges);
+  assert.equal(copy.title, original.title + "のコピー");
+  await list();
+  await options(original.title);
+  await click(button("名前を変更"));
+  await type(document.querySelector(".row-actions input"), "注文処理");
+  await click(button("変更する"));
+  assert.equal(saved().title, copy.title);
+  const renamed = listDiagrams().find((entry) => entry.title === "注文処理");
+  assert.ok(renamed.updatedAt);
+  await click(label("注文処理を開く"));
+  assert.equal(saved().id, original.id);
+  assert.equal(
+    listDiagrams().find((entry) => entry.title === "注文処理").raw,
+    renamed.raw,
+  );
+  await list();
+  await options("注文処理");
+  await click(button("削除"));
+  await click(button("キャンセル"));
+  assert.equal(listDiagrams().length, 2);
+  await options("注文処理");
+  await click(button("削除"));
+  await click(button("削除する"));
+  assert.deepEqual(saved(), copy);
+  await list();
+  await options(copy.title);
+  await click(button("削除"));
+  await click(button("削除する"));
+  assert.equal(saved().nodes.length, 0);
+  assert.equal(label("元に戻す").disabled, true);
+  await act(() => root.unmount());
+  await mount();
+  assert.deepEqual(
+    listDiagrams().map((row) => row.title),
+    ["無題のキャンバス"],
+  );
+});
+test("quota errors keep saved drawings and pending edits until another drawing is removed", async () => {
+  const original = saved();
+  await click(button("新しいキャンバス"));
+  const active = restoreDiagram();
+  const proto = Object.getPrototypeOf(localStorage),
+    setItem = proto.setItem;
+  proto.setItem = function (key, raw) {
+    if (isDiagramKey(key) && localStorage.getItem(STORAGE_KEY) !== null)
+      throw new dom.window.DOMException("full", "QuotaExceededError");
+    return setItem.call(this, key, raw);
+  };
+  try {
+    await click(button("サンプルを開く"));
+    assert.equal(listDiagrams().length, 2);
+    assert.equal(restoreDiagram().key, active.key);
+    await type(label("キャンバス名"), "保存待ちの図");
+    await blur(label("キャンバス名"));
+    assert.equal(localStorage.getItem(active.key), active.raw);
+    assert.ok(
+      document.querySelector('[role="alert"]').textContent.includes("空き容量"),
+    );
+    await click(button("図の一覧"));
+    await click(label(original.title + "を開く"));
+    assert.ok(document.querySelector(".diagram-list[open]"));
+    assert.equal(label("キャンバス名").value, "保存待ちの図");
+    await click(label(original.title + "の操作"));
+    await click(button("削除"));
+    await click(button("削除する"));
+    assert.equal(saved().title, "保存待ちの図");
+    assert.equal(listDiagrams().length, 1);
+  } finally {
+    proto.setItem = setItem;
+  }
 });
 test("corrupt stored data is not overwritten by mounting or editing", async () => {
   await act(() => root.unmount());
@@ -664,6 +767,43 @@ test("another tab's write pauses autosave until the user explicitly resolves it"
   await click(button("最新の内容を開く"));
   assert.equal(saved().title, "別画面で更新");
   assert.ok(document.body.textContent.includes("このブラウザに保存済み"));
+});
+
+test("a change to a different drawing refreshes the list and prevents a stale deletion", async () => {
+  const original = saved();
+  await click(button("新しいキャンバス"));
+  await click(button("図の一覧"));
+  await click(label(original.title + "の操作"));
+  await click(button("削除"));
+  const remote = encode({ ...original, title: "別のタブの案" });
+  localStorage.setItem(STORAGE_KEY, remote);
+  await act(() =>
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: STORAGE_KEY, newValue: remote }),
+    ),
+  );
+  await click(button("削除する"));
+  assert.equal(localStorage.getItem(STORAGE_KEY), remote);
+  assert.ok(
+    document.querySelector(".list-error").textContent.includes("別のタブ"),
+  );
+  assert.ok(label("別のタブの案を開く"));
+  assert.equal(document.querySelector(".save-short").textContent, "保存済み");
+});
+
+test("edits in a tab with a remotely deleted drawing never recreate it on unload", async () => {
+  await click(button("新しいキャンバス"));
+  const { key } = restoreDiagram();
+  localStorage.removeItem(key);
+  await act(() =>
+    window.dispatchEvent(new StorageEvent("storage", { key, newValue: null })),
+  );
+  await type(label("キャンバス名"), "手元に残す案");
+  const unloading = new Event("beforeunload", { cancelable: true });
+  await act(() => window.dispatchEvent(unloading));
+  assert.ok(unloading.defaultPrevented);
+  assert.equal(localStorage.getItem(key), null);
+  assert.equal(label("キャンバス名").value, "手元に残す案");
 });
 
 test("reload flushes the active editor rather than losing its unblurred text", async () => {

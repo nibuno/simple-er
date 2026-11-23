@@ -1,8 +1,4 @@
-import {
-  keepPrevious,
-  readPrevious,
-  watchStorage,
-} from "../../shared/storage.ts";
+import { watchStorage } from "../../shared/storage.ts";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type {
   CanvasDocument,
@@ -33,38 +29,30 @@ import {
   removeSelection,
   sampleDocument,
   selectionDocument,
-  STORAGE_KEY,
   uid,
 } from "./model";
 import { downloadFile, exportPng, filename, toSvg } from "./export";
 import { Canvas } from "./Canvas";
+import { DiagramList } from "./DiagramList";
+import {
+  checkDiagram,
+  DiagramChanged,
+  listDiagrams,
+  newDiagramKey,
+  openDiagram,
+  rememberDiagram,
+  removeDiagram,
+  restoreDiagram,
+  viewKeyFor,
+  writeDiagram,
+} from "./library";
+import type { DiagramEntry, OpenDiagram } from "./library";
 import type { CanvasHandle } from "./Canvas";
 import { SelectionBar, TextField } from "./Inspector";
 import type { Panel } from "./Inspector";
 import { Icon } from "./Icons";
 import { RAIL_SHAPES, SHAPES, shapeIcons, shapeLabels } from "./shapes";
 
-function boot() {
-  let raw: string | null = null;
-  try {
-    raw = localStorage.getItem(STORAGE_KEY);
-    return {
-      doc: raw ? decode(raw) : growNodes(sampleDocument()),
-      saved: raw,
-      error: "",
-      raw: null as string | null,
-    };
-  } catch (error) {
-    return {
-      doc: emptyDocument(),
-      saved: raw,
-      error: raw
-        ? "保存データを読み込めませんでした。元のデータは上書きしていません。"
-        : "このブラウザでは自動保存できません。作業はファイルに保存してください。",
-      raw,
-    };
-  }
-}
 const isTyping = (target: EventTarget | null) =>
   target instanceof Element &&
   !!target.closest("input,textarea,select,[contenteditable='true']");
@@ -76,10 +64,34 @@ const SHORT_SAVE_STATES: Record<string, string> = {
   自動保存できません: "保存できません",
 };
 export function App() {
-  const initial = useRef<ReturnType<typeof boot> | null>(null);
-  if (!initial.current) initial.current = boot();
+  const [session, setSession] = useState(() => ({
+    initial: restoreDiagram(),
+    visit: 0,
+    message: "",
+  }));
+  return (
+    <Editor
+      key={session.visit}
+      initial={session.initial}
+      message={session.message}
+      onOpen={(initial, message = "") => {
+        setSession((old) => ({ initial, message, visit: old.visit + 1 }));
+      }}
+    />
+  );
+}
+
+function Editor({
+  initial,
+  message,
+  onOpen,
+}: {
+  initial: OpenDiagram;
+  message: string;
+  onOpen: (next: OpenDiagram, message?: string) => void;
+}) {
   const [history, dispatch] = useReducer(historyReducer, {
-    present: initial.current.doc,
+    present: initial.doc,
     past: [],
     future: [],
   });
@@ -114,11 +126,9 @@ export function App() {
     [pending, setPending] = useState<string | null>(null),
     pendingRef = useRef<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null),
-    [status, setStatus] = useState(""),
-    [error, setError] = useState(initial.current.error);
-  const [hasPrevious, setHasPrevious] = useState(
-    () => readPrevious(STORAGE_KEY) !== null,
-  );
+    [status, setStatus] = useState(message),
+    [error, setError] = useState(initial.error ?? "");
+  const [listOpen, setListOpen] = useState(false);
   const [moreShapes, setMoreShapes] = useState(false);
   useEffect(() => {
     if (!moreShapes) return;
@@ -141,24 +151,26 @@ export function App() {
     id: string;
     panel: Panel;
   } | null>(null);
-  const [saveState, setSaveState] = useState(""),
+  const [saveProblem, setSaveProblem] = useState(""),
     [dirty, setDirty] = useState(false),
-    [paused, setPaused] = useState(!!initial.current.raw);
+    [paused, setPaused] = useState(!!initial.error);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
-  const [recovery, setRecovery] = useState(initial.current.raw),
+  const [recovery, setRecovery] = useState(initial.error ? initial.raw : null),
     [remote, setRemote] = useState<string | null>(null),
     [exporting, setExporting] = useState(false);
   const saveText = paused
     ? "自動保存を停止中"
-    : dirty || editing
-      ? "編集中"
-      : saveState;
+    : saveProblem
+      ? "自動保存できません"
+      : dirty || editing
+        ? "編集中"
+        : "このブラウザに保存済み";
   const canvas = useRef<CanvasHandle>(null),
     file = useRef<HTMLInputElement>(null),
     menu = useRef<HTMLDetailsElement>(null),
     help = useRef<HTMLDialogElement>(null);
-  const lastSaved = useRef<string | null>(initial.current.saved),
+  const lastSaved = useRef(initial),
     actions = useRef({
       undo: () => {},
       redo: () => {},
@@ -442,35 +454,111 @@ export function App() {
     );
     notify("ファイルに保存しました");
   }
-  function replace(next: CanvasDocument) {
-    flushInput();
-    discardDraft();
-    commit(next);
-    select([]);
-    setEditing(null);
-    clearPending();
-    setTool("select");
-    requestAnimationFrame(() => canvas.current?.fit());
+  function pause(raw: string | null) {
+    pausedRef.current = true;
+    setPaused(true);
+    setSaveProblem("");
+    setRemote(raw);
+    setError(new DiagramChanged(raw).message + "自動保存を止めています。");
   }
-  // Menu commands that swap in a whole document keep the current one for
-  // 「前の図に戻す」.
-  function replaceAll(next: CanvasDocument, message: string) {
+  function persist(overwrite = false) {
+    if (pausedRef.current && !overwrite)
+      throw new Error("図を切り替える前に、自動保存を再開してください。");
+    const saved = lastSaved.current,
+      current = docRef.current;
+    try {
+      if (
+        !overwrite &&
+        saved.raw !== null &&
+        (current === saved.doc || encode(current) === encode(saved.doc))
+      ) {
+        checkDiagram(initial.key, saved.raw);
+      } else {
+        const expected = overwrite
+          ? localStorage.getItem(initial.key)
+          : saved.raw;
+        lastSaved.current = writeDiagram(initial.key, current, expected);
+      }
+      setSaveProblem("");
+    } catch (e) {
+      if (e instanceof DiagramChanged) pause(e.raw);
+      else setSaveProblem(errorMessage(e));
+      throw e;
+    }
+  }
+  function retrySave() {
+    try {
+      persist();
+    } catch {
+      /* persist reports the reason in the editor. */
+    }
+  }
+  function saveBeforeSwitch() {
     flushInput();
     if (
-      docRef.current.nodes.length &&
-      keepPrevious(STORAGE_KEY, encode(docRef.current))
+      pausedRef.current &&
+      encode(docRef.current) === encode(lastSaved.current.doc)
     )
-      setHasPrevious(true);
-    replace(next);
-    notify(message);
+      return;
+    persist();
   }
-  function restorePrevious() {
-    const raw = readPrevious(STORAGE_KEY);
-    if (!raw) return;
+  function createDiagram(doc: CanvasDocument, message: string) {
+    saveBeforeSwitch();
+    onOpen(writeDiagram(newDiagramKey(), decode(encode(doc)), null), message);
+  }
+  function newCanvas() {
+    createDiagram(emptyDocument(), "新しいキャンバスを作成しました");
+  }
+  function runMenu(action: () => void) {
     try {
-      replaceAll(decode(raw), "前の図に戻しました（⌘Z で戻る）");
+      action();
     } catch (e) {
-      setError("前の図を読み込めませんでした：" + errorMessage(e));
+      setError(errorMessage(e));
+    }
+  }
+  function showList() {
+    flushInput();
+    retrySave();
+    setListOpen(true);
+  }
+  function closeList() {
+    setListOpen(false);
+    requestAnimationFrame(() =>
+      menu.current?.querySelector("summary")?.focus(),
+    );
+  }
+  function renameDiagram(entry: DiagramEntry, title: string) {
+    const active = entry.key === initial.key;
+    const source = active
+      ? lastSaved.current
+      : openDiagram(entry.key, entry.raw);
+    if (source.error || (active && pausedRef.current))
+      throw new Error("図を開いて保存データを確認してください。");
+    const current = active ? docRef.current : source.doc;
+    if (current.title === title) return;
+    const doc = decode(encode({ ...current, title }));
+    const next = writeDiagram(entry.key, doc, entry.raw);
+    if (active) {
+      lastSaved.current = next;
+      commit(doc);
+    }
+  }
+  function deleteDiagram(entry: DiagramEntry) {
+    if (entry.key !== initial.key) {
+      removeDiagram(entry);
+      if (!pausedRef.current) setError("");
+      if (saveProblem) retrySave();
+      return;
+    }
+    const next = listDiagrams().find((item) => item.key !== entry.key);
+    if (next) {
+      removeDiagram(entry);
+      onOpen(openDiagram(next.key, next.raw), "図を削除しました");
+    } else {
+      // Reuse the last slot atomically, including when storage is full.
+      const blank = writeDiagram(entry.key, emptyDocument(), entry.raw);
+      localStorage.removeItem(viewKeyFor(entry.key));
+      onOpen(blank, "図を削除しました");
     }
   }
   function connectMode() {
@@ -491,25 +579,7 @@ export function App() {
     fit: () => canvas.current?.fit(),
   };
   useEffect(() => {
-    if (paused) return;
-    try {
-      const value = encode(docRef.current);
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored !== lastSaved.current) {
-        setPaused(true);
-        setRemote(stored);
-        setError("別のタブで変更されたため、自動保存を止めています。");
-        return;
-      }
-      localStorage.setItem(STORAGE_KEY, value);
-      lastSaved.current = value;
-      setSaveState("このブラウザに保存済み");
-    } catch {
-      setSaveState("自動保存できません");
-      setError(
-        "ブラウザに保存できませんでした。作業はファイルに保存してください。",
-      );
-    }
+    if (!paused) retrySave();
   }, [history.past, history.future, paused]);
   useEffect(() => {
     const ids = new Set([
@@ -527,19 +597,13 @@ export function App() {
     document.title = (doc.title || "無題") + " — SimpleCanvas";
   }, [doc.title]);
   useEffect(() => {
-    return watchStorage(
-      STORAGE_KEY,
-      () => lastSaved.current,
-      (raw) => {
-        setPaused(true);
-        setRemote(raw);
-        setError("別のタブで変更されたため、自動保存を止めています。");
-      },
-    );
+    rememberDiagram(initial.key);
+    return watchStorage(initial.key, () => lastSaved.current.raw, pause);
   }, []);
   useEffect(() => {
+    const dialogOpen = () => !!document.querySelector("dialog[open]");
     const key = (e: KeyboardEvent) => {
-      if (e.isComposing || help.current?.open) return;
+      if (e.isComposing || dialogOpen()) return;
       const command = e.metaKey || e.ctrlKey;
       if (command && e.key.toLowerCase() === "s") {
         e.preventDefault();
@@ -614,11 +678,7 @@ export function App() {
       else if (e.key === "?") help.current?.showModal();
     };
     const copy = (e: ClipboardEvent) => {
-      if (
-        isTyping(e.target) ||
-        help.current?.open ||
-        !selectionRef.current.length
-      )
+      if (isTyping(e.target) || dialogOpen() || !selectionRef.current.length)
         return;
       const fragment = selectionDocument(docRef.current, selectionRef.current);
       if (!fragment.nodes.length) return;
@@ -628,7 +688,7 @@ export function App() {
       else notify("コピーしました");
     };
     const paste = (e: ClipboardEvent) => {
-      if (isTyping(e.target) || help.current?.open) return;
+      if (isTyping(e.target) || dialogOpen()) return;
       const text = e.clipboardData?.getData("text/plain");
       if (!text) return;
       e.preventDefault();
@@ -680,20 +740,9 @@ export function App() {
       // Blur commits the active native input or inline editor synchronously.
       // Write here too: a React effect is not guaranteed to run during unload.
       (document.activeElement as HTMLElement)?.blur?.();
-      let canSave = !pausedRef.current;
-      if (canSave) {
-        try {
-          const stored = localStorage.getItem(STORAGE_KEY);
-          if (lastSaved.current !== null && stored !== lastSaved.current)
-            throw new Error("The stored document changed in another tab.");
-          const value = encode(docRef.current);
-          localStorage.setItem(STORAGE_KEY, value);
-          lastSaved.current = value;
-        } catch {
-          canSave = false;
-        }
-      }
-      if (!canSave) {
+      try {
+        persist();
+      } catch {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -736,6 +785,7 @@ export function App() {
         <Canvas
           ref={canvas}
           doc={doc}
+          viewKey={viewKeyFor(initial.key)}
           selection={selection}
           tool={tool}
           pending={pending}
@@ -818,24 +868,12 @@ export function App() {
               <Icon name="menu" />
             </summary>
             <div className="file-popover">
-              <button
-                onClick={() =>
-                  replaceAll(
-                    emptyDocument(),
-                    "新しいキャンバスを作成しました（⌘Z で戻る）",
-                  )
-                }
-              >
-                <span>
-                  新しいキャンバス
-                  <small className="menu-note">現在の図を閉じます</small>
-                </span>
+              <button onClick={showList}>図の一覧</button>
+              <button onClick={() => runMenu(newCanvas)}>
+                新しいキャンバス
               </button>
               <button onClick={() => file.current?.click()}>
                 ファイルを開く…
-              </button>
-              <button disabled={!hasPrevious} onClick={restorePrevious}>
-                前の図に戻す
               </button>
               <button onClick={save}>
                 ファイルに保存 <kbd>⌘ S</kbd>
@@ -873,9 +911,11 @@ export function App() {
               <hr />
               <button
                 onClick={() =>
-                  replaceAll(
-                    growNodes(sampleDocument()),
-                    "サンプルを開きました（⌘Z で戻る）",
+                  runMenu(() =>
+                    createDiagram(
+                      growNodes(sampleDocument()),
+                      "サンプルを開きました",
+                    ),
                   )
                 }
               >
@@ -901,8 +941,7 @@ export function App() {
           />
           <span
             className={
-              "save-status" +
-              (paused || saveState === "自動保存できません" ? " unsaved" : "")
+              "save-status" + (paused || saveProblem ? " unsaved" : "")
             }
           >
             <span className="save-long">{saveText}</span>
@@ -1040,9 +1079,16 @@ export function App() {
             <Icon name="redo" />
           </button>
         </div>
-        {error && (
+        {(error || saveProblem) && (
           <div className="notice" role="alert">
-            <span>{error}</span>
+            <span>{saveProblem || error}</span>
+            {(saveProblem || paused) && (
+              <>
+                <button onClick={save}>ファイルに保存</button>
+                <button onClick={showList}>図の一覧</button>
+                {!paused && <button onClick={retrySave}>保存を再試行</button>}
+              </>
+            )}
             {recovery !== null && (
               <button
                 onClick={() =>
@@ -1065,24 +1111,9 @@ export function App() {
               <button
                 onClick={() => {
                   try {
-                    const raw = localStorage.getItem(STORAGE_KEY);
-                    if (!raw)
-                      throw new Error(
-                        "保存データが見つかりません。この画面の内容をファイルに保存してください。",
-                      );
-                    const next = decode(raw);
-                    replace(next);
-                    const reset = { type: "reset" as const, next };
-                    historyRef.current = historyReducer(
-                      historyRef.current,
-                      reset,
-                    );
-                    dispatch(reset);
-                    lastSaved.current = raw;
-                    setPaused(false);
-                    setRemote(null);
-                    setRecovery(null);
-                    setError("");
+                    const next = openDiagram(initial.key);
+                    if (next.error) throw new Error(next.error);
+                    onOpen(next);
                     requestAnimationFrame(() =>
                       document
                         .querySelector<HTMLElement>(
@@ -1100,24 +1131,26 @@ export function App() {
             )}
             {paused && (
               <button
-                onClick={() => {
-                  if (recovery)
-                    downloadFile(
-                      recovery,
-                      "simplecanvas-recovery.txt",
-                      "text/plain",
-                    );
-                  lastSaved.current = localStorage.getItem(STORAGE_KEY);
-                  setRecovery(null);
-                  setRemote(null);
-                  setPaused(false);
-                  setError("");
-                }}
+                onClick={() =>
+                  runMenu(() => {
+                    if (recovery !== null)
+                      downloadFile(
+                        recovery,
+                        "simplecanvas-recovery.txt",
+                        "text/plain",
+                      );
+                    persist(true);
+                    setRecovery(null);
+                    setRemote(null);
+                    setPaused(false);
+                    setError("");
+                  })
+                }
               >
                 この画面の内容で保存を再開
               </button>
             )}
-            {!paused && (
+            {!paused && !saveProblem && (
               <button
                 className="icon-button"
                 aria-label="通知を閉じる"
@@ -1146,10 +1179,9 @@ export function App() {
           try {
             if (selected.size > 2000000)
               throw new Error("ファイルの上限は2MBです。");
-            replaceAll(
-              decode(await selected.text()),
-              "ファイルを開きました（⌘Z で戻る）",
-            );
+            const doc = decode(await selected.text());
+            if (input.isConnected)
+              runMenu(() => createDiagram(doc, "ファイルを開きました"));
           } catch (error) {
             setError(
               "読み込めませんでした：" +
@@ -1161,6 +1193,29 @@ export function App() {
           }
         }}
       />
+      {listOpen && (
+        <DiagramList
+          activeKey={initial.key}
+          onClose={closeList}
+          onCreate={newCanvas}
+          onOpen={(entry) => {
+            if (entry.key === initial.key) return closeList();
+            saveBeforeSwitch();
+            onOpen(openDiagram(entry.key));
+          }}
+          onDuplicate={(entry) => {
+            const active = entry.key === initial.key;
+            const source = active ? lastSaved.current : openDiagram(entry.key);
+            if (source.error) throw new Error(source.error);
+            const doc = active ? docRef.current : source.doc;
+            const title =
+              (doc.title || "無題のキャンバス").slice(0, 196) + "のコピー";
+            createDiagram({ ...doc, id: uid(), title }, "図を複製しました");
+          }}
+          onRename={renameDiagram}
+          onDelete={deleteDiagram}
+        />
+      )}
       <dialog
         ref={help}
         className="help-dialog"
@@ -1182,7 +1237,7 @@ export function App() {
           左のツール列から図形を置き、矢印で次の図形につなげます。図の横には理由をテキストで書き添えられます。
         </p>
         <p>
-          変更はこのブラウザに自動保存されます。ほかの端末で使うときは「ファイルに保存」してください。
+          変更はこのブラウザに自動保存されます。メニューの「図の一覧」からほかの図を開けます。ほかの端末で使うときは「ファイルに保存」してください。
         </p>
         <dl>
           {[
