@@ -1,4 +1,8 @@
-import { watchStorage } from "../../shared/storage.ts";
+import {
+  keepPrevious,
+  readPrevious,
+  watchStorage,
+} from "../../shared/storage.ts";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type {
   CanvasDocument,
@@ -113,6 +117,9 @@ export function App() {
     [status, setStatus] = useState(""),
     [error, setError] = useState(initial.current.error);
   const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [hasPrevious, setHasPrevious] = useState(
+    () => readPrevious(STORAGE_KEY) !== null,
+  );
   const [moreShapes, setMoreShapes] = useState(false);
   useEffect(() => {
     if (!moreShapes) return;
@@ -447,6 +454,27 @@ export function App() {
     clearPending();
     setTool("select");
     requestAnimationFrame(() => canvas.current?.fit());
+  }
+  // Menu commands that swap in a whole document keep the current one for
+  // 「前の図に戻す」.
+  function replaceAll(next: CanvasDocument, message: string) {
+    flushInput();
+    if (
+      docRef.current.nodes.length &&
+      keepPrevious(STORAGE_KEY, encode(docRef.current))
+    )
+      setHasPrevious(true);
+    replace(next);
+    notify(message);
+  }
+  function restorePrevious() {
+    const raw = readPrevious(STORAGE_KEY);
+    if (!raw) return;
+    try {
+      replaceAll(decode(raw), "前の図に戻しました（⌘Z で戻る）");
+    } catch (e) {
+      setError("前の図を読み込めませんでした：" + errorMessage(e));
+    }
   }
   function connectMode() {
     flushInput();
@@ -796,10 +824,12 @@ export function App() {
             </summary>
             <div className="file-popover">
               <button
-                onClick={() => {
-                  replace(emptyDocument());
-                  notify("新しいキャンバスを作成しました（⌘Z で戻る）");
-                }}
+                onClick={() =>
+                  replaceAll(
+                    emptyDocument(),
+                    "新しいキャンバスを作成しました（⌘Z で戻る）",
+                  )
+                }
               >
                 <span>
                   新しいキャンバス
@@ -808,6 +838,9 @@ export function App() {
               </button>
               <button onClick={() => file.current?.click()}>
                 ファイルを開く…
+              </button>
+              <button disabled={!hasPrevious} onClick={restorePrevious}>
+                前の図に戻す
               </button>
               <button onClick={save}>
                 ファイルに保存 <kbd>⌘ S</kbd>
@@ -844,10 +877,12 @@ export function App() {
               </button>
               <hr />
               <button
-                onClick={() => {
-                  replace(growNodes(sampleDocument()));
-                  notify("サンプルを開きました");
-                }}
+                onClick={() =>
+                  replaceAll(
+                    growNodes(sampleDocument()),
+                    "サンプルを開きました（⌘Z で戻る）",
+                  )
+                }
               >
                 サンプルを開く
               </button>
@@ -1116,8 +1151,10 @@ export function App() {
           try {
             if (selected.size > 2000000)
               throw new Error("ファイルの上限は2MBです。");
-            replace(decode(await selected.text()));
-            notify("ファイルを開きました");
+            replaceAll(
+              decode(await selected.text()),
+              "ファイルを開きました（⌘Z で戻る）",
+            );
           } catch (error) {
             setError(
               "読み込めませんでした：" +

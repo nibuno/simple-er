@@ -196,6 +196,22 @@ test("tidy, new diagram, undo and redo preserve the full diagram", async () => {
   assert.equal(byLabel("やり直す").disabled, true);
 });
 
+test("a replaced diagram can be brought back after a reload", async () => {
+  const before = saved();
+  assert.equal(byText("前の図に戻す").disabled, true);
+  await click(byText("新しい図"));
+  assert.ok(document.body.textContent.includes("⌘Z で戻る"));
+  // A second new diagram must not replace the kept diagram with an empty one.
+  await click(byText("新しい図"));
+  await act(() => root.unmount());
+  await mount();
+  assert.equal(saved().tables.length, 0);
+  await click(byText("前の図に戻す"));
+  assert.deepEqual(saved(), before);
+  await click(byLabel("元に戻す"));
+  assert.equal(saved().tables.length, 0);
+});
+
 test("multiple relationships share one column attachment and remain individually selectable", async () => {
   const { graph } = await import("./layout-fixtures.mjs");
   await act(() => root.unmount());
