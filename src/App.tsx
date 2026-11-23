@@ -12,6 +12,7 @@ import type {
 import { initialDocument } from "./initial.ts";
 import {
   canConnect,
+  createColumn,
   removeForeignKey,
   removeTable,
   editTable,
@@ -914,18 +915,25 @@ export function App() {
             displayColumn={displayColumn}
             onEdit={open}
             logical={logical}
-            onRename={(id, columnId, value) => {
-              const table = structuredClone(
-                state.tables.find((t) => t.id === id)!,
-              );
-              if (columnId)
-                table.columns.find((c) => c.id === columnId)![
-                  logical ? "logicalName" : "name"
-                ] = value;
-              else if (logical) table.logicalName = value;
-              else table.name = value;
-              commit(editTable(state, table));
+            onSaveName={(original, target, value) => {
+              const table = structuredClone(original);
+              const field = logical ? "logicalName" : "name";
+              if (target.kind === "add") {
+                const column = createColumn(table.columns);
+                column[field] = value;
+                table.columns.push(column);
+              } else if (target.kind === "column") {
+                table.columns.find((c) => c.id === target.id)![field] = value;
+              } else {
+                table[field] = value;
+              }
+              const next = editTable(state, table);
+              if (target.kind === "add" && overlaps(table, state.tables))
+                throw new Error("近くのテーブルを移動してください。");
+              commit(next);
             }}
+            onUndo={undo}
+            onRedo={redo}
             onConnect={connect}
             onLink={link}
             onSelect={(id) => {

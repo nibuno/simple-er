@@ -13,6 +13,19 @@ import { tableWidth, connectionSides } from "./geometry.ts";
 
 export const uid = () => crypto.randomUUID();
 export const title = (table: Table) => table.name ?? table.id;
+export const MAX_COLUMNS = 60;
+export function createColumn(columns: Table["columns"]): RenderColumn {
+  let i = 1;
+  while (columns.some((c) => c.name.trim().toLowerCase() === `column_${i}`))
+    i++;
+  return {
+    id: uid(),
+    name: `column_${i}`,
+    logicalName: "",
+    type: "text",
+    key: "",
+  };
+}
 function fail(message: string): never {
   throw new Error(message);
 }
@@ -52,7 +65,11 @@ export function validateDiagram(input: unknown): Diagram {
       !coordinate(t.y)
     )
       fail("テーブル名・ID・位置が不正、または重複しています。");
-    if (!Array.isArray(t.columns) || !t.columns.length || t.columns.length > 60)
+    if (
+      !Array.isArray(t.columns) ||
+      !t.columns.length ||
+      t.columns.length > MAX_COLUMNS
+    )
       fail("カラム数は1〜60個にしてください。");
     tableIds.add(t.id);
     names.add(title(t).trim().toLowerCase());
@@ -64,10 +81,11 @@ export function validateDiagram(input: unknown): Diagram {
         Array.isArray(c) ||
         !boundedText(c.name) ||
         !boundedText(c.type, 40) ||
-        !keys.includes(c.key) ||
-        columnNames.has(c.name.trim().toLowerCase())
+        !keys.includes(c.key)
       )
-        fail("カラム名・型・キーが不正、または重複しています。");
+        fail("カラム名・型・キーが不正です。");
+      if (columnNames.has(c.name.trim().toLowerCase()))
+        fail("カラムの物理名が重複しています。");
       const id = c.id ?? `${t.id}:column:${i}`;
       if (!boundedText(id, 180) || columnIds.has(id))
         fail("カラムIDが不正、または重複しています。");
@@ -571,7 +589,7 @@ function prepareRelations(diagram: Diagram) {
         !boundedText(p.table) ||
         !Number.isInteger(p.row) ||
         p.row < 0 ||
-        p.row >= 60 ||
+        p.row >= MAX_COLUMNS ||
         !["left", "right"].includes(p.side)
       )
         fail("未確定の線の端点が不正です。");

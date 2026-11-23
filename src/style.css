@@ -2117,6 +2117,30 @@ select:focus {
 .inline-name {
   border-radius: 6px;
   box-shadow: var(--shadow-md);
+  pointer-events: auto;
+}
+.inline-name label {
+  white-space: nowrap;
+}
+.inline-add-column {
+  width: 100%;
+  justify-content: flex-start;
+  padding-inline: 8px;
+  border: 0;
+  background: var(--surface-2);
+  color: var(--accent-strong);
+}
+.inline-name.adding-column {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+.adding-column small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+.inline-name small.error {
+  color: var(--danger);
 }
 
 /* Dialogs */
