@@ -28,7 +28,6 @@ import {
   minimumHeight,
   moveNodes,
   noteContent,
-  VIEW_KEY,
 } from "./model";
 import { documentRoutes, sceneBounds } from "./geometry";
 import { snapToGuides } from "./spatial";
@@ -48,6 +47,7 @@ export interface CanvasHandle {
 }
 interface Props {
   doc: CanvasDocument;
+  viewKey: string;
   selection: string[];
   tool: Tool;
   pending: string | null;
@@ -108,9 +108,9 @@ function textField(target: EventTarget): ShapeTextField | undefined {
   if (!text) return undefined;
   return text.classList.contains("node-description") ? "description" : "title";
 }
-function readView(): View | null {
+function readView(key: string): View | null {
   try {
-    const v = JSON.parse(localStorage.getItem(VIEW_KEY) || "null");
+    const v = JSON.parse(localStorage.getItem(key) || "null");
     if (
       v &&
       [v.x, v.y, v.zoom].every(Number.isFinite) &&
@@ -122,12 +122,12 @@ function readView(): View | null {
   return null;
 }
 export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
-  const saved = useRef(readView()),
-    stage = useRef<HTMLDivElement>(null),
+  const [savedView] = useState(() => readView(p.viewKey));
+  const stage = useRef<HTMLDivElement>(null),
     latest = useRef(p);
   latest.current = p;
   const [view, setView] = useState<View>(
-      saved.current || { x: 40, y: 40, zoom: 1 },
+      savedView || { x: 40, y: 40, zoom: 1 },
     ),
     viewRef = useRef(view);
   viewRef.current = view;
@@ -270,7 +270,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     const el = stage.current;
     if (!initialView.current || !el?.clientWidth || !el.clientHeight) return;
     initialView.current = false;
-    const v = saved.current,
+    const v = savedView,
       doc = latest.current.doc;
     if (v && !doc.nodes.length) return;
     if (v) {
@@ -345,9 +345,9 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   }, []);
   useEffect(() => {
     try {
-      localStorage.setItem(VIEW_KEY, JSON.stringify(view));
+      localStorage.setItem(p.viewKey, JSON.stringify(view));
     } catch {}
-  }, [view]);
+  }, [view, p.viewKey]);
   useEffect(() => {
     if (!stage.current) return;
     if (!p.editing) {
