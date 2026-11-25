@@ -53,7 +53,7 @@ const React = await import("react"),
   { act } = React;
 const { createRoot } = await import("react-dom/client");
 const { App } = await import("../canvas/src/App.tsx");
-const { isDiagramKey, listDiagrams, restoreDiagram } =
+const { isDiagramKey, listDiagrams, restoreDiagram, viewKeyFor } =
   await import("../canvas/src/library.ts");
 const {
   encode,
@@ -144,6 +144,17 @@ async function pointer(el, event, x, y) {
     el.dispatchEvent(e);
   });
 }
+// The toolbar asks where the figure goes; jsdom has no pointer resting on
+// the canvas, so every addition is answered with a click.
+async function placeAt(x = 400, y = 300) {
+  const stage = label("設計キャンバス");
+  await pointer(stage, "pointerdown", x, y);
+  await pointer(stage, "click", x, y);
+}
+async function addFigure(name, x, y) {
+  await click(label(name));
+  await placeAt(x, y);
+}
 async function submit() {
   await act(() =>
     document
@@ -167,7 +178,7 @@ afterEach(async () => {
 
 test("inline Japanese edits persist; Escape keeps edits and undo takes them back", async () => {
   const before = saved();
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await type(label("名前を直接編集"), "監視");
   await type(label("説明を直接編集"), "失敗した通知に気づく");
   await act(() =>
@@ -194,7 +205,7 @@ test("inline Japanese edits persist; Escape keeps edits and undo takes them back
 });
 test("empty additions never reach autosave or undo, whether submitted, dismissed, cancelled or reloaded", async () => {
   const before = saved();
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   assert.equal(label("名前を直接編集").value, "");
   assert.equal(label("説明を直接編集").value, "");
   assert.deepEqual(saved(), before);
@@ -203,22 +214,22 @@ test("empty additions never reach autosave or undo, whether submitted, dismissed
   assert.deepEqual(saved(), before);
   assert.ok(label("元に戻す").disabled);
 
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await click(label("Workerを選択"));
   assert.equal(document.querySelector("form"), null);
   assert.deepEqual(saved(), before);
 
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await key(label("名前を直接編集"), "Escape");
   assert.deepEqual(saved(), before, "Escape on an empty figure adds nothing");
 
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await type(label("名前を直接編集"), "　 ");
   await type(label("説明を直接編集"), "\n ");
   await submit();
   assert.deepEqual(saved(), before);
 
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await act(() =>
     window.dispatchEvent(new Event("beforeunload", { cancelable: true })),
   );
@@ -228,9 +239,64 @@ test("empty additions never reach autosave or undo, whether submitted, dismissed
   assert.deepEqual(saved(), before);
   assert.ok(label("元に戻す").disabled);
 });
+// A figure goes where the pointer says: under the cursor when it rests on
+// the canvas, otherwise on the next click. Positions keep the 8px grid.
+const snap = (value) => Math.round(value / 8) * 8;
+const currentView = () => JSON.parse(localStorage.getItem(VIEW_KEY));
+test("the toolbar asks where to put the figure, and Esc gives up", async () => {
+  const before = saved(),
+    view = currentView();
+  await click(label("箱を追加"));
+  assert.equal(document.querySelector("form"), null, "nothing placed yet");
+  assert.deepEqual(saved(), before);
+  assert.ok(label("設計キャンバス").className.includes("tool-place"));
+  await placeAt(520, 360);
+  await type(label("名前を直接編集"), "監視");
+  await submit();
+  const added = saved().nodes.find((n) => n.title === "監視");
+  assert.equal(added.x, snap((520 - view.x) / view.zoom - added.w / 2));
+  assert.equal(added.y, snap((360 - view.y) / view.zoom - added.h / 2));
+  assert.ok(!label("設計キャンバス").className.includes("tool-place"));
+
+  const placed = saved();
+  await click(label("箱を追加"));
+  await key(label("設計キャンバス"), "Escape");
+  assert.ok(!label("設計キャンバス").className.includes("tool-place"));
+  await placeAt(520, 360);
+  assert.equal(document.querySelector("form"), null);
+  assert.deepEqual(saved(), placed);
+});
+test("with the pointer over the canvas the figure appears under it at once", async () => {
+  const view = currentView();
+  await pointer(label("設計キャンバス"), "pointermove", 640, 420);
+  await key(label("設計キャンバス"), "b");
+  await type(label("名前を直接編集"), "通知ログ");
+  await submit();
+  const added = saved().nodes.find((n) => n.title === "通知ログ");
+  assert.equal(added.x, snap((640 - view.x) / view.zoom - added.w / 2));
+  assert.equal(added.y, snap((420 - view.y) / view.zoom - added.h / 2));
+});
+test("the empty canvas text button waits for the placement click", async () => {
+  await click(button("新しいキャンバス"));
+  const action = button("テキストを追加");
+  await pointer(action, "pointermove", 600, 350);
+  await click(action);
+  assert.equal(label("テキストを追加").getAttribute("aria-pressed"), "true");
+  assert.equal(document.querySelector(".canvas-node"), null);
+  const view = JSON.parse(
+    localStorage.getItem(viewKeyFor(restoreDiagram().key)),
+  );
+  await placeAt(800, 500);
+  await type(label("テキストを直接編集"), "構成図の補足");
+  await submit();
+  const [note] = saved().nodes;
+  assert.equal(note.kind, "note");
+  assert.equal(note.x, snap((800 - view.x) / view.zoom - note.w / 2));
+  assert.equal(note.y, snap((500 - view.y) / view.zoom - note.h / 2));
+});
 test("a description alone creates a figure without a generated name, and creation is one undo step", async () => {
   const before = saved();
-  await click(label("箱を追加"));
+  await addFigure("箱を追加");
   await type(label("説明を直接編集"), "通知の送信を待つ");
   await click(label("Workerを選択"));
   const added = saved().nodes.find(
@@ -264,7 +330,7 @@ test("new shapes can be created, converted, connected and reloaded", async () =>
     // Shapes beyond the rail's four sit behind "その他の図形".
     if (!document.querySelector(`[aria-label="${name}を追加"]`))
       await click(label("その他の図形"));
-    await click(label(name + "を追加"));
+    await addFigure(name + "を追加");
     await type(label("名前を直接編集"), name + "の図形");
     await key(label("名前を直接編集"), "Enter", { metaKey: true });
     assert.equal(
@@ -640,10 +706,13 @@ test("choosing an off-screen memo centers and selects its figure without editing
   localStorage.setItem(STORAGE_KEY, encode(doc));
   localStorage.setItem(VIEW_KEY, JSON.stringify({ x: 0, y: 0, zoom: 0.8 }));
   await mount();
+  await click(label("箱を追加"));
   await click(button("メモの一覧"));
   const row = document.querySelector(".memo-row");
   assert.equal(row.querySelector(".memo-body").textContent, api.body);
   await click(row);
+  assert.equal(label("箱を追加").getAttribute("aria-pressed"), "false");
+  assert.ok(label("設計キャンバス").classList.contains("tool-select"));
   assert.equal(label("APIを選択").getAttribute("aria-pressed"), "true");
   assert.equal(row.getAttribute("aria-current"), "true");
   const view = JSON.parse(localStorage.getItem(VIEW_KEY));
@@ -1310,7 +1379,7 @@ test("the selection bar names its buttons and shows the current color", async ()
 });
 test("a circle stays round when resized from a side or a corner", async () => {
   await click(label("その他の図形"));
-  await click(label("円を追加"));
+  await addFigure("円を追加");
   await type(label("名前を直接編集"), "注文確定");
   await key(label("名前を直接編集"), "Enter", { metaKey: true });
   const id = saved().nodes.find((n) => n.title === "注文確定").id,

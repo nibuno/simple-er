@@ -125,6 +125,10 @@ function Editor({
     selectionRef = useRef(selection);
   selectionRef.current = selection;
   const [tool, setTool] = useState<Tool>("select"),
+    [placing, setPlacing] = useState<{
+      kind: "box" | "note";
+      shape: NodeShape;
+    } | null>(null),
     [shape, setShape] = useState<NodeShape>("rectangle"),
     [pending, setPending] = useState<string | null>(null),
     pendingRef = useRef<string | null>(null);
@@ -174,7 +178,7 @@ function Editor({
     actions = useRef({
       undo: () => {},
       redo: () => {},
-      add: (_kind: "box" | "note", _point?: Point, _shape?: NodeShape) => {},
+      addAtPointer: (_kind: "box" | "note") => {},
       duplicate: () => {},
       remove: () => {},
       group: () => {},
@@ -206,6 +210,11 @@ function Editor({
       );
       setSelection(selectionRef.current);
     }
+  }
+  // Any other tool ends placing.
+  function chooseTool(next: Tool | ((old: Tool) => Tool)) {
+    setPlacing(null);
+    setTool(next);
   }
   function select(ids: string[]) {
     flushInput();
@@ -310,6 +319,7 @@ function Editor({
     nodeShape = shape,
     from?: string,
     place = false,
+    centerOn = false,
   ) {
     flushInput();
     discardDraft();
@@ -324,8 +334,9 @@ function Editor({
     }
     const center = point || canvas.current?.center() || { x: 100, y: 100 },
       node = makeNode(kind, center, nodeShape);
-    // A dropped line places the figure centered on the drop point.
-    if (!point || from) {
+    // A dropped line, and a figure the pointer put down, sit centered on
+    // their point.
+    if (!point || from || centerOn) {
       node.x = Math.round((node.x - node.w / 2) / 8) * 8;
       node.y = Math.round((node.y - node.h / 2) / 8) * 8;
     }
@@ -335,9 +346,17 @@ function Editor({
       from ? { id: uid(), from, to: node.id, label: "", dashed: false } : null,
     );
     clearPending();
-    setTool("select");
+    chooseTool("select");
     select([node.id]);
     setEditing(node.id);
+  }
+  function startPlacing(kind: "box" | "note", nodeShape = shape) {
+    flushInput();
+    discardDraft();
+    clearPending();
+    setTool("place");
+    setPlacing({ kind, shape: nodeShape });
+    notify("置きたい場所をクリック（Escでやめる）");
   }
   function connect(id: string, fromOverride?: string) {
     flushInput();
@@ -373,7 +392,7 @@ function Editor({
     next.edges.push(edge);
     commit(next);
     clearPending();
-    setTool("select");
+    chooseTool("select");
     select([edge.id]);
     notify("接続しました");
   }
@@ -571,13 +590,17 @@ function Editor({
   function connectMode() {
     flushInput();
     clearPending();
-    setTool((old) => (old === "connect" ? "select" : "connect"));
+    chooseTool((old) => (old === "connect" ? "select" : "connect"));
     notify("接続元を選択");
   }
   actions.current = {
     undo,
     redo,
-    add,
+    addAtPointer(kind) {
+      const point = canvas.current?.pointerPoint();
+      if (point) add(kind, point, shape, undefined, false, true);
+      else startPlacing(kind);
+    },
     duplicate,
     remove,
     group,
@@ -621,7 +644,7 @@ function Editor({
       if (keepNativeKeys(e.target)) return;
       if (e.key === "Escape") {
         clearPending();
-        setTool("select");
+        chooseTool("select");
         edit(null);
         select([]);
         menu.current?.removeAttribute("open");
@@ -669,16 +692,16 @@ function Editor({
         edit(selectionRef.current[0]);
       } else if (e.key.toLowerCase() === "b") {
         e.preventDefault();
-        actions.current.add("box");
+        actions.current.addAtPointer("box");
       } else if (e.key.toLowerCase() === "n") {
         e.preventDefault();
-        actions.current.add("note");
+        actions.current.addAtPointer("note");
       } else if (e.key.toLowerCase() === "c") actions.current.connectMode();
       else if (e.key.toLowerCase() === "v") {
-        setTool("select");
+        chooseTool("select");
         clearPending();
       } else if (e.key.toLowerCase() === "h") {
-        setTool("pan");
+        chooseTool("pan");
         clearPending();
       } else if (e.key === "1") actions.current.fit();
       else if (e.key === "?") help.current?.showModal();
@@ -779,11 +802,12 @@ function Editor({
       key={option}
       className="icon-button rail-button"
       aria-label={shapeLabels[option] + "を追加"}
+      aria-pressed={placing?.kind === "box" && placing.shape === option}
       data-tip={shapeLabels[option] + (option === shape ? " B" : "")}
       onClick={() => {
         setShape(option);
         setMoreShapes(false);
-        add("box", undefined, option);
+        startPlacing("box", option);
       }}
     >
       <Icon name={shapeIcons[option]} />
@@ -807,7 +831,13 @@ function Editor({
           onEdit={edit}
           onPatch={patchNode}
           onAddNote={(point) => add("note", point)}
-          onAddBox={() => add("box")}
+          onPlace={(point) => {
+            if (!placing) return;
+            chooseTool("select");
+            add(placing.kind, point, placing.shape, undefined, false, true);
+          }}
+          onAddBox={() => startPlacing("box")}
+          onAddText={() => startPlacing("note")}
           onEditEdge={(id) => {
             select([id]);
             setBarRequest({ id, panel: "label" });
@@ -974,7 +1004,7 @@ function Editor({
             data-tip="選択 V"
             aria-pressed={tool === "select"}
             onClick={() => {
-              setTool("select");
+              chooseTool("select");
               clearPending();
             }}
           >
@@ -986,7 +1016,7 @@ function Editor({
             data-tip="手のひら H"
             aria-pressed={tool === "pan"}
             onClick={() => {
-              setTool("pan");
+              chooseTool("pan");
               clearPending();
             }}
           >
@@ -1020,8 +1050,9 @@ function Editor({
           <button
             className="icon-button rail-button"
             aria-label="テキストを追加"
+            aria-pressed={placing?.kind === "note"}
             data-tip="テキスト N"
-            onClick={() => add("note")}
+            onClick={() => startPlacing("note")}
           >
             <Icon name="text" />
           </button>
@@ -1211,7 +1242,7 @@ function Editor({
           onClose={closeList}
           onSelect={(owner) => {
             clearPending();
-            setTool("select");
+            chooseTool("select");
             select([owner.id]);
             canvas.current?.centerOn(owner);
           }}
@@ -1268,7 +1299,8 @@ function Editor({
         </p>
         <dl>
           {[
-            ["図形 / テキストを追加", "B / N"],
+            ["図形 / テキストを追加", "B / N（カーソルの位置に出ます）"],
+            ["ツールバーから追加", "置きたい場所をクリック"],
             ["文字を編集", "ダブルクリック / Enter"],
             ["編集を確定", "Esc / ⌘ Enter"],
             ["線のラベル", "線をダブルクリック"],
