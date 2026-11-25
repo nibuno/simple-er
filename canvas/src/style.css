@@ -266,9 +266,6 @@ kbd {
 .save-status {
   white-space: nowrap;
   font-size: 11px;
-  color: var(--muted);
-}
-.save-status.unsaved {
   color: var(--danger);
 }
 .save-short {
@@ -1460,6 +1457,9 @@ kbd {
   box-shadow: var(--chip-shadow);
   color: var(--danger);
 }
+.doc-bar:has(.save-status) ~ .notice {
+  top: 64px;
+}
 .notice > span {
   flex: 1;
   min-width: 170px;
@@ -1615,6 +1615,9 @@ kbd {
     max-width: calc(100% - 24px);
     overflow-x: auto;
     scrollbar-width: none;
+  }
+  .doc-bar:has(.save-status) ~ .notice {
+    top: 112px;
   }
   .rail-divider {
     width: auto;
