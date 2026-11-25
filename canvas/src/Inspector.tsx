@@ -1,3 +1,4 @@
+import { TextField } from "../../shared/TextField.tsx";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { CanvasDocument, CanvasNode, CanvasEdge } from "./types";
@@ -7,69 +8,6 @@ import { minimumWidth, SHAPES, shapeIcons, shapeLabels } from "./shapes";
 import { ColorPicker } from "./ColorPicker";
 import { DEFAULT_COLORS } from "./colors";
 
-export function TextField({
-  label,
-  value,
-  onCommit,
-  multiline = false,
-  maxLength = 200,
-  placeholder = "",
-  onDirty,
-  autoFocus = false,
-  className = "",
-}: {
-  label: string;
-  value: string;
-  onCommit: (value: string) => void;
-  multiline?: boolean;
-  maxLength?: number;
-  placeholder?: string;
-  onDirty?: () => void;
-  autoFocus?: boolean;
-  className?: string;
-}) {
-  const [draft, setDraft] = useState(value),
-    composing = useRef(false);
-  useEffect(() => setDraft(value), [value]);
-  const shared = {
-    value: draft,
-    "aria-label": label,
-    maxLength,
-    placeholder,
-    autoFocus,
-    onCompositionStart: () => {
-      composing.current = true;
-    },
-    onCompositionEnd: () => {
-      composing.current = false;
-    },
-    onChange: (
-      e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-    ) => {
-      setDraft(e.target.value);
-      onDirty?.();
-    },
-    onBlur: () => onCommit(draft),
-    onKeyDown: (
-      e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
-    ) => {
-      if (composing.current || e.nativeEvent.isComposing) return;
-      if (
-        e.key === "Escape" ||
-        (e.key === "Enter" && (!multiline || e.metaKey || e.ctrlKey))
-      ) {
-        e.preventDefault();
-        e.currentTarget.blur();
-      }
-    },
-  };
-  return (
-    <label className={"field " + className}>
-      <span>{label}</span>
-      {multiline ? <textarea {...shared} rows={6} /> : <input {...shared} />}
-    </label>
-  );
-}
 export type Panel = "shape" | "icon" | "color" | "memo" | "label" | "more";
 // Actions for the selection sit in a bar just above it; anything with more
 // than a click behind it opens in a small panel under the bar.

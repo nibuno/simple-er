@@ -2600,3 +2600,63 @@ dialog::backdrop {
     gap: 2px;
   }
 }
+
+/* Keep the editable name next to the SimpleER mark and the file menu. */
+.document-identity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.document-menu {
+  min-width: 0;
+}
+.diagram-list {
+  width: min(590px, calc(100vw - 32px));
+}
+.diagram-list .dialog-heading > .icon-button {
+  margin-left: 0;
+}
+.diagram-list .diagram-link {
+  height: auto;
+  border-color: transparent;
+}
+@media (max-width: 760px) {
+  .document-identity {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+  }
+  .document-menu {
+    gap: 4px;
+  }
+  .document-menu:has(.save-indicator) {
+    flex-wrap: wrap;
+  }
+  .document-identity .document-title {
+    max-width: 100%;
+  }
+  .document-identity .document-title input {
+    text-overflow: ellipsis;
+    padding: 3px 4px;
+  }
+}
+@media (max-width: 480px) {
+  .editor-header {
+    padding: 6px 8px;
+    column-gap: 4px;
+  }
+  .document-menu {
+    gap: 2px;
+  }
+  .document-menu .file-options > summary {
+    padding-inline: 4px;
+  }
+  .document-identity h1 {
+    font-size: 13px;
+    gap: 4px;
+  }
+  .editor-header .name-segments span {
+    padding-inline: 6px;
+  }
+}

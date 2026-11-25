@@ -12,5 +12,5 @@
     "verbatimModuleSyntax": true,
     "resolveJsonModule": true
   },
-  "include": ["src", "canvas/src", "tests/*.type-test.ts"]
+  "include": ["src", "canvas/src", "shared", "tests/*.type-test.ts"]
 }

@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { Icon } from "./Icons";
-import { isDiagramKey, listDiagrams } from "./library";
-import type { DiagramEntry } from "./library";
+import type { ComponentType } from "react";
+import type { DiagramEntry } from "./diagram-library.ts";
 
 const dateFormat = new Intl.DateTimeFormat("ja-JP", {
   dateStyle: "short",
   timeStyle: "short",
 });
 interface Props {
+  library: {
+    listDiagrams: () => DiagramEntry[];
+    isDiagramKey: (key: string | null) => boolean;
+  };
+  Icon: ComponentType<{ name: "plus" | "close" }>;
+  emptyName: string;
   activeKey: string;
   onClose: () => void;
   onCreate: () => void;
@@ -18,6 +23,7 @@ interface Props {
 }
 
 export function DiagramList(props: Props) {
+  const { library, Icon } = props;
   const dialog = useRef<HTMLDialogElement>(null);
   const [entries, setEntries] = useState<DiagramEntry[]>([]);
   const [action, setAction] = useState<{
@@ -28,7 +34,7 @@ export function DiagramList(props: Props) {
   const [error, setError] = useState("");
   function refresh() {
     try {
-      setEntries(listDiagrams());
+      setEntries(library.listDiagrams());
     } catch {
       setError("ブラウザの保存データを読み込めませんでした。");
     }
@@ -37,11 +43,11 @@ export function DiagramList(props: Props) {
     dialog.current?.showModal();
     refresh();
     const changed = (e: StorageEvent) => {
-      if (e.key === null || isDiagramKey(e.key)) refresh();
+      if (e.key === null || library.isDiagramKey(e.key)) refresh();
     };
     window.addEventListener("storage", changed);
     return () => window.removeEventListener("storage", changed);
-  }, []);
+  }, [library]);
   function run(operation: () => void) {
     try {
       operation();
@@ -174,7 +180,7 @@ export function DiagramList(props: Props) {
                   <p>
                     「{selected.entry.title}」を削除しますか？
                     {entries.length === 1 &&
-                      " 削除すると空のキャンバスが開きます。"}
+                      ` 削除すると${props.emptyName}が開きます。`}
                   </p>
                   <button autoFocus onClick={() => setAction(null)}>
                     キャンセル

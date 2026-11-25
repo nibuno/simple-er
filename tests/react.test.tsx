@@ -71,7 +71,9 @@ dom.window.Element.prototype.releasePointerCapture = function () {
 };
 const { createRoot } = await import("react-dom/client");
 const { App } = await import("../src/App.tsx");
-const { encode, decode, validateDiagram } = await import("../src/model.ts");
+const { encode, projectDocument, validateDiagram } =
+  await import("../src/model.ts");
+const { library } = await import("../src/library.ts");
 const { initial } = await import("../src/initial.ts");
 let root;
 const storageKey = "er-sketch.local.v1";
@@ -123,7 +125,10 @@ async function submit() {
   );
 }
 function saved() {
-  return decode(localStorage.getItem(storageKey));
+  const current = library.restoreDiagram();
+  assert.ok(current.raw);
+  assert.equal(current.error, undefined);
+  return projectDocument(current.doc);
 }
 async function mount() {
   root = createRoot(document.getElementById("root"));
@@ -131,6 +136,7 @@ async function mount() {
 }
 beforeEach(async () => {
   localStorage.clear();
+  window.sessionStorage.clear();
   localStorage.setItem(storageKey, encode(initial));
   await mount();
 });
@@ -186,14 +192,10 @@ test("custom type stays editable and cancellation does not persist draft", async
   assert.equal(saved().tables[0].columns[1].name, "name");
 });
 
-test("tidy, new diagram, undo and redo preserve the full diagram", async () => {
+test("undo and redo stay within the open diagram", async () => {
   const before = saved();
   await click(byText("整頓"));
   assert.notDeepEqual(saved(), before);
-  await click(byLabel("元に戻す"));
-  assert.deepEqual(saved(), before);
-  await click(byText("新しい図"));
-  assert.equal(saved().tables.length, 0);
   await click(byLabel("元に戻す"));
   assert.deepEqual(saved(), before);
   assert.equal(byLabel("やり直す").disabled, false);
@@ -201,22 +203,216 @@ test("tidy, new diagram, undo and redo preserve the full diagram", async () => {
   await key(byLabel("usersを移動。矢印キーで移動できます。"), "ArrowLeft");
   assert.equal(saved().tables[0].x, before.tables[0].x - 8);
   assert.equal(byLabel("やり直す").disabled, true);
+  const original = localStorage.getItem(storageKey);
+  await click(byText("新しい図"));
+  assert.equal(saved().tables.length, 0);
+  assert.equal(byLabel("元に戻す").disabled, true);
+  assert.equal(localStorage.getItem(storageKey), original);
 });
 
-test("a replaced diagram can be brought back after a reload", async () => {
-  const before = saved();
-  assert.equal(byText("前の図に戻す").disabled, true);
-  await click(byText("新しい図"));
-  assert.ok(document.body.textContent.includes("⌘Z で戻る"));
-  // A second new diagram must not replace the kept diagram with an empty one.
-  await click(byText("新しい図"));
+test("the original and #37 backup keep their bytes and open independently after a reload", async () => {
+  await act(() => root.unmount());
+  const original = localStorage.getItem(storageKey);
+  const backup = encode({ tables: [], edges: [] });
+  localStorage.setItem(storageKey + ".previous", backup);
+  localStorage.setItem(storageKey + ".v1-backup", "v1");
+  localStorage.setItem(storageKey + ".recovery", "raw");
+  await mount();
+  await click(byText("図の一覧"));
+  assert.deepEqual(
+    library.listDiagrams().map((row) => [row.title, row.updatedAt]),
+    [
+      ["無題の図", null],
+      ["前の図", null],
+    ],
+  );
+  await key(document.body, "t");
+  assert.equal(document.querySelector("#table-editor"), null);
+  await click(byLabel("前の図を開く"));
+  assert.equal(saved().tables.length, 0);
   await act(() => root.unmount());
   await mount();
+  assert.equal(byLabel("図の名前").value, "前の図");
+  assert.equal(byLabel("元に戻す").disabled, true);
+  await click(byText("図の一覧"));
+  await click(byLabel("無題の図を開く"));
+  assert.ok(byLabel("usersを編集"));
+  assert.equal(localStorage.getItem(storageKey), original);
+  assert.equal(localStorage.getItem(storageKey + ".previous"), backup);
+  assert.equal(localStorage.getItem(storageKey + ".v1-backup"), "v1");
+  assert.equal(localStorage.getItem(storageKey + ".recovery"), "raw");
+});
+
+test("applying an unchanged legacy table keeps its original bytes and unknown update time", async () => {
+  const raw = localStorage.getItem(storageKey);
+  await click(byLabel("usersを編集"));
+  await submit();
+  assert.equal(byLabel("元に戻す").disabled, true);
+  assert.equal(localStorage.getItem(storageKey), raw);
+  assert.equal(library.listDiagrams()[0].updatedAt, null);
+});
+
+test("a damaged legacy record stays available while this tab's edits are saved separately", async () => {
+  await act(() => root.unmount());
+  localStorage.setItem(storageKey, "{damaged");
+  await mount();
+  assert.match(
+    document.querySelector(".instruction").textContent,
+    /読み込めません/,
+  );
+  assert.ok(byText("元データをファイルに保存"));
+  await act(() => byLabel("図の名前").focus());
+  await type(byLabel("図の名前"), "復旧作業");
+  await key(byLabel("図の名前"), "Enter");
+  await click(byText("別の図として保存"));
+  assert.equal(localStorage.getItem(storageKey), "{damaged");
+  assert.equal(saved().title, "復旧作業");
+  assert.equal(library.listDiagrams().length, 2);
+});
+
+test("list actions rename, duplicate and delete the selected drawing", async () => {
+  await click(byText("図の一覧"));
+  await click(byLabel("無題の図の操作"));
+  await click(byText("複製"));
+  assert.equal(saved().title, "無題の図のコピー");
+  const copy = library.restoreDiagram().key;
+  await click(byLabel("usersを編集"));
+  await type(byLabel("カラム2の物理名"), "nickname");
+  await submit();
+  await click(byText("図の一覧"));
+  await click(byLabel("無題の図の操作"));
+  await click(byText("名前を変更"));
+  await type(document.querySelector(".row-actions input"), "元の注文");
+  await submit();
+  assert.equal(library.restoreDiagram().key, copy);
+  await click(byLabel("元の注文を開く"));
+  assert.equal(saved().tables[0].columns[1].name, "name");
+  await click(byText("図の一覧"));
+  await click(byLabel("元の注文の操作"));
+  await click(byText("削除"));
+  assert.match(
+    document.querySelector(".row-actions p").textContent,
+    /元の注文/,
+  );
+  await click(byText("キャンセル"));
+  assert.equal(library.listDiagrams().length, 2);
+  await click(byLabel("元の注文の操作"));
+  await click(byText("削除"));
+  await click(byText("削除する"));
+  assert.equal(library.restoreDiagram().key, copy);
+  assert.equal(saved().tables[0].columns[1].name, "nickname");
+  await click(byText("図の一覧"));
+  await click(byLabel("無題の図のコピーの操作"));
+  await click(byText("削除"));
+  assert.match(document.querySelector(".row-actions p").textContent, /空の図/);
+  await click(byText("削除する"));
   assert.equal(saved().tables.length, 0);
-  await click(byText("前の図に戻す"));
-  assert.deepEqual(saved(), before);
-  await click(byLabel("元に戻す"));
+  assert.equal(library.listDiagrams().length, 1);
+});
+
+test("quota failure keeps the active diagram and deleting another retries unsaved edits", async (t) => {
+  await click(byText("新しい図"));
+  const active = library.restoreDiagram();
+  const proto = Object.getPrototypeOf(localStorage);
+  const setItem = proto.setItem;
+  t.mock.method(proto, "setItem", function (key, value) {
+    if (library.isDiagramKey(key) && localStorage.getItem(storageKey) !== null)
+      throw new DOMException("full", "QuotaExceededError");
+    setItem.call(this, key, value);
+  });
+  await click(byText("新しい図"));
+  assert.equal(library.restoreDiagram().key, active.key);
+  assert.equal(library.listDiagrams().length, 2);
+  assert.match(document.querySelector(".instruction").textContent, /空き容量/);
+  await act(() => byLabel("図の名前").focus());
+  await type(byLabel("図の名前"), "保存待ち");
+  await key(byLabel("図の名前"), "Enter");
+  await click(byText("図の一覧"));
+  const other = document.querySelector(".diagram-link:not([aria-current])");
+  await click(other);
+  assert.ok(document.querySelector("dialog[open]"));
+  assert.match(document.querySelector(".list-error").textContent, /空き容量/);
+  assert.equal(byLabel("図の名前").value, "保存待ち");
+  assert.equal(localStorage.getItem(active.key), active.raw);
+  await click(other.closest("li").querySelector(".row-toggle"));
+  await click(byText("削除"));
+  await click(byText("削除する"));
+  assert.equal(saved().title, "保存待ち");
+  assert.equal(library.listDiagrams().length, 1);
+  await act(() => root.unmount());
+  await mount();
+  assert.equal(byLabel("図の名前").value, "保存待ち");
+});
+
+test("another tab can delete the open diagram without losing this tab's edits", async () => {
+  localStorage.removeItem(storageKey);
+  // Saving before the storage event arrives must also detect the deletion.
+  await act(() => byLabel("図の名前").focus());
+  await type(byLabel("図の名前"), "このタブの注文");
+  await key(byLabel("図の名前"), "Enter");
+  assert.match(
+    document.querySelector(".migration-notice").textContent,
+    /削除されました/,
+  );
+  assert.equal(localStorage.getItem(storageKey), null);
+  await click(byText("別の図として保存"));
+  assert.equal(localStorage.getItem(storageKey), null);
+  assert.equal(library.listDiagrams().length, 1);
+  assert.equal(saved().title, "このタブの注文");
+  assert.ok(byLabel("usersを編集"));
+});
+
+test("confirming deletion of the last v1 drawing needs no space for a backup", async (t) => {
+  await act(() => root.unmount());
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify({
+      format: "er-sketch",
+      version: 1,
+      diagram: {
+        tables: [{ id: "custom", x: 0, y: 0, columns: [["id", "uuid", "PK"]] }],
+        edges: [],
+      },
+    }),
+  );
+  await mount();
+  const proto = Object.getPrototypeOf(localStorage),
+    setItem = proto.setItem;
+  t.mock.method(proto, "setItem", function (key, value) {
+    if (key.endsWith(".v1-backup"))
+      throw new DOMException("full", "QuotaExceededError");
+    setItem.call(this, key, value);
+  });
+  await click(byText("図の一覧"));
+  await click(byLabel("無題の図の操作"));
+  await click(byText("削除"));
+  await click(byText("削除する"));
   assert.equal(saved().tables.length, 0);
+  assert.equal(library.listDiagrams().length, 1);
+});
+
+test("a stale delete confirmation preserves an update from another tab", async () => {
+  await click(byText("新しい図"));
+  await click(byText("図の一覧"));
+  const other = document.querySelector(".diagram-link:not([aria-current])");
+  await click(other.closest("li").querySelector(".row-toggle"));
+  await click(byText("削除"));
+  const remote = encode({ ...initial, title: "別のタブで変更" });
+  localStorage.setItem(storageKey, remote);
+  await act(() =>
+    window.dispatchEvent(
+      new dom.window.StorageEvent("storage", {
+        key: storageKey,
+        newValue: remote,
+      }),
+    ),
+  );
+  await click(byText("削除する"));
+  assert.match(document.querySelector(".list-error").textContent, /別のタブ/);
+  assert.equal(localStorage.getItem(storageKey), remote);
+  assert.equal(library.listDiagrams().length, 2);
+  await click(byLabel("図の一覧を閉じる"));
+  assert.equal(document.querySelector(".migration-notice"), null);
 });
 
 test("an empty diagram offers next steps, samples and help", async () => {
@@ -244,8 +440,9 @@ test("an empty diagram offers next steps, samples and help", async () => {
   );
   assert.equal(document.querySelector(".empty-diagram"), null);
   assert.ok(document.body.textContent.includes("サンプルを開きました"));
-  await click(byLabel("元に戻す"));
-  assert.ok(document.querySelector(".empty-diagram"));
+  assert.equal(byLabel("元に戻す").disabled, true);
+  assert.equal(library.listDiagrams().length, 3);
+  assert.equal(saved().title, "ライブ配信");
 
   await key(document.body, "?");
   assert.ok(document.querySelector("#help-dialog"));
@@ -386,10 +583,10 @@ test("editing a table keeps the apply button label", async () => {
   assert.ok(byText("変更を反映"));
 });
 
-test("invalid import preserves current data; valid legacy import is undoable", async () => {
-  const before = saved(),
-    input = document.querySelector('input[type="file"]');
+test("invalid imports preserve the diagram and importing a file twice creates independent drawings", async () => {
+  const before = localStorage.getItem(storageKey);
   async function upload(text) {
+    const input = document.querySelector('input[type="file"]');
     Object.defineProperty(input, "files", {
       configurable: true,
       value: [
@@ -401,16 +598,21 @@ test("invalid import preserves current data; valid legacy import is undoable", a
     });
   }
   await upload("{broken");
-  assert.deepEqual(saved(), before);
+  assert.equal(localStorage.getItem(storageKey), before);
   assert.match(
     document.querySelector(".instruction").textContent,
     /読み込めませんでした/,
   );
-  await upload(encode(validateDiagram({ tables: [], edges: [] })));
+  const data = encode(validateDiagram({ tables: [], edges: [] }));
+  await upload(data);
   assert.equal(saved().tables.length, 0);
   assert.equal(saved().title, "受注管理");
-  await click(byLabel("元に戻す"));
-  assert.deepEqual(saved(), before);
+  const first = library.restoreDiagram().key;
+  await upload(data);
+  assert.notEqual(library.restoreDiagram().key, first);
+  assert.equal(library.listDiagrams().length, 3);
+  assert.equal(localStorage.getItem(storageKey), before);
+  assert.equal(byLabel("元に戻す").disabled, true);
 });
 
 test("file menu copies and saves the same DDL and disables exports on an empty diagram", async (t) => {
@@ -433,6 +635,15 @@ test("file menu copies and saves the same DDL and disables exports on an empty d
   t.mock.method(dom.window.HTMLAnchorElement.prototype, "click", function () {
     filename = this.download;
   });
+  await act(() => byLabel("図の名前").focus());
+  await type(byLabel("図の名前"), "  注文/管理  ");
+  await key(byLabel("図の名前"), "Enter");
+  assert.equal(byLabel("図の名前").value, "注文/管理");
+  await click(byText("ファイルに保存"));
+  assert.equal(filename, "注文_管理.json");
+  assert.equal(JSON.parse(await blob.text()).title, "注文/管理");
+  await click(byText("SVG で保存"));
+  assert.equal(filename, "注文_管理.svg");
   await click(byText("全テーブルの DDL をコピー"));
   assert.equal(copied.match(/CREATE TABLE /g).length, initial.tables.length);
   assert.match(
@@ -441,7 +652,7 @@ test("file menu copies and saves the same DDL and disables exports on an empty d
   );
   await click(byText("全テーブルの DDL を保存"));
   assert.equal(await blob.text(), copied);
-  assert.match(filename, /^simple-er-\d{4}-\d{2}-\d{2}\.sql$/);
+  assert.equal(filename, "注文_管理.sql");
   await click(byText("新しい図"));
   for (const label of [
     "SVG で保存",
@@ -884,6 +1095,7 @@ test("legacy backup quota failure preserves the successfully loaded diagram", as
     storageKey,
     JSON.stringify({ format: "er-sketch", version: 1, diagram: legacy }),
   );
+  const oldRaw = localStorage.getItem(storageKey);
   const proto = Object.getPrototypeOf(localStorage),
     original = proto.setItem;
   proto.setItem = function (key, value) {
@@ -893,7 +1105,17 @@ test("legacy backup quota failure preserves the successfully loaded diagram", as
   try {
     await mount();
     assert.ok(byLabel("customを編集"));
+    assert.equal(library.listDiagrams().length, 1);
+    assert.equal(localStorage.getItem(storageKey + ".v1-backup"), null);
+    await act(() => byLabel("図の名前").focus());
+    await type(byLabel("図の名前"), "編集中");
+    await key(byLabel("図の名前"), "Enter");
     assert.match(document.querySelector(".instruction").textContent, /退避先/);
+    assert.equal(localStorage.getItem(storageKey), oldRaw);
+    proto.setItem = original;
+    await click(byText("図の一覧"));
+    assert.equal(localStorage.getItem(storageKey + ".v1-backup"), oldRaw);
+    assert.equal(saved().title, "編集中");
   } finally {
     proto.setItem = original;
   }
@@ -1243,7 +1465,8 @@ test("another tab's write pauses ER autosave until the saved diagram is explicit
 });
 
 test("no-op and cancelled document-backed drag preserve undo and redo boundaries", async () => {
-  const raw = localStorage.getItem(storageKey);
+  const raw = localStorage.getItem(storageKey),
+    before = saved();
   const svg = document.querySelector("#diagram");
   const header = () => byLabel("usersを移動。矢印キーで移動できます。");
   await pointer(header(), "pointerdown", 100, 100);
@@ -1254,11 +1477,13 @@ test("no-op and cancelled document-backed drag preserve undo and redo boundaries
   await pointer(svg, "pointermove", 120, 120);
   await pointer(svg, "pointerup", 120, 120);
   await click(byLabel("元に戻す"));
+  assert.deepEqual(saved(), before);
   assert.equal(byLabel("やり直す").disabled, false);
+  const afterUndo = localStorage.getItem(storageKey);
   await pointer(header(), "pointerdown", 100, 100);
   await pointer(svg, "pointermove", 130, 130);
   await pointer(svg, "pointercancel", 130, 130);
-  assert.equal(localStorage.getItem(storageKey), raw);
+  assert.equal(localStorage.getItem(storageKey), afterUndo);
   assert.equal(byLabel("元に戻す").disabled, true);
   assert.equal(byLabel("やり直す").disabled, false);
 });

@@ -1,4 +1,9 @@
-import { keepPrevious, readPrevious, watchStorage } from "../shared/storage.ts";
+import { watchStorage } from "../shared/storage.ts";
+import { checkDiagram, DiagramChanged } from "../shared/diagram-library.ts";
+import type { DiagramEntry, OpenDiagram } from "../shared/diagram-library.ts";
+import { DiagramList } from "../shared/DiagramList.tsx";
+import { TextField } from "../shared/TextField.tsx";
+import { library, emptyDocument, namedDocument, untitled } from "./library.ts";
 import { downloadFile, downloadPng } from "../shared/export.ts";
 import { diagramSvg, exportFilename, titleFromFile } from "./export.ts";
 import { diagramDDL } from "./ddl.ts";
@@ -12,14 +17,12 @@ import type {
   Table,
   View,
 } from "./types.ts";
-import { initialDocument } from "./initial.ts";
 import {
   canConnect,
   createColumn,
   removeForeignKey,
   removeTable,
   editTable,
-  decode,
   decodeDocument,
   documentFromDiagram,
   projectDocument,
@@ -42,47 +45,38 @@ import { loadSample, samples } from "./samples.ts";
 import { Sidebar } from "./Panels.tsx";
 import { Icon, Logo } from "./icons.tsx";
 
-const STORAGE = "er-sketch.local.v1";
-function restore() {
-  try {
-    const saved = localStorage.getItem(STORAGE);
-    if (saved)
-      try {
-        const diagram = decodeDocument(saved);
-        try {
-          if (
-            JSON.parse(saved).version === 1 &&
-            !localStorage.getItem(STORAGE + ".v1-backup")
-          )
-            localStorage.setItem(STORAGE + ".v1-backup", saved);
-        } catch {
-          return {
-            diagram,
-            message:
-              "旧データの退避先に保存できませんでした。ファイルに保存してバックアップしてください。",
-          };
-        }
-        return { diagram, message: "" };
-      } catch {
-        localStorage.setItem(STORAGE + ".recovery", saved);
-        return {
-          diagram: structuredClone(initialDocument),
-          message:
-            "保存データを読み込めませんでした。元データを退避し、サンプルを表示しています。",
-        };
-      }
-  } catch {
-    return {
-      diagram: structuredClone(initialDocument),
-      message: "自動保存を利用できません。ファイルに保存してください",
-    };
-  }
-  return { diagram: structuredClone(initialDocument), message: "" };
-}
+type SavedDiagram = OpenDiagram<DiagramDocument>;
+
 export function App() {
-  const [loaded] = useState(restore);
+  const [session, setSession] = useState(() => ({
+    initial: library.restoreDiagram(),
+    visit: 0,
+    message: "",
+  }));
+  return (
+    <Editor
+      key={session.visit}
+      {...session}
+      onOpen={(initial, message = "") =>
+        setSession((old) => ({ initial, message, visit: old.visit + 1 }))
+      }
+    />
+  );
+}
+
+function Editor({
+  initial,
+  visit,
+  message,
+  onOpen,
+}: {
+  initial: SavedDiagram;
+  visit: number;
+  message: string;
+  onOpen: (next: SavedDiagram, message?: string) => void;
+}) {
   const [history, dispatch] = useReducer(historyReducer, {
-    present: loaded.diagram,
+    present: initial.doc,
     past: [],
     future: [],
   });
@@ -107,27 +101,15 @@ export function App() {
   const [adjustingLine, setAdjustingLine] = useState(false);
   const [adjustable, setAdjustable] = useState(false);
   const [pending, setPending] = useState<Endpoint | null>(null);
-  const [hint, setHint] = useState(loaded.message);
-  const [saveError, setSaveError] = useState("");
-  const [storageConflict, setStorageConflict] = useState(false);
-  const [hasPrevious, setHasPrevious] = useState(
-    () => readPrevious(STORAGE) !== null,
-  );
-  const pausedSave = useRef(false);
-  const lastSaved = useRef<string | null>(null);
-  useEffect(() => {
-    try {
-      lastSaved.current = localStorage.getItem(STORAGE);
-    } catch {}
-    return watchStorage(
-      STORAGE,
-      () => lastSaved.current,
-      () => {
-        pausedSave.current = true;
-        setStorageConflict(true);
-      },
-    );
-  }, []);
+  const [hint, setHint] = useState(message);
+  const [saveError, setSaveError] = useState(initial.error || "");
+  const [conflict, setConflict] = useState<DiagramChanged | null>(null);
+  const [listOpen, setListOpen] = useState(false);
+  const pausedSave = useRef(!!initial.error);
+  const lastSaved = useRef(initial);
+  const currentDoc = useRef(history.present);
+  currentDoc.current = history.present;
+  const mounted = useRef(true);
   const [logical, setLogical] = useState(() => {
     try {
       return localStorage.getItem("er-sketch.name-display") === "logical";
@@ -144,7 +126,7 @@ export function App() {
   const [help, setHelp] = useState(false);
   const [sampleList, setSampleList] = useState(false);
   const [exportingPng, setExportingPng] = useState(false);
-  const [fitRequest, setFitRequest] = useState(0);
+  const [fitRequest, setFitRequest] = useState(visit > 0 ? 1 : 0);
   const view = useRef<View>({ x: 0, y: 0, w: 1200, h: 720, zoom: 100 });
   const file = useRef<HTMLInputElement>(null);
   const options = useRef<HTMLDetailsElement>(null);
@@ -154,23 +136,60 @@ export function App() {
     logical && t.logicalName ? t.logicalName : title(t);
   const displayColumn = (c: Column) =>
     logical && c.logicalName ? c.logicalName : c.name;
-  function save(next: DiagramDocument) {
-    if (pausedSave.current) return;
+  function pause(raw: string | null) {
+    pausedSave.current = true;
+    setConflict(new DiagramChanged(raw));
+    setSaveError("");
+  }
+  function isSaved(doc: DiagramDocument) {
+    const saved = lastSaved.current.doc;
+    return doc === saved || JSON.stringify(doc) === JSON.stringify(saved);
+  }
+  function persist(doc: DiagramDocument) {
+    if (pausedSave.current)
+      throw new Error("この画面の編集を別の図として保存してください。");
     try {
-      const raw = encodeDocument(next);
-      // Also detect a write that arrived before its storage event was delivered.
-      if (localStorage.getItem(STORAGE) !== lastSaved.current) {
-        pausedSave.current = true;
-        setStorageConflict(true);
-        return;
-      }
-      localStorage.setItem(STORAGE, raw);
-      lastSaved.current = raw;
+      const saved = lastSaved.current;
+      if (saved.raw !== null && isSaved(doc))
+        checkDiagram(initial.key, saved.raw);
+      else
+        lastSaved.current = library.writeDiagram(initial.key, doc, saved.raw);
       setSaveError("");
-    } catch {
-      setSaveError("自動保存できません。ファイルに保存してください");
+    } catch (e) {
+      if (e instanceof DiagramChanged) pause(e.raw);
+      else setSaveError(messageOf(e));
+      throw e;
     }
   }
+  function save(next: DiagramDocument) {
+    currentDoc.current = next;
+    if (pausedSave.current) return;
+    try {
+      persist(next);
+    } catch {
+      /* persist displays the save error. */
+    }
+  }
+  useEffect(() => {
+    mounted.current = true;
+    if (!initial.error && initial.raw === null) save(initial.doc);
+    library.rememberDiagram(initial.key);
+    const unwatch = watchStorage(
+      initial.key,
+      () => lastSaved.current.raw,
+      pause,
+    );
+    window.addEventListener("beforeunload", flushTitle);
+    if (visit) options.current?.querySelector("summary")?.focus();
+    return () => {
+      mounted.current = false;
+      unwatch();
+      window.removeEventListener("beforeunload", flushTitle);
+    };
+  }, []);
+  useEffect(() => {
+    document.title = (history.present.title || untitled) + " — SimpleER";
+  }, [history.present.title]);
   function commit(next: Diagram, before?: Diagram) {
     const valid = documentFromDiagram(next);
     dispatch({
@@ -193,34 +212,71 @@ export function App() {
     setHint(message);
     if (fit) setFitRequest((n) => n + 1);
   }
-  // A new or opened diagram replaces the current one; keep it for 「前の図に戻す」.
-  function replaceAll(next: Diagram, message: string, fallbackTitle?: string) {
-    if (
-      state.tables.length &&
-      keepPrevious(STORAGE, encodeDocument(history.present))
-    )
-      setHasPrevious(true);
-    replace({ ...next, title: next.title ?? fallbackTitle }, message, true);
+  function flushTitle() {
+    const input = document.activeElement;
+    if (input instanceof HTMLInputElement && input.closest(".document-title"))
+      input.blur();
   }
-  function restorePrevious() {
-    const raw = readPrevious(STORAGE);
-    if (!raw) return;
+  function saveBeforeSwitch() {
+    flushTitle();
+    if (pausedSave.current && isSaved(currentDoc.current)) return;
+    persist(currentDoc.current);
+  }
+  function createDiagram(doc: DiagramDocument, message: string) {
+    if (!mounted.current) return;
+    saveBeforeSwitch();
+    onOpen(library.writeDiagram(library.newDiagramKey(), doc, null), message);
+  }
+  function newDiagram() {
+    createDiagram(emptyDocument(), "新しい図を作成しました");
+  }
+  function runMenu(action: () => void) {
     try {
-      replaceAll(decode(raw), "前の図に戻しました（⌘Z で戻る）");
-    } catch (error) {
-      setHint(`前の図を読み込めませんでした：${messageOf(error)}`);
+      action();
+    } catch (e) {
+      setHint(messageOf(e));
+    }
+  }
+  function showList() {
+    flushTitle();
+    save(currentDoc.current);
+    setListOpen(true);
+  }
+  function closeList() {
+    setListOpen(false);
+    requestAnimationFrame(() =>
+      options.current?.querySelector("summary")?.focus(),
+    );
+  }
+  function renameDiagram(entry: DiagramEntry, title: string) {
+    const active = entry.key === initial.key;
+    const source = active
+      ? lastSaved.current
+      : library.openDiagram(entry.key, entry.raw);
+    if (source.error || (active && pausedSave.current))
+      throw new Error("図を開いて保存データを確認してください。");
+    if (active) checkDiagram(entry.key, lastSaved.current.raw);
+    const current = active ? currentDoc.current : source.doc;
+    if (current.title === title) return;
+    const doc = { ...current, title };
+    const next = library.writeDiagram(entry.key, doc, entry.raw);
+    if (active) {
+      lastSaved.current = next;
+      currentDoc.current = doc;
+      dispatch({ type: "commit", next: doc });
+      setSaveError("");
     }
   }
   async function openSample(index: number) {
     setSampleList(false);
     try {
-      replaceAll(
-        decode(await loadSample(index)),
-        "サンプルを開きました（⌘Z で戻る）",
-        samples[index].name,
+      const doc = decodeDocument(await loadSample(index));
+      createDiagram(
+        namedDocument(doc, samples[index].name),
+        "サンプルを開きました",
       );
     } catch (error) {
-      setHint(`サンプルを開けませんでした：${messageOf(error)}`);
+      setHint(messageOf(error));
     }
   }
   function undo() {
@@ -259,6 +315,7 @@ export function App() {
         infer ||
         help ||
         sampleList ||
+        listOpen ||
         (e.target instanceof Element &&
           e.target.matches("input,select,textarea"))
       )
@@ -429,14 +486,20 @@ export function App() {
     }
   }
   async function download(format: "json" | "svg" | "png" | "sql") {
-    const name = exportFilename(state.title) + "." + format;
+    flushTitle();
+    const doc = currentDoc.current;
+    const diagram = projectDocument(doc);
+    const name = exportFilename(doc.title) + "." + format;
     try {
-      if (format === "json")
-        downloadFile(encodeDocument(history.present), name);
+      if (format === "json") downloadFile(encodeDocument(doc), name);
       else if (format === "sql")
-        downloadFile(diagramDDL(state), name, "application/sql;charset=utf-8");
+        downloadFile(
+          diagramDDL(diagram),
+          name,
+          "application/sql;charset=utf-8",
+        );
       else {
-        const svg = diagramSvg(state, displayTable, displayColumn);
+        const svg = diagramSvg(diagram, displayTable, displayColumn);
         if (format === "svg")
           downloadFile(svg, name, "image/svg+xml;charset=utf-8");
         else {
@@ -596,10 +659,24 @@ export function App() {
           >
             <Icon name="sidebar" />
           </button>
-          <h1>
-            <Logo />
-            SimpleER
-          </h1>
+          <div className="document-identity">
+            <h1>
+              <Logo />
+              SimpleER
+            </h1>
+            <TextField
+              className="document-title"
+              label="図の名前"
+              value={history.present.title || untitled}
+              emptyValue={untitled}
+              onCommit={(title) => {
+                if (currentDoc.current.title === title) return;
+                const next = { ...currentDoc.current, title };
+                dispatch({ type: "commit", next });
+                save(next);
+              }}
+            />
+          </div>
           <details
             ref={options}
             className="file-options"
@@ -612,21 +689,10 @@ export function App() {
           >
             <summary>ファイル</summary>
             <div className="file-options-panel">
-              <button
-                onClick={() =>
-                  replaceAll(
-                    { tables: [], edges: [] },
-                    "新しい図を作成しました（⌘Z で戻る）",
-                  )
-                }
-              >
-                新しい図
-              </button>
+              <button onClick={showList}>図の一覧</button>
+              <button onClick={() => runMenu(newDiagram)}>新しい図</button>
               <button onClick={() => file.current?.click()}>
                 ファイルを開く
-              </button>
-              <button disabled={!hasPrevious} onClick={restorePrevious}>
-                前の図に戻す
               </button>
               <button onClick={() => download("json")}>ファイルに保存</button>
               <hr />
@@ -660,7 +726,7 @@ export function App() {
               </button>
             </div>
           </details>
-          {(saveError || storageConflict) && (
+          {(saveError || conflict || initial.error) && (
             <span className="save-indicator error" title="自動保存は停止中です">
               自動保存停止中
             </span>
@@ -677,10 +743,10 @@ export function App() {
               try {
                 if (selectedFile.size > 2_000_000)
                   throw new Error("ファイルの上限は2MBです。");
-                replaceAll(
-                  decode(await selectedFile.text()),
-                  "ファイルを開きました（⌘Z で戻る）",
-                  titleFromFile(selectedFile.name),
+                const doc = decodeDocument(await selectedFile.text());
+                createDiagram(
+                  namedDocument(doc, titleFromFile(selectedFile.name)),
+                  "ファイルを開きました",
                 );
               } catch (error) {
                 setHint(
@@ -786,39 +852,45 @@ export function App() {
         </fieldset>
       </header>
       <main>
-        {storageConflict && (
+        {(conflict || (initial.error && initial.raw !== null)) && (
           <div className="migration-notice" role="alert">
-            別の画面でER図が変更されました。自動保存を停止しています。読み込む前に、この画面の図を「ファイルに保存」で残せます。読み込み時に編集履歴はリセットされます。
-            <button
-              onClick={() => {
-                try {
-                  const raw = localStorage.getItem(STORAGE);
-                  if (!raw) {
-                    setSaveError(
-                      "別の画面で保存データが削除されました。この画面の図をファイルに保存してください。",
-                    );
-                    return;
-                  }
-                  const next = decodeDocument(raw);
-                  dispatch({ type: "reset", next });
-                  lastSaved.current = raw;
-                  pausedSave.current = false;
-                  setStorageConflict(false);
-                  clear();
-                  setSaveError("");
-                  requestAnimationFrame(() =>
-                    (
-                      (document.querySelector(
-                        ".migration-notice summary",
-                      ) as HTMLElement | null) ?? document.getElementById("fit")
-                    )?.focus(),
-                  );
-                } catch (e) {
-                  setSaveError(messageOf(e));
+            {conflict && (
+              <>
+                {conflict.message}
+                自動保存を停止しています。この画面の編集は「別の図として保存」で残せます。
+                {conflict.raw !== null && (
+                  <button
+                    onClick={() =>
+                      runMenu(() => onOpen(library.openDiagram(initial.key)))
+                    }
+                  >
+                    保存されている図を読み込む
+                  </button>
+                )}
+              </>
+            )}
+            {initial.error && initial.raw !== null && (
+              <button
+                onClick={() =>
+                  downloadFile(initial.raw!, "simple-er-recovery.json")
                 }
-              }}
+              >
+                元データをファイルに保存
+              </button>
+            )}
+            <button
+              onClick={() =>
+                runMenu(() => {
+                  const next = library.writeDiagram(
+                    library.newDiagramKey(),
+                    currentDoc.current,
+                    null,
+                  );
+                  onOpen(next, "別の図として保存しました");
+                })
+              }
             >
-              保存されている図を読み込む
+              別の図として保存
             </button>
           </div>
         )}
@@ -914,7 +986,7 @@ export function App() {
         )}
         <div className="instruction" data-visible={Boolean(hint || saveError)}>
           <span role="status" aria-live="polite">
-            {hint}
+            {hint !== saveError && hint}
           </span>
           <span
             id="save-status"
@@ -1092,6 +1164,46 @@ export function App() {
           state={state}
           onClose={() => setInfer(false)}
           onApply={replace}
+        />
+      )}
+      {listOpen && (
+        <DiagramList
+          library={library}
+          Icon={Icon}
+          emptyName="空の図"
+          activeKey={initial.key}
+          onClose={closeList}
+          onCreate={newDiagram}
+          onOpen={(entry) => {
+            if (entry.key === initial.key) return closeList();
+            saveBeforeSwitch();
+            onOpen(library.openDiagram(entry.key));
+          }}
+          onDuplicate={(entry) => {
+            const source =
+              entry.key === initial.key
+                ? lastSaved.current
+                : library.openDiagram(entry.key);
+            if (source.error) throw new Error(source.error);
+            const doc =
+              entry.key === initial.key ? currentDoc.current : source.doc;
+            createDiagram(
+              {
+                ...doc,
+                title: (doc.title || untitled).slice(0, 196) + "のコピー",
+              },
+              "図を複製しました",
+            );
+          }}
+          onRename={renameDiagram}
+          onDelete={(entry) => {
+            const next = library.deleteDiagram(entry, initial.key);
+            if (next) onOpen(next, "図を削除しました");
+            else {
+              setHint("");
+              save(currentDoc.current);
+            }
+          }}
         />
       )}
       {help && <HelpDialog onClose={() => setHelp(false)} />}
