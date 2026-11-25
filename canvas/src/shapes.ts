@@ -41,6 +41,16 @@ export const RAIL_SHAPES: NodeShape[] = [
   "cloud",
 ];
 
+// Position the memo label in a free corner, or below a curved shape's text.
+export function memoMarker(node: CanvasNode) {
+  const { shape, w, h } = node;
+  if (shape === "person") return { x: w - 2, y: 10, centered: false };
+  if (["rectangle", "screen", "document"].includes(shape))
+    return { x: w - 8, y: h - 15, centered: false };
+  const inset = shape === "cylinder" ? 12 : boxTextArea(node).y / 2 + 4;
+  return { x: w / 2, y: h - inset - 8, centered: true };
+}
+
 const cylinderCap = (h: number) => Math.min(18, h / 6);
 // A person is a stick figure with its name underneath.
 const FIGURE_HEIGHT = 70;

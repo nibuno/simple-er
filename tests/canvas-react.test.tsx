@@ -103,6 +103,12 @@ async function type(el, value) {
 async function blur(el) {
   await act(() => el.blur());
 }
+async function choose(select, value) {
+  await act(() => {
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
 async function key(el, key, options = {}) {
   await act(() =>
     el.dispatchEvent(
@@ -591,6 +597,66 @@ test("a box memo and its canvas note remain in sync through edits and undo", asy
   );
   await click(label("やり直す"));
   assert.ok(label("Worker のメモを選択").textContent.includes("失敗時は3回"));
+});
+test("assigning a status from an attached memo updates its owner, list and drawing through undo and reload", async () => {
+  const attached = () =>
+    document.querySelector('[data-node-id="worker-note"] .node-face');
+  const marker = () =>
+    document.querySelector('[data-node-id="worker"] .memo-indicator');
+  await click(attached());
+  await panel("メモを開く");
+  await choose(label("メモの状態"), "decided");
+  assert.equal(marker().textContent, "決定");
+  assert.match(attached().textContent, /Worker のメモ · 決定/);
+  assert.ok(document.querySelector(".attachment-wire"));
+  await click(label("元に戻す"));
+  assert.equal(marker().textContent, "メモ");
+  await click(label("やり直す"));
+  await act(() => root.unmount());
+  await mount();
+  assert.equal(marker().textContent, "決定");
+  await click(button("メモの一覧"));
+  const filter = label("メモを状態で絞り込む");
+  const owners = () =>
+    [...document.querySelectorAll(".memo-row strong")].map(
+      (el) => el.textContent,
+    );
+  assert.deepEqual(owners(), ["API", "Worker"]);
+  await choose(filter, "decided");
+  assert.deepEqual(owners(), ["Worker"]);
+  await choose(filter, "");
+  assert.deepEqual(owners(), ["API"]);
+  await choose(filter, "concern");
+  assert.match(
+    document.querySelector(".memo-list").textContent,
+    /この状態のメモはありません/,
+  );
+});
+test("choosing an off-screen memo centers and selects its figure without editing it or switching drawings", async () => {
+  await act(() => root.unmount());
+  const doc = growNodes(sampleDocument());
+  const api = doc.nodes.find((n) => n.id === "api");
+  api.x = -3000;
+  localStorage.setItem(STORAGE_KEY, encode(doc));
+  localStorage.setItem(VIEW_KEY, JSON.stringify({ x: 0, y: 0, zoom: 0.8 }));
+  await mount();
+  await click(button("メモの一覧"));
+  const row = document.querySelector(".memo-row");
+  assert.equal(row.querySelector(".memo-body").textContent, api.body);
+  await click(row);
+  assert.equal(label("APIを選択").getAttribute("aria-pressed"), "true");
+  assert.equal(row.getAttribute("aria-current"), "true");
+  const view = JSON.parse(localStorage.getItem(VIEW_KEY));
+  assert.equal(view.zoom, 0.8);
+  assert.equal(view.x + (api.x + api.w / 2) * view.zoom, 600);
+  assert.equal(view.y + (api.y + api.h / 2) * view.zoom, 350);
+  await key(row, "Delete");
+  assert.deepEqual(saved(), doc);
+  await key(label("メニュー"), "Enter");
+  assert.equal(document.querySelector(".canvas-node.editing"), null);
+  await click(button("図の一覧"));
+  assert.ok(document.querySelector(".diagram-list[open]"));
+  assert.equal(document.querySelector(".memo-list"), null);
 });
 test("invalid files keep the current work, and importing the same file twice makes independent drawings", async () => {
   const before = saved();

@@ -1,7 +1,8 @@
 import type { CanvasDocument, CanvasNode } from "./types";
+import { memoStatusLabels } from "./types";
 import { noteContent, wrapText } from "./model";
 import { documentRoutes, memoRoutes, sceneBounds } from "./geometry";
-import { boxTextArea, shapePaths } from "./shapes";
+import { boxTextArea, memoMarker, shapePaths } from "./shapes";
 import { DEFAULT_COLORS, nodeAppearance, safeColor } from "./colors";
 import { iconPath } from "./Icons";
 import { textWidth } from "./text";
@@ -102,12 +103,18 @@ export function toSvg(doc: CanvasDocument) {
         iconSvg = icon
           ? `<path d="${icon}" transform="translate(${iconX} ${textY + 4}) scale(0.67)" fill="none" stroke="${colors.muted}" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>`
           : "";
+      const marker = memoMarker(n);
+      const status =
+        n.body.trim() && n.memoStatus
+          ? `<text x="${marker.x - (marker.centered ? 0 : 4)}" y="${marker.y + 4}" font-size="10" fill="${colors.muted}" text-anchor="${marker.centered ? "middle" : "end"}">${memoStatusLabels[n.memoStatus]}</text>`
+          : "";
       return (
         `<g data-node-shape="${n.shape}" transform="translate(${n.x} ${n.y})"><path d="${paths.outline}" fill="${colors.fill}" stroke="${colors.stroke}"/>` +
         (paths.detail
           ? `<path d="${paths.detail}" fill="none" stroke="${colors.stroke}"/>`
           : "") +
         iconSvg +
+        status +
         "</g>" +
         textBlock(
           n.title,

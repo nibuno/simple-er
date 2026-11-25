@@ -35,6 +35,7 @@ import { downloadFile, exportPng, filename, toSvg } from "./export";
 import { Canvas } from "./Canvas";
 import { DiagramList } from "../../shared/DiagramList.tsx";
 import { TextField } from "../../shared/TextField.tsx";
+import { MemoList } from "./MemoList";
 import {
   checkDiagram,
   DiagramChanged,
@@ -56,6 +57,9 @@ import { RAIL_SHAPES, SHAPES, shapeIcons, shapeLabels } from "./shapes";
 const isTyping = (target: EventTarget | null) =>
   target instanceof Element &&
   !!target.closest("input,textarea,select,[contenteditable='true']");
+const keepNativeKeys = (target: EventTarget | null) =>
+  isTyping(target) ||
+  (target instanceof Element && !!target.closest(".memo-list,.file-menu"));
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 const SHORT_SAVE_STATES: Record<string, string> = {
@@ -128,7 +132,7 @@ function Editor({
   const [editing, setEditing] = useState<string | null>(null),
     [status, setStatus] = useState(message),
     [error, setError] = useState(initial.error ?? "");
-  const [listOpen, setListOpen] = useState(false);
+  const [listOpen, setListOpen] = useState<"diagrams" | "memos" | null>(null);
   const [moreShapes, setMoreShapes] = useState(false);
   useEffect(() => {
     if (!moreShapes) return;
@@ -158,7 +162,7 @@ function Editor({
   pausedRef.current = paused;
   const [recovery, setRecovery] = useState(initial.error ? initial.raw : null),
     [remote, setRemote] = useState<string | null>(null),
-    [exporting, setExporting] = useState(false);
+    [exporting, setExporting] = useState<"png" | "markdown" | null>(null);
   const saveText = paused
     ? "自動保存を停止中"
     : saveProblem
@@ -454,6 +458,28 @@ function Editor({
     );
     notify("ファイルに保存しました");
   }
+  async function exportDiagram(format: "png" | "markdown") {
+    flushInput();
+    const current = docRef.current;
+    setExporting(format);
+    try {
+      if (format === "png") {
+        await exportPng(current);
+        notify("PNGで保存しました");
+      } else {
+        const { markdownArchive } = await import("./markdown");
+        downloadFile(
+          markdownArchive(current),
+          filename(current.title) + ".zip",
+        );
+        notify("Markdownと図を保存しました");
+      }
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setExporting(null);
+    }
+  }
   function pause(raw: string | null) {
     pausedRef.current = true;
     setPaused(true);
@@ -519,10 +545,10 @@ function Editor({
   function showList() {
     flushInput();
     retrySave();
-    setListOpen(true);
+    setListOpen("diagrams");
   }
   function closeList() {
-    setListOpen(false);
+    setListOpen(null);
     requestAnimationFrame(() =>
       menu.current?.querySelector("summary")?.focus(),
     );
@@ -601,7 +627,7 @@ function Editor({
         actions.current.save();
         return;
       }
-      if (isTyping(e.target)) return;
+      if (keepNativeKeys(e.target)) return;
       if (e.key === "Escape") {
         clearPending();
         setTool("select");
@@ -668,7 +694,11 @@ function Editor({
       else if (e.key === "?") help.current?.showModal();
     };
     const copy = (e: ClipboardEvent) => {
-      if (isTyping(e.target) || dialogOpen() || !selectionRef.current.length)
+      if (
+        keepNativeKeys(e.target) ||
+        dialogOpen() ||
+        !selectionRef.current.length
+      )
         return;
       const fragment = selectionDocument(docRef.current, selectionRef.current);
       if (!fragment.nodes.length) return;
@@ -678,7 +708,7 @@ function Editor({
       else notify("コピーしました");
     };
     const paste = (e: ClipboardEvent) => {
-      if (isTyping(e.target) || dialogOpen()) return;
+      if (keepNativeKeys(e.target) || dialogOpen()) return;
       const text = e.clipboardData?.getData("text/plain");
       if (!text) return;
       e.preventDefault();
@@ -859,6 +889,16 @@ function Editor({
             </summary>
             <div className="file-popover">
               <button onClick={showList}>図の一覧</button>
+              <button
+                aria-expanded={listOpen === "memos"}
+                onClick={() => {
+                  flushInput();
+                  if (listOpen === "memos") closeList();
+                  else setListOpen("memos");
+                }}
+              >
+                メモの一覧
+              </button>
               <button onClick={() => runMenu(newCanvas)}>
                 新しいキャンバス
               </button>
@@ -883,20 +923,16 @@ function Editor({
                 SVGで保存
               </button>
               <button
-                disabled={!doc.nodes.length || exporting}
-                onClick={async () => {
-                  setExporting(true);
-                  try {
-                    await exportPng(docRef.current);
-                    notify("PNGで保存しました");
-                  } catch (e) {
-                    setError(errorMessage(e));
-                  } finally {
-                    setExporting(false);
-                  }
-                }}
+                disabled={!doc.nodes.length || !!exporting}
+                onClick={() => exportDiagram("png")}
               >
-                {exporting ? "PNGに変換中…" : "PNGで保存"}
+                {exporting === "png" ? "PNGに変換中…" : "PNGで保存"}
+              </button>
+              <button
+                disabled={!doc.nodes.length || !!exporting}
+                onClick={() => exportDiagram("markdown")}
+              >
+                Markdownで保存（図付き）
               </button>
               <hr />
               <button
@@ -1184,7 +1220,20 @@ function Editor({
           }
         }}
       />
-      {listOpen && (
+      {listOpen === "memos" && (
+        <MemoList
+          doc={doc}
+          selectedId={node?.attachedTo || node?.id}
+          onClose={closeList}
+          onSelect={(owner) => {
+            clearPending();
+            setTool("select");
+            select([owner.id]);
+            canvas.current?.centerOn(owner);
+          }}
+        />
+      )}
+      {listOpen === "diagrams" && (
         <DiagramList
           library={library}
           Icon={Icon}

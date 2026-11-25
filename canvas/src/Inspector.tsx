@@ -1,7 +1,13 @@
 import { TextField } from "../../shared/TextField.tsx";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { CanvasDocument, CanvasNode, CanvasEdge } from "./types";
+import type {
+  CanvasDocument,
+  CanvasNode,
+  CanvasEdge,
+  MemoStatus,
+} from "./types";
+import { memoStatusLabels } from "./types";
 import { MAX_TEXT, noteContent } from "./model";
 import { Icon, NODE_ICONS, NodeIcon } from "./Icons";
 import { minimumWidth, SHAPES, shapeIcons, shapeLabels } from "./shapes";
@@ -173,7 +179,7 @@ export function SelectionBar({
             </button>
           </>
         )}
-        {node?.kind === "box" &&
+        {(node?.kind === "box" || parent) &&
           panelButton(
             "memo",
             "メモを開く",
@@ -224,7 +230,10 @@ export function SelectionBar({
         {node && panelButton("more", "その他", <Icon name="more" />)}
       </div>
       {open && (
-        <div className="bar-panel" key={open}>
+        <div
+          className={"bar-panel" + (open === "memo" ? " memo-editor" : "")}
+          key={open}
+        >
           {open === "icon" && node && (
             <div
               className="icon-choice"
@@ -300,6 +309,26 @@ export function SelectionBar({
           )}
           {open === "memo" && node && (
             <>
+              <label className="field memo-status-field">
+                <span>状態</span>
+                <select
+                  aria-label="メモの状態"
+                  value={(parent || node).memoStatus || ""}
+                  onChange={(e) =>
+                    onPatch((parent || node).id, {
+                      memoStatus: (e.target.value || undefined) as
+                        MemoStatus | undefined,
+                    })
+                  }
+                >
+                  <option value="">未設定</option>
+                  {Object.entries(memoStatusLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <TextField
                 label="メモ"
                 value={parent ? parent.body : node.body}

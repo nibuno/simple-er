@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
+import { strFromU8, unzipSync } from "fflate";
 import {
   arrange,
   attachNote,
@@ -26,6 +27,7 @@ import {
   routeEdge,
 } from "../canvas/src/geometry.ts";
 import { toSvg } from "../canvas/src/export.ts";
+import { markdownArchive } from "../canvas/src/markdown.ts";
 import { boxTextArea, SHAPES, shapePaths } from "../canvas/src/shapes.ts";
 import {
   COLOR_FAMILIES,
@@ -45,6 +47,61 @@ test("canvas JSON round-trips Japanese text, attachment identity, groups, and la
     ).body,
     doc.nodes.find((n) => n.id === "worker").body,
   );
+});
+test("memo status belongs to the figure and older documents keep their unassigned memos", () => {
+  const doc = decode(encode(sampleDocument()));
+  const worker = doc.nodes.find((n) => n.id === "worker");
+  assert.equal(worker.memoStatus, undefined);
+  worker.memoStatus = "pending";
+  const copy = pasteDocument(
+    emptyDocument(),
+    selectionDocument(doc, ["worker"]),
+    { x: 0, y: 0 },
+  ).doc;
+  const restored = decode(encode(copy));
+  assert.equal(
+    restored.nodes.find((n) => n.kind === "box").memoStatus,
+    "pending",
+  );
+  const attached = restored.nodes.find((n) => n.attachedTo);
+  assert.equal(attached.memoStatus, undefined);
+  assert.match(noteContent(attached, restored).title, /未決/);
+  worker.title = "長".repeat(200);
+  assert.doesNotThrow(() =>
+    decode(encode(selectionDocument(doc, ["worker-note"]))),
+  );
+  worker.memoStatus = "unknown";
+  assert.throws(() => decode(encode(doc)), /メモの状態/);
+});
+test("the Markdown archive links its SVG and includes each figure's complete memo once", async () => {
+  const doc = growNodes(sampleDocument());
+  const api = doc.nodes.find((n) => n.id === "api");
+  api.title = "";
+  api.body = "先に保存する。\r\n# 理由\n<受付>";
+  const worker = doc.nodes.find((n) => n.id === "worker");
+  worker.memoStatus = "decided";
+  const files = unzipSync(
+    new Uint8Array(await markdownArchive(doc).arrayBuffer()),
+  );
+  assert.deepEqual(Object.keys(files).sort(), ["README.md", "diagram.svg"]);
+  const md = strFromU8(files["README.md"]);
+  assert.ok(md.includes("# 通知処理の設計\n\n![図](./diagram.svg)"));
+  assert.ok(
+    md.includes("## 箱（未設定）\n\n先に保存する。  \n\\# 理由  \n\\<受付\\>"),
+  );
+  assert.ok(md.includes("## Worker（決定）"));
+  assert.ok(md.includes(worker.body.split("\n").at(-1)));
+  assert.equal(md.match(/^## /gm).length, 2);
+  assert.doesNotMatch(md, /今回の方針/);
+  const svg = strFromU8(files["diagram.svg"]);
+  assert.equal(svg, toSvg(doc));
+  assert.match(svg, /Worker のメモ · 決定/);
+  assert.match(svg, />決定<\/text>/);
+  assert.match(svg, /stroke-dasharray="0 4"/);
+  const empty = unzipSync(
+    new Uint8Array(await markdownArchive(emptyDocument()).arrayBuffer()),
+  );
+  assert.match(strFromU8(empty["README.md"]), /メモはありません。/);
 });
 test("all figure shapes retain their outline and safe text area through save, copy and SVG export", () => {
   const doc = emptyDocument();

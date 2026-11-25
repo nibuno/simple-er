@@ -1,4 +1,5 @@
 import { reduceHistory } from "../../shared/history.ts";
+import { memoStatusLabels } from "./types";
 import type {
   CanvasDocument,
   CanvasNode,
@@ -130,16 +131,30 @@ export function sampleDocument(): CanvasDocument {
   }));
   return doc;
 }
+export function memoNodes(doc: CanvasDocument) {
+  return doc.nodes.filter((n) => n.kind === "box" && n.body.trim());
+}
+export function memoOwnerName(node: CanvasNode) {
+  return node.title.trim() || shapeLabels[node.shape];
+}
 export function noteContent(node: CanvasNode, doc: CanvasDocument) {
   const parent = doc.nodes.find((n) => n.id === node.attachedTo);
-  return parent
-    ? {
-        title: parent.title
-          ? parent.title + " のメモ"
-          : shapeLabels[parent.shape] + "のメモ",
-        body: parent.body,
-      }
-    : { title: node.title, body: node.body };
+  if (!parent) return { title: node.title, body: node.body };
+  const title =
+    memoOwnerName(parent) + (parent.title.trim() ? " のメモ" : "のメモ");
+  return {
+    title: parent.memoStatus
+      ? title + " · " + memoStatusLabels[parent.memoStatus]
+      : title,
+    body: parent.body,
+  };
+}
+function detachNote(node: CanvasNode, doc: CanvasDocument) {
+  const { title, body } = noteContent(node, doc);
+  // Free text has a stored, 200-character heading; attached headings are derived.
+  node.title = title.slice(0, 200);
+  node.body = body;
+  delete node.attachedTo;
 }
 export function minimumHeight(node: CanvasNode, doc: CanvasDocument) {
   if (node.kind === "group") return 100;
@@ -235,6 +250,13 @@ export function decode(raw: string): CanvasDocument {
       fail("囲みの参照が不正です。");
     if (n.attachedTo !== undefined && !str(n.attachedTo, 120))
       fail("メモの参照が不正です。");
+    if (
+      n.memoStatus !== undefined &&
+      (n.kind !== "box" ||
+        typeof n.memoStatus !== "string" ||
+        !Object.hasOwn(memoStatusLabels, n.memoStatus))
+    )
+      fail("メモの状態が不正です。");
     for (const key of ["fillColor", "strokeColor"])
       if (n[key] !== undefined && !validColor(n[key]))
         fail("図形の色が不正です。");
@@ -309,10 +331,7 @@ export function removeSelection(doc: CanvasDocument, ids: string[]) {
   next.nodes = next.nodes
     .filter((n) => !removed.has(n.id))
     .map((n) => {
-      if (n.attachedTo && removed.has(n.attachedTo)) {
-        Object.assign(n, noteContent(n, doc));
-        delete n.attachedTo;
-      }
+      if (n.attachedTo && removed.has(n.attachedTo)) detachNote(n, doc);
       if (n.groupId && removed.has(n.groupId)) delete n.groupId;
       return n;
     });
@@ -442,10 +461,7 @@ export function selectionDocument(doc: CanvasDocument, ids: string[]) {
   };
   next.nodes.forEach((n) => {
     if (n.groupId && !expanded.has(n.groupId)) delete n.groupId;
-    if (n.attachedTo && !expanded.has(n.attachedTo)) {
-      Object.assign(n, noteContent(n, doc));
-      delete n.attachedTo;
-    }
+    if (n.attachedTo && !expanded.has(n.attachedTo)) detachNote(n, doc);
   });
   return next;
 }
