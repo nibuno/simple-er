@@ -1,0 +1,99 @@
+.document-title {
+  margin: 0;
+  min-width: 0;
+}
+.document-title > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  overflow: hidden;
+}
+.document-title input {
+  width: 22ch;
+  max-width: 100%;
+  border-color: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  background: transparent;
+  padding: 5px 6px;
+}
+.document-title input:hover {
+  border-color: var(--border);
+}
+
+.diagram-list .dialog-heading {
+  gap: 6px;
+}
+.diagram-list h2 {
+  margin-right: auto;
+}
+.diagram-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+}
+.diagram-list li {
+  border-top: 1px solid var(--border);
+}
+.diagram-row,
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-link {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  justify-content: start;
+  gap: 4px;
+  padding: 10px 6px;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.diagram-link span,
+.row-toggle {
+  font-size: 12px;
+  color: var(--muted);
+}
+.diagram-link strong {
+  color: var(--accent);
+}
+.current-diagram {
+  white-space: nowrap;
+}
+.diagram-link:hover strong,
+.diagram-link:focus-visible strong {
+  text-decoration: underline;
+}
+.row-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  padding: 0 0 8px;
+}
+.row-actions .field,
+.row-actions p {
+  width: 100%;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.row-actions button,
+.diagram-list .secondary {
+  font-size: 13px;
+}
+.diagram-list .delete-diagram,
+.list-error {
+  color: var(--danger);
+}
+@media (max-width: 760px) {
+  .document-title input {
+    width: 14ch;
+  }
+}
+@media (pointer: coarse) {
+  .document-title input {
+    font-size: 16px;
+  }
+}

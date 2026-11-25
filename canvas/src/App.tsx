@@ -33,22 +33,22 @@ import {
 } from "./model";
 import { downloadFile, exportPng, filename, toSvg } from "./export";
 import { Canvas } from "./Canvas";
-import { DiagramList } from "./DiagramList";
+import { DiagramList } from "../../shared/DiagramList.tsx";
+import { TextField } from "../../shared/TextField.tsx";
 import {
   checkDiagram,
   DiagramChanged,
-  listDiagrams,
+  library,
   newDiagramKey,
   openDiagram,
   rememberDiagram,
-  removeDiagram,
   restoreDiagram,
   viewKeyFor,
   writeDiagram,
 } from "./library";
 import type { DiagramEntry, OpenDiagram } from "./library";
 import type { CanvasHandle } from "./Canvas";
-import { SelectionBar, TextField } from "./Inspector";
+import { SelectionBar } from "./Inspector";
 import type { Panel } from "./Inspector";
 import { Icon } from "./Icons";
 import { RAIL_SHAPES, SHAPES, shapeIcons, shapeLabels } from "./shapes";
@@ -544,21 +544,11 @@ function Editor({
     }
   }
   function deleteDiagram(entry: DiagramEntry) {
-    if (entry.key !== initial.key) {
-      removeDiagram(entry);
+    const next = library.deleteDiagram(entry, initial.key);
+    if (next) onOpen(next, "図を削除しました");
+    else {
       if (!pausedRef.current) setError("");
       if (saveProblem) retrySave();
-      return;
-    }
-    const next = listDiagrams().find((item) => item.key !== entry.key);
-    if (next) {
-      removeDiagram(entry);
-      onOpen(openDiagram(next.key, next.raw), "図を削除しました");
-    } else {
-      // Reuse the last slot atomically, including when storage is full.
-      const blank = writeDiagram(entry.key, emptyDocument(), entry.raw);
-      localStorage.removeItem(viewKeyFor(entry.key));
-      onOpen(blank, "図を削除しました");
     }
   }
   function connectMode() {
@@ -930,11 +920,12 @@ function Editor({
           <TextField
             className="document-title"
             label="キャンバス名"
+            emptyValue="無題のキャンバス"
             value={doc.title}
             onCommit={(title) =>
               commit({
                 ...docRef.current,
-                title: title.trim() || "無題のキャンバス",
+                title,
               })
             }
             onDirty={() => setDirty(true)}
@@ -1195,6 +1186,9 @@ function Editor({
       />
       {listOpen && (
         <DiagramList
+          library={library}
+          Icon={Icon}
+          emptyName="空のキャンバス"
           activeKey={initial.key}
           onClose={closeList}
           onCreate={newCanvas}
