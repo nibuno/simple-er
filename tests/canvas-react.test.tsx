@@ -53,7 +53,7 @@ const React = await import("react"),
   { act } = React;
 const { createRoot } = await import("react-dom/client");
 const { App } = await import("../canvas/src/App.tsx");
-const { isDiagramKey, listDiagrams, restoreDiagram } =
+const { isDiagramKey, listDiagrams, restoreDiagram, viewKeyFor } =
   await import("../canvas/src/library.ts");
 const {
   encode,
@@ -269,12 +269,30 @@ test("the toolbar asks where to put the figure, and Esc gives up", async () => {
 test("with the pointer over the canvas the figure appears under it at once", async () => {
   const view = currentView();
   await pointer(label("設計キャンバス"), "pointermove", 640, 420);
-  await click(label("箱を追加"));
+  await key(label("設計キャンバス"), "b");
   await type(label("名前を直接編集"), "通知ログ");
   await submit();
   const added = saved().nodes.find((n) => n.title === "通知ログ");
   assert.equal(added.x, snap((640 - view.x) / view.zoom - added.w / 2));
   assert.equal(added.y, snap((420 - view.y) / view.zoom - added.h / 2));
+});
+test("the empty canvas text button waits for the placement click", async () => {
+  await click(button("新しいキャンバス"));
+  const action = button("テキストを追加");
+  await pointer(action, "pointermove", 600, 350);
+  await click(action);
+  assert.equal(label("テキストを追加").getAttribute("aria-pressed"), "true");
+  assert.equal(document.querySelector(".canvas-node"), null);
+  const view = JSON.parse(
+    localStorage.getItem(viewKeyFor(restoreDiagram().key)),
+  );
+  await placeAt(800, 500);
+  await type(label("テキストを直接編集"), "構成図の補足");
+  await submit();
+  const [note] = saved().nodes;
+  assert.equal(note.kind, "note");
+  assert.equal(note.x, snap((800 - view.x) / view.zoom - note.w / 2));
+  assert.equal(note.y, snap((500 - view.y) / view.zoom - note.h / 2));
 });
 test("a description alone creates a figure without a generated name, and creation is one undo step", async () => {
   const before = saved();
@@ -688,10 +706,13 @@ test("choosing an off-screen memo centers and selects its figure without editing
   localStorage.setItem(STORAGE_KEY, encode(doc));
   localStorage.setItem(VIEW_KEY, JSON.stringify({ x: 0, y: 0, zoom: 0.8 }));
   await mount();
+  await click(label("箱を追加"));
   await click(button("メモの一覧"));
   const row = document.querySelector(".memo-row");
   assert.equal(row.querySelector(".memo-body").textContent, api.body);
   await click(row);
+  assert.equal(label("箱を追加").getAttribute("aria-pressed"), "false");
+  assert.ok(label("設計キャンバス").classList.contains("tool-select"));
   assert.equal(label("APIを選択").getAttribute("aria-pressed"), "true");
   assert.equal(row.getAttribute("aria-current"), "true");
   const view = JSON.parse(localStorage.getItem(VIEW_KEY));

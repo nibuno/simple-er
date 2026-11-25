@@ -178,8 +178,7 @@ function Editor({
     actions = useRef({
       undo: () => {},
       redo: () => {},
-      add: (_kind: "box" | "note", _point?: Point, _shape?: NodeShape) => {},
-      requestAdd: (_kind: "box" | "note", _shape?: NodeShape) => {},
+      addAtPointer: (_kind: "box" | "note") => {},
       duplicate: () => {},
       remove: () => {},
       group: () => {},
@@ -212,7 +211,7 @@ function Editor({
       setSelection(selectionRef.current);
     }
   }
-  // Any other tool ends placing; only requestAdd starts it.
+  // Any other tool ends placing.
   function chooseTool(next: Tool | ((old: Tool) => Tool)) {
     setPlacing(null);
     setTool(next);
@@ -351,15 +350,7 @@ function Editor({
     select([node.id]);
     setEditing(node.id);
   }
-  // The toolbar has no place of its own to put a figure, so the pointer
-  // says where: under the cursor when it is over the canvas, otherwise the
-  // next click on it.
-  function requestAdd(kind: "box" | "note", nodeShape = shape) {
-    const point = canvas.current?.pointerPoint();
-    if (point) {
-      add(kind, point, nodeShape, undefined, false, true);
-      return;
-    }
+  function startPlacing(kind: "box" | "note", nodeShape = shape) {
     flushInput();
     discardDraft();
     clearPending();
@@ -605,8 +596,11 @@ function Editor({
   actions.current = {
     undo,
     redo,
-    requestAdd,
-    add,
+    addAtPointer(kind) {
+      const point = canvas.current?.pointerPoint();
+      if (point) add(kind, point, shape, undefined, false, true);
+      else startPlacing(kind);
+    },
     duplicate,
     remove,
     group,
@@ -698,10 +692,10 @@ function Editor({
         edit(selectionRef.current[0]);
       } else if (e.key.toLowerCase() === "b") {
         e.preventDefault();
-        actions.current.requestAdd("box");
+        actions.current.addAtPointer("box");
       } else if (e.key.toLowerCase() === "n") {
         e.preventDefault();
-        actions.current.requestAdd("note");
+        actions.current.addAtPointer("note");
       } else if (e.key.toLowerCase() === "c") actions.current.connectMode();
       else if (e.key.toLowerCase() === "v") {
         chooseTool("select");
@@ -813,7 +807,7 @@ function Editor({
       onClick={() => {
         setShape(option);
         setMoreShapes(false);
-        requestAdd("box", option);
+        startPlacing("box", option);
       }}
     >
       <Icon name={shapeIcons[option]} />
@@ -842,7 +836,8 @@ function Editor({
             chooseTool("select");
             add(placing.kind, point, placing.shape, undefined, false, true);
           }}
-          onAddBox={() => requestAdd("box")}
+          onAddBox={() => startPlacing("box")}
+          onAddText={() => startPlacing("note")}
           onEditEdge={(id) => {
             select([id]);
             setBarRequest({ id, panel: "label" });
@@ -1057,7 +1052,7 @@ function Editor({
             aria-label="テキストを追加"
             aria-pressed={placing?.kind === "note"}
             data-tip="テキスト N"
-            onClick={() => requestAdd("note")}
+            onClick={() => startPlacing("note")}
           >
             <Icon name="text" />
           </button>
@@ -1247,7 +1242,7 @@ function Editor({
           onClose={closeList}
           onSelect={(owner) => {
             clearPending();
-            setTool("select");
+            chooseTool("select");
             select([owner.id]);
             canvas.current?.centerOn(owner);
           }}

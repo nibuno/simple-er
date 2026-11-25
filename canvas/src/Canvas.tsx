@@ -63,6 +63,7 @@ interface Props {
   onAddNote: (point: Point) => void;
   onPlace: (point: Point) => void;
   onAddBox: () => void;
+  onAddText: () => void;
   onEditEdge: (id: string) => void;
   // `place` asks for a free spot near the point rather than the exact point.
   onAddConnected: (from: string, point: Point, place?: boolean) => void;
@@ -1357,10 +1358,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
             <button className="primary" onClick={p.onAddBox}>
               箱を追加
             </button>
-            <button
-              className="secondary"
-              onClick={() => p.onAddNote({ x: 100, y: 100 })}
-            >
+            <button className="secondary" onClick={p.onAddText}>
               テキストを追加
             </button>
           </div>
