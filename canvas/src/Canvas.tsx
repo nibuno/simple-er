@@ -12,14 +12,8 @@ import type {
   PointerEvent as ReactPointerEvent,
   ReactNode,
 } from "react";
-import type {
-  CanvasDocument,
-  CanvasNode,
-  NodeShape,
-  Point,
-  Tool,
-  View,
-} from "./types";
+import type { CanvasDocument, CanvasNode, Point, Tool, View } from "./types";
+import { memoStatusLabels } from "./types";
 import {
   bounds,
   clone,
@@ -36,11 +30,18 @@ import { Icon, NodeIcon } from "./Icons";
 import { InlineEditor } from "./Inspector";
 import { ShapeTextEditor } from "./ShapeTextEditor";
 import type { ShapeTextField } from "./ShapeTextEditor";
-import { boxTextArea, minimumWidth, shapeLabels, shapePaths } from "./shapes";
+import {
+  boxTextArea,
+  memoMarker,
+  minimumWidth,
+  shapeLabels,
+  shapePaths,
+} from "./shapes";
 import { nodeAppearance } from "./colors";
 
 export interface CanvasHandle {
   fit: () => void;
+  centerOn: (node: CanvasNode) => void;
   center: () => Point;
   focus: () => void;
   reveal: () => void;
@@ -91,8 +92,6 @@ type Drag =
       side: (typeof PORTS)[number];
     };
 const PORTS = ["top", "right", "bottom", "left"] as const;
-// Shapes with a square corner free for the memo marker.
-const CORNER_MARKER: NodeShape[] = ["rectangle", "screen", "document"];
 const SIDE_NAMES = { top: "上", right: "右", bottom: "下", left: "左" };
 // The first free port is the one reachable by keyboard.
 const freePorts = (used?: Set<(typeof PORTS)[number]>) => {
@@ -211,7 +210,16 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       ),
       below = top < 120;
     // Clear of the connection ports, which sit 18px outside the figure.
-    return { x, y: below ? bottom + 44 : top - 44, below };
+    const y = below ? bottom + 44 : top - 44;
+    const roomAbove = y - (below ? 0 : 40),
+      roomBelow = el.clientHeight - y - (below ? 40 : 0);
+    return {
+      x,
+      y,
+      below,
+      memoBelow: roomBelow > roomAbove,
+      memoRoom: Math.max(roomAbove, roomBelow) - 12,
+    };
   })();
   // Sides where a line already meets a figure; a port there would cover it.
   const usedSides = useMemo(() => {
@@ -242,25 +250,34 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       v = viewRef.current;
     return { x: (x - r.left - v.x) / v.zoom, y: (y - r.top - v.y) / v.zoom };
   };
-  const fitZoom = (b: { w: number; h: number }, w: number, h: number) =>
+  const fitZoom = (
+    b: { w: number; h: number },
+    w: number,
+    h: number,
+    limit = 1,
+  ) =>
     Math.max(
       0.05,
-      Math.min(1, (w - 100) / Math.max(b.w, 1), (h - 110) / Math.max(b.h, 1)),
+      Math.min(
+        limit,
+        (w - 100) / Math.max(b.w, 1),
+        (h - 110) / Math.max(b.h, 1),
+      ),
     );
-  function fit() {
+  function centerBounds(b: ReturnType<typeof bounds>, limit = 1) {
     const el = stage.current;
     // Without a size the zoom would clamp to 5% and then be stored.
     if (!el?.clientWidth || !el.clientHeight) return;
-    const b = sceneBounds(latest.current.doc),
-      w = el.clientWidth,
+    const w = el.clientWidth,
       h = el.clientHeight,
-      zoom = fitZoom(b, w, h);
+      zoom = fitZoom(b, w, h, limit);
     setView({
       zoom,
       x: (w - b.w * zoom) / 2 - b.x * zoom,
       y: (h - b.h * zoom) / 2 - b.y * zoom,
     });
   }
+  const fit = () => centerBounds(sceneBounds(latest.current.doc));
   // The first layout can happen before the stage has a size (a hidden pane),
   // so the initial view is settled once it has one. A stored view is kept
   // unless it hides the whole drawing or is far smaller than fitting it.
@@ -290,6 +307,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   }
   useImperativeHandle(ref, () => ({
     fit,
+    centerOn: (node) => centerBounds(node, viewRef.current.zoom),
     center: () =>
       toWorld(
         stage.current!.getBoundingClientRect().left +
@@ -446,7 +464,9 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     const down = (e: KeyboardEvent) => {
       if (
         e.code === "Space" &&
-        !(e.target as HTMLElement).closest("input,textarea,select,button")
+        !(e.target as HTMLElement).closest(
+          "input,textarea,select,button,summary",
+        )
       ) {
         e.preventDefault();
         space.current = true;
@@ -745,6 +765,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       editing = p.editing === node.id,
       area = boxTextArea(node),
       paths = shapePaths(node),
+      marker = memoMarker(node),
+      statusLabel = node.memoStatus && memoStatusLabels[node.memoStatus],
       colors = nodeAppearance(node, p.doc),
       name =
         node.title ||
@@ -846,6 +868,13 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
             <button
               className="node-face"
               aria-label={name + "を選択"}
+              aria-description={
+                node.kind === "box" && node.body.trim()
+                  ? statusLabel
+                    ? "メモ（" + statusLabel + "）"
+                    : "メモあり"
+                  : undefined
+              }
               aria-pressed={selected}
               onPointerDown={(e) => startNode(e, node)}
               onPointerMove={(e) => {
@@ -904,29 +933,21 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                       </span>
                     )}
                   </span>
-                  {node.body && (
+                  {node.body.trim() && (
                     <span
                       className={
-                        "memo-indicator" +
-                        (CORNER_MARKER.includes(node.shape)
-                          ? ""
-                          : node.shape === "person"
-                            ? " top"
-                            : " centered")
+                        "memo-indicator" + (marker.centered ? " centered" : "")
                       }
-                      title={"メモ：" + node.body.split("\n")[0].slice(0, 60)}
-                      style={
-                        CORNER_MARKER.includes(node.shape) ||
-                        node.shape === "person"
-                          ? undefined
-                          : {
-                              bottom:
-                                node.shape === "cylinder" ? 12 : area.y / 2 + 4,
-                            }
+                      data-memo-status={node.memoStatus}
+                      title={
+                        (statusLabel ? "メモ（" + statusLabel + "）" : "メモ") +
+                        "：" +
+                        node.body.split("\n")[0].slice(0, 60)
                       }
+                      style={{ left: marker.x, top: marker.y }}
                     >
                       <Icon name="note" />
-                      メモ
+                      {statusLabel || "メモ"}
                     </span>
                   )}
                 </>
@@ -1272,7 +1293,14 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       {p.selectionBar && !moving && !p.editing && barAnchor && (
         <div
           className={"selection-anchor" + (barAnchor.below ? " below" : "")}
-          style={{ left: barAnchor.x, top: barAnchor.y }}
+          data-memo-below={barAnchor.memoBelow}
+          style={
+            {
+              left: barAnchor.x,
+              top: barAnchor.y,
+              "--memo-room": barAnchor.memoRoom + "px",
+            } as CSSProperties
+          }
         >
           {p.selectionBar}
         </div>

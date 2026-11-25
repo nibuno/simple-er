@@ -1,6 +1,12 @@
 export type Point = { x: number; y: number };
 export type View = Point & { zoom: number };
 export type NodeKind = "box" | "note" | "group";
+export const memoStatusLabels = {
+  pending: "未決",
+  decided: "決定",
+  concern: "懸念",
+} as const;
+export type MemoStatus = keyof typeof memoStatusLabels;
 export type NodeShape =
   | "rectangle"
   | "ellipse"
@@ -20,6 +26,7 @@ export interface CanvasNode extends Point {
   title: string;
   description: string;
   body: string;
+  memoStatus?: MemoStatus;
   fillColor?: string;
   strokeColor?: string;
   // A small icon beside a box's name, one of NODE_ICONS.
