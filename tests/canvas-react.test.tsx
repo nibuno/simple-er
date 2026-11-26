@@ -1402,3 +1402,73 @@ test("a circle stays round when resized from a side or a corner", async () => {
   }
   assert.ok(circle().w > 120);
 });
+
+async function paste(text, target = label("設計キャンバス")) {
+  const event = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: { getData: (format) => (format === "text/plain" ? text : "") },
+  });
+  await act(() => target.dispatchEvent(event));
+  return event.defaultPrevented;
+}
+
+test("pasting a flowchart appends one undoable edit to the open diagram", async () => {
+  const before = saved();
+  // Reuse an ID from the open diagram. Both new edges must point to the pasted nodes.
+  const source = before.nodes.find((n) => n.kind === "box").id;
+  const text = `graph TD\nsubgraph 注文\n${source}[受付] -->|保存| db[(注文DB)] & cache\nend`;
+  await paste(text);
+  const after = saved();
+  assert.equal(after.id, before.id);
+  assert.deepEqual(after.nodes.slice(0, before.nodes.length), before.nodes);
+  assert.deepEqual(after.edges.slice(0, before.edges.length), before.edges);
+  const added = after.nodes.slice(before.nodes.length),
+    edges = after.edges.slice(before.edges.length);
+  assert.equal(added.length, 4);
+  assert.equal(edges.length, 2);
+  const group = added.find((n) => n.kind === "group");
+  const boxes = added.filter((n) => n.kind === "box");
+  assert.ok(boxes.every((n) => n.groupId === group.id));
+  assert.deepEqual(
+    edges.map((e) => e.to),
+    boxes.slice(1).map((n) => n.id),
+  );
+  assert.ok(edges.every((e) => e.from === boxes[0].id && e.label === "保存"));
+  await key(window, "z", { metaKey: true });
+  assert.deepEqual(saved(), before);
+  await key(window, "z", { metaKey: true, shiftKey: true });
+  assert.deepEqual(saved(), after);
+});
+
+test("an invalid flowchart reports its line and leaves the saved diagram and history intact", async () => {
+  const before = saved();
+  await paste("flowchart LR\na --> b\nb -->");
+  assert.match(document.querySelector('[role="alert"]').textContent, /3行目/);
+  assert.deepEqual(saved(), before);
+  assert.ok(label("元に戻す").disabled);
+});
+
+test("canvas JSON and plain text keep their paste behavior, and inputs handle paste natively", async () => {
+  const before = saved();
+  const fragment = emptyDocument();
+  fragment.nodes.push(makeNode("box", { x: 0, y: 0 }));
+  fragment.nodes[0].title = "a --> b";
+  await paste(encode(fragment));
+  assert.equal(saved().nodes.length, before.nodes.length + 1);
+  assert.equal(saved().nodes.at(-1).title, "a --> b");
+  await paste("次の注文を確認する");
+  assert.equal(saved().nodes.at(-1).body, "次の注文を確認する");
+  const current = saved();
+  assert.equal(await paste("a --> b", label("キャンバス名")), false);
+  assert.deepEqual(saved(), current);
+});
+
+test("an import that exceeds the open diagram's edge limit adds nothing", async () => {
+  const before = saved();
+  const remaining = 400 - before.edges.length;
+  const text = "flowchart LR\n" + "a --> b\n".repeat(remaining + 1);
+  await paste(text);
+  assert.match(document.querySelector('[role="alert"]').textContent, /400本/);
+  assert.deepEqual(saved(), before);
+  assert.ok(label("元に戻す").disabled);
+});

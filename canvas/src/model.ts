@@ -395,7 +395,10 @@ export const intersects = (
 ) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 // Keep a new figure clear of other elements, lines and their labels, with
 // enough room around it for a line to pass.
-export function placeInFreeSpace(node: CanvasNode, doc: CanvasDocument) {
+export function placeInFreeSpace(
+  node: Rect & { id?: string },
+  doc: CanvasDocument,
+) {
   const start = { x: node.x, y: node.y },
     obstacles: Rect[] = doc.nodes.filter(
       (n) => n.id !== node.id && n.kind !== "group",
@@ -470,11 +473,10 @@ export function pasteDocument(
   fragment: CanvasDocument,
   offset: Point,
 ) {
-  if (
-    doc.nodes.length + fragment.nodes.length > MAX_NODES ||
-    doc.edges.length + fragment.edges.length > MAX_EDGES
-  )
-    throw new Error("貼り付けると上限の150個を超えます");
+  if (doc.nodes.length + fragment.nodes.length > MAX_NODES)
+    throw new Error(`要素は${MAX_NODES}個までです`);
+  if (doc.edges.length + fragment.edges.length > MAX_EDGES)
+    throw new Error(`線は${MAX_EDGES}本までです`);
   const next = clone(doc),
     map = new Map(fragment.nodes.map((n) => [n.id, uid()]));
   const nodes = fragment.nodes.map((n) => ({

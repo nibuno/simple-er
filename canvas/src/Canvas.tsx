@@ -41,7 +41,7 @@ import { nodeAppearance } from "./colors";
 
 export interface CanvasHandle {
   fit: () => void;
-  centerOn: (node: CanvasNode) => void;
+  centerOn: (area: ReturnType<typeof bounds>) => void;
   center: () => Point;
   focus: () => void;
   reveal: () => void;
@@ -312,7 +312,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   }
   useImperativeHandle(ref, () => ({
     fit,
-    centerOn: (node) => centerBounds(node, viewRef.current.zoom),
+    centerOn: (area) => centerBounds(area, viewRef.current.zoom),
     center: () =>
       toWorld(
         stage.current!.getBoundingClientRect().left +
