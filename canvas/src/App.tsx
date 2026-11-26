@@ -100,10 +100,12 @@ function Editor({
     past: [],
     future: [],
   });
+  // Only the first editing session can amend the step that placed this box.
+  const newBox = useRef<string | null>(null);
+  const [savePoint, setSavePoint] = useState(0);
   const [draftNode, setDraftNode] = useState<CanvasNode | null>(null),
     draftRef = useRef<CanvasNode | null>(null);
-  // A figure added by dropping a line on empty space keeps that line as part
-  // of the draft, so it is added or discarded together with the figure.
+  // Empty text has no visible face. Keep it and its optional line in a draft.
   const [draftEdge, setDraftEdge] = useState<CanvasEdge | null>(null),
     draftEdgeRef = useRef<CanvasEdge | null>(null);
   const doc = useMemo(
@@ -237,13 +239,21 @@ function Editor({
     const timer = setTimeout(() => setStatus(""), 4000);
     return () => clearTimeout(timer);
   }, [status]);
-  function commit(next: CanvasDocument, before?: CanvasDocument) {
+  function commit(
+    next: CanvasDocument,
+    before?: CanvasDocument,
+    amend = false,
+  ) {
     try {
       growNodes(next);
       // Validate edits as well as imports, so every saved document is reloadable.
       const valid = decode(encode(next));
       docRef.current = valid;
-      const action = { type: "commit" as const, next: valid, before };
+      const action = amend
+        ? { type: "amend" as const, next: valid }
+        : { type: "commit" as const, next: valid, before };
+      newBox.current = null;
+      if (amend) setSavePoint((point) => point + 1);
       historyRef.current = historyReducer(historyRef.current, action);
       dispatch(action);
       return true;
@@ -281,7 +291,7 @@ function Editor({
     if (node.attachedTo && patch.body !== undefined) {
       next.nodes.find((n) => n.id === node.attachedTo)!.body = patch.body;
     } else Object.assign(node, patch);
-    commit(next);
+    commit(next, undefined, newBox.current === id);
   }
   function patchEdge(id: string, patch: Partial<CanvasEdge>) {
     const next = clone(docRef.current),
@@ -312,6 +322,7 @@ function Editor({
       return;
     }
     if (id) flushInput();
+    if (id !== newBox.current) newBox.current = null;
     setEditing(id);
     if (id) select([id]);
   }
@@ -343,10 +354,17 @@ function Editor({
       node.y = Math.round((node.y - node.h / 2) / 8) * 8;
     }
     if (!point || place) placeInFreeSpace(node, next);
-    setDraft(
-      node,
-      from ? { id: uid(), from, to: node.id, label: "", dashed: false } : null,
-    );
+    const edge = from
+      ? { id: uid(), from, to: node.id, label: "", dashed: false }
+      : null;
+    if (kind === "box") {
+      next.nodes.push(node);
+      if (edge) next.edges.push(edge);
+      if (!commit(next)) return;
+      newBox.current = node.id;
+    } else {
+      setDraft(node, edge);
+    }
     clearPending();
     chooseTool("select");
     select([node.id]);
@@ -612,7 +630,7 @@ function Editor({
   };
   useEffect(() => {
     if (!paused) retrySave();
-  }, [history.past, history.future, paused]);
+  }, [history.past, history.future, savePoint, paused]);
   useEffect(() => {
     const ids = new Set([
       ...doc.nodes.map((n) => n.id),
@@ -834,7 +852,7 @@ function Editor({
           tool={tool}
           pending={pending}
           editing={editing}
-          draftId={draftNode?.id}
+          addedId={draftNode?.id ?? newBox.current}
           getDocument={() => docRef.current}
           onSelect={select}
           onConnect={connect}
@@ -846,8 +864,6 @@ function Editor({
             chooseTool("select");
             add(placing.kind, point, placing.shape, undefined, false, true);
           }}
-          onAddBox={() => startPlacing("box")}
-          onAddText={() => startPlacing("note")}
           onEditEdge={(id) => {
             select([id]);
             setBarRequest({ id, panel: "label" });
@@ -1033,7 +1049,13 @@ function Editor({
             <Icon name="pan" />
           </button>
           <span className="rail-divider" />
-          {RAIL_SHAPES.map((option) => shapeButton(option))}
+          <span className="rail-anchor">
+            {shapeButton(RAIL_SHAPES[0])}
+            {!doc.nodes.length && !placing && (
+              <span className="rail-hint">← ここから図形を置きます</span>
+            )}
+          </span>
+          {RAIL_SHAPES.slice(1).map(shapeButton)}
           <div className="rail-more">
             <button
               className="icon-button rail-button"

@@ -54,7 +54,7 @@ interface Props {
   tool: Tool;
   pending: string | null;
   editing: string | null;
-  draftId?: string;
+  addedId?: string | null;
   getDocument: () => CanvasDocument;
   onSelect: (ids: string[]) => void;
   onConnect: (id: string, from?: string) => void;
@@ -62,8 +62,6 @@ interface Props {
   onPatch: (id: string, patch: Partial<CanvasNode>) => void;
   onAddNote: (point: Point) => void;
   onPlace: (point: Point) => void;
-  onAddBox: () => void;
-  onAddText: () => void;
   onEditEdge: (id: string) => void;
   // `place` asks for a free spot near the point rather than the exact point.
   onAddConnected: (from: string, point: Point, place?: boolean) => void;
@@ -180,18 +178,18 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   // lines do not detour around it before it is confirmed.
   const { routes, memos } = useMemo(() => {
     const doc =
-      p.draftId &&
+      p.addedId &&
       !displayedDoc.edges.some(
-        (e) => e.from === p.draftId || e.to === p.draftId,
+        (e) => e.from === p.addedId || e.to === p.addedId,
       )
         ? {
             ...displayedDoc,
-            nodes: displayedDoc.nodes.filter((n) => n.id !== p.draftId),
+            nodes: displayedDoc.nodes.filter((n) => n.id !== p.addedId),
           }
         : displayedDoc;
     const routes = documentRoutes(doc);
     return { routes, memos: memoRoutes(doc, routes) };
-  }, [displayedDoc, p.draftId]);
+  }, [displayedDoc, p.addedId]);
   // The selection bar sits centered above the selection, or below it when
   // the selection is near the top of the window.
   const barAnchor = (() => {
@@ -668,7 +666,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       else if (
         !target &&
         dragged &&
-        !hit?.closest(".canvas-controls,.empty-canvas,.edge-control")
+        !hit?.closest(".canvas-controls,.edge-control")
       )
         latest.current.onAddConnected(d.from, point);
       else if (!dragged) addBeside(d.from, d.side);
@@ -837,7 +835,6 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
               node={node}
               doc={p.doc}
               target={editTarget.current}
-              isNew={p.draftId === node.id}
               zoom={view.zoom}
               onSize={(height) => {
                 const h = Math.min(
@@ -1093,7 +1090,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         if (p.tool === "place" && e.button === 0 && !space.current) return;
         if (
           (e.target as Element).closest(
-            ".canvas-node,.edge-control,.canvas-controls,.empty-canvas,.selection-anchor",
+            ".canvas-node,.edge-control,.canvas-controls,.selection-anchor",
           )
         )
           return;
@@ -1141,7 +1138,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       onDoubleClick={(e) => {
         if (
           (e.target as Element).closest(
-            ".canvas-node,.edge-control,.canvas-controls,.empty-canvas,.selection-anchor",
+            ".canvas-node,.edge-control,.canvas-controls,.selection-anchor",
           )
         )
           return;
@@ -1347,23 +1344,6 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
             />
           ))}
         </svg>
-      )}
-      {!p.doc.nodes.length && (
-        <div className="empty-canvas">
-          <span className="empty-symbol">
-            <Icon name="box" />
-          </span>
-          <h2>空のキャンバス</h2>
-          <div className="empty-actions">
-            <button className="primary" onClick={p.onAddBox}>
-              箱を追加
-            </button>
-            <button className="secondary" onClick={p.onAddText}>
-              テキストを追加
-            </button>
-          </div>
-          <small>余白をダブルクリックすると文字を書けます</small>
-        </div>
       )}
       <div className="canvas-controls" aria-label="表示操作">
         <button aria-label="全体を表示" title="全体を表示 (1)" onClick={fit}>
