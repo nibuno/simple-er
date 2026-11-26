@@ -23,6 +23,7 @@ import {
   makeNode,
   MAX_EDGES,
   MAX_NODES,
+  MAX_TEXT,
   moveNodes,
   pasteDocument,
   placeInFreeSpace,
@@ -31,6 +32,7 @@ import {
   selectionDocument,
   uid,
 } from "./model";
+import { looksLikeFlowchart, parseFlowchart } from "./flowchart";
 import { downloadFile, exportPng, filename, toSvg } from "./export";
 import { Canvas } from "./Canvas";
 import { DiagramList } from "../../shared/DiagramList.tsx";
@@ -730,24 +732,32 @@ function Editor({
         try {
           parsed = JSON.parse(text);
         } catch {}
-        if (
+        const isCanvas =
           parsed &&
           typeof parsed === "object" &&
           "format" in parsed &&
-          parsed.format === "simple-canvas"
-        ) {
-          const fragment = decode(text),
-            b = bounds(fragment.nodes),
-            center = canvas.current?.center() || { x: 0, y: 0 };
+          parsed.format === "simple-canvas";
+        if (!isCanvas && text.length > MAX_TEXT)
+          throw new Error(`テキストは${MAX_TEXT}文字までです`);
+        if (isCanvas || looksLikeFlowchart(text)) {
+          const fragment = isCanvas ? decode(text) : parseFlowchart(text);
+          const area = bounds(fragment.nodes);
+          const center = canvas.current?.center() || { x: 0, y: 0 };
+          const target = {
+            ...area,
+            x: center.x - area.w / 2 + 24,
+            y: center.y - area.h / 2 + 24,
+          };
+          if (!isCanvas) placeInFreeSpace(target, docRef.current);
           const result = pasteDocument(docRef.current, fragment, {
-            x: center.x - b.x - b.w / 2 + 24,
-            y: center.y - b.y - b.h / 2 + 24,
+            x: target.x - area.x,
+            y: target.y - area.y,
           });
-          commit(result.doc);
+          if (!commit(result.doc)) return;
           select(result.ids);
-          notify("貼り付けました");
+          if (!isCanvas) canvas.current?.centerOn(target);
+          notify(isCanvas ? "貼り付けました" : "図にしました");
         } else {
-          if (text.length > 6000) throw new Error("テキストは6000文字までです");
           if (docRef.current.nodes.length >= MAX_NODES)
             throw new Error("追加できるのは150個までです");
           const next = clone(docRef.current),
@@ -1310,6 +1320,7 @@ function Editor({
             ["囲む", "⌘ G"],
             ["選択中のものを移動", "矢印キー（Shiftで大きく）"],
             ["複製 / コピー / 貼り付け", "⌘ D / ⌘ C / ⌘ V"],
+            ["Mermaid を図にする", "⌘ V"],
             ["キャンバスを移動", "2本指スクロール / Space＋ドラッグ"],
             ["拡大・縮小", "ピンチ / Ctrl＋ホイール"],
             ["全体を表示", "1"],
