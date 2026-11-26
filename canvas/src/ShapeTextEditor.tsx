@@ -9,7 +9,6 @@ export function ShapeTextEditor({
   node,
   doc,
   target,
-  isNew,
   zoom,
   onSize,
   onFinish,
@@ -17,7 +16,6 @@ export function ShapeTextEditor({
   node: CanvasNode;
   doc: CanvasDocument;
   target: ShapeTextField;
-  isNew: boolean;
   zoom: number;
   onSize: (height: number) => void;
   onFinish: (patch: Partial<CanvasNode>) => void;
@@ -29,9 +27,10 @@ export function ShapeTextEditor({
     done = useRef(false),
     composing = useRef(false);
   const area = boxTextArea(node);
-  // Keep an empty optional field from shifting existing centered text.
-  const floatingTitle = !isNew && !title && !!description,
-    floatingDescription = !isNew && !description && !!title;
+  // An empty field is taken out of the flow, so the text sits where the
+  // finished figure will show it instead of shifting when the editor closes.
+  const floatingTitle = !title && !!description,
+    floatingDescription = !description;
 
   useLayoutEffect(() => {
     const input =
@@ -52,20 +51,60 @@ export function ShapeTextEditor({
         descriptionHeight,
         Math.max(21, area.h - Math.min(titleHeight, area.h - 28) - 7),
       ) + "px";
+    // A field that is out of the flow asks for no room of its own.
+    const writtenHeight =
+      (floatingTitle ? 0 : titleHeight) +
+      (floatingDescription ? 0 : descriptionHeight) +
+      (floatingTitle || floatingDescription ? 0 : 7);
     onSize(
       Math.max(
-        minimumBoxHeight(node.shape, titleHeight + descriptionHeight + 7),
-        minimumHeight(
-          {
-            ...node,
-            title: title || "名前",
-            description: description || "説明",
-          },
-          doc,
-        ),
+        minimumBoxHeight(node.shape, writtenHeight),
+        minimumHeight({ ...node, title, description }, doc),
       ),
     );
   }, [title, description, node.w, node.h]);
+
+  // The name and the explanation are two fields, but they read as one text:
+  // the caret crosses between them and Backspace joins them back together.
+  function collapsedAt(input: HTMLTextAreaElement, at: number) {
+    return input.selectionStart === at && input.selectionEnd === at;
+  }
+  function atVerticalBoundary(input: HTMLTextAreaElement, down: boolean) {
+    if (input.selectionStart !== input.selectionEnd) return false;
+    const at = input.selectionStart;
+    if (at === (down ? input.value.length : 0)) return true;
+    const lines = input.value.split("\n");
+    const lineHeight = parseFloat(window.getComputedStyle(input).lineHeight);
+    // Let the browser move inside soft-wrapped text until it reaches an end.
+    if (input.scrollHeight > Math.ceil(lines.length * lineHeight)) return false;
+    return !(down ? input.value.slice(at) : input.value.slice(0, at)).includes(
+      "\n",
+    );
+  }
+  function focusTitleEnd() {
+    const name = titleInput.current!;
+    name.focus();
+    name.setSelectionRange(name.value.length, name.value.length);
+  }
+  function focusDescriptionStart() {
+    const explanation = descriptionInput.current!;
+    explanation.focus();
+    explanation.setSelectionRange(0, 0);
+  }
+  function joinIntoTitle() {
+    const name = titleInput.current!,
+      explanation = descriptionInput.current!,
+      [firstLine = "", ...rest] = explanation.value.split("\n"),
+      junction = name.value.length,
+      joined = name.value + firstLine;
+    if (joined.length > name.maxLength) return;
+    name.value = joined;
+    explanation.value = rest.join("\n");
+    setTitle(joined);
+    setDescription(explanation.value);
+    name.focus();
+    name.setSelectionRange(junction, junction);
+  }
 
   function finish(form: HTMLFormElement) {
     if (done.current) return;
@@ -107,9 +146,40 @@ export function ShapeTextEditor({
         ) {
           e.preventDefault();
           finish(e.currentTarget);
-        } else if (e.key === "Enter" && e.target === titleInput.current) {
+          return;
+        }
+        const input = e.target as HTMLTextAreaElement,
+          inTitle = e.target === titleInput.current,
+          inDescription = e.target === descriptionInput.current;
+        if (
+          (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) &&
+          e.key.startsWith("Arrow")
+        )
+          return;
+        if (inTitle && e.key === "Enter") {
           e.preventDefault();
-          descriptionInput.current?.focus();
+          focusDescriptionStart();
+        } else if (
+          inDescription &&
+          e.key === "Backspace" &&
+          collapsedAt(input, 0)
+        ) {
+          e.preventDefault();
+          joinIntoTitle();
+        } else if (
+          inDescription &&
+          ((e.key === "ArrowLeft" && collapsedAt(input, 0)) ||
+            (e.key === "ArrowUp" && atVerticalBoundary(input, false)))
+        ) {
+          e.preventDefault();
+          focusTitleEnd();
+        } else if (
+          inTitle &&
+          ((e.key === "ArrowRight" && collapsedAt(input, input.value.length)) ||
+            (e.key === "ArrowDown" && atVerticalBoundary(input, true)))
+        ) {
+          e.preventDefault();
+          focusDescriptionStart();
         }
       }}
     >
@@ -123,7 +193,6 @@ export function ShapeTextEditor({
             className={"node-title" + (floatingTitle ? " empty-title" : "")}
             aria-label="名前を直接編集"
             name="title"
-            placeholder="名前"
             defaultValue={node.title}
             maxLength={200}
             rows={1}
@@ -139,7 +208,6 @@ export function ShapeTextEditor({
             }
             aria-label="説明を直接編集"
             name="description"
-            placeholder="説明（任意）"
             defaultValue={node.description}
             maxLength={500}
             rows={1}
