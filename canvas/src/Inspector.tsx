@@ -30,6 +30,7 @@ export function SelectionBar({
   sharedSite,
   erEntries,
   selectedEr,
+  onOpenEr,
   onLinkEr,
   onColors,
   onPatch,
@@ -45,6 +46,7 @@ export function SelectionBar({
   sharedSite: boolean;
   erEntries: LinkEntry[];
   selectedEr?: string;
+  onOpenEr: (node: CanvasNode) => void;
   onLinkEr: (key: string) => void;
   flushInput: () => void;
   doc: CanvasDocument;
@@ -305,6 +307,14 @@ export function SelectionBar({
                     SimpleER を開く
                   </a>
                 </p>
+              ) : selectedEr ? (
+                <button
+                  type="button"
+                  className="open-er"
+                  onClick={() => onOpenEr(node)}
+                >
+                  SimpleER で開く
+                </button>
               ) : (
                 <p>このブラウザの同じ保存先にある図を選べます。</p>
               )}

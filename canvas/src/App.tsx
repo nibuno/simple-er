@@ -705,6 +705,18 @@ function Editor({
       return;
     persist();
   }
+  function openEr(node: CanvasNode) {
+    const link = node.erLink;
+    if (!link || !erTarget(node)) {
+      select([node.id]);
+      setBarRequest({ id: node.id, panel: "er" });
+      return;
+    }
+    runMenu(() => {
+      saveBeforeSwitch();
+      window.location.assign(linkedUrl("er", link));
+    });
+  }
   function createDiagram(doc: CanvasDocument, message: string) {
     saveBeforeSwitch();
     onOpen(writeDiagram(newDiagramKey(), decode(encode(doc)), null), message);
@@ -1022,17 +1034,7 @@ function Editor({
           }}
           onCommit={commit}
           erTitle={(node) => erTarget(node)?.title}
-          onOpenEr={(node) => {
-            if (node.erLink && erTarget(node)) {
-              runMenu(() => {
-                saveBeforeSwitch();
-                window.location.assign(linkedUrl("er", node.erLink!));
-              });
-            } else {
-              select([node.id]);
-              setBarRequest({ id: node.id, panel: "er" });
-            }
-          }}
+          onOpenEr={openEr}
           selectionBar={
             <SelectionBar
               flushInput={flushInput}
@@ -1044,6 +1046,7 @@ function Editor({
               sharedSite={sharedSite}
               erEntries={erDiagrams.entries}
               selectedEr={node && erTarget(node)?.key}
+              onOpenEr={openEr}
               onLinkEr={(key) =>
                 runMenu(() => {
                   if (!node) return;

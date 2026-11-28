@@ -1705,7 +1705,7 @@ kbd {
   }
 }
 @media (max-width: 360px) {
-  .bar-row:has(.bar-arrowheads) .bar-button > span:not(.bar-swatch) {
+  .bar-row .bar-button > span:not(.bar-swatch) {
     display: none;
   }
 }
@@ -1775,4 +1775,9 @@ kbd {
 }
 .er-picker a {
   color: var(--accent);
+}
+
+.er-picker .open-er {
+  color: var(--accent);
+  border: 1px solid var(--border);
 }
