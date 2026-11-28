@@ -5,6 +5,10 @@ import { importDDL } from "./ddl-import.ts";
 import { importMermaid } from "./mermaid-import.ts";
 import { messageOf } from "./utils.ts";
 
+function skippedSummary(count?: number) {
+  return count ? `図に関係しない文を${count}件読み飛ばしました。` : "";
+}
+
 export function SchemaImportDialog({
   format,
   state,
@@ -18,6 +22,7 @@ export function SchemaImportDialog({
     separate: boolean,
     title: string,
     count: number,
+    skipped: string,
   ) => void;
   onClose: () => void;
 }) {
@@ -26,9 +31,8 @@ export function SchemaImportDialog({
   const [source, setSource] = useState("");
   const [title, setTitle] = useState("");
   const [separate, setSeparate] = useState(false);
-  const [preview, setPreview] = useState<ReturnType<typeof importDDL> | null>(
-    null,
-  );
+  type Result = ReturnType<typeof parse> & { ignoredCount?: number };
+  const [preview, setPreview] = useState<Result | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const file = useRef<HTMLInputElement>(null);
@@ -41,13 +45,15 @@ export function SchemaImportDialog({
     try {
       if (source.length > 2_000_000)
         throw new Error(`${format} は2MBまで読み込めます。`);
-      const parsed = preview ?? parse(source, separate ? undefined : state);
-      if (!preview && parsed.issues.length) {
+      const parsed: Result =
+        preview ?? parse(source, separate ? undefined : state);
+      const skipped = skippedSummary(parsed.ignoredCount);
+      if (!preview && (parsed.issues.length || (!parsed.applied && skipped))) {
         setPreview(parsed);
         return;
       }
       if (!parsed.applied) throw new Error("読み込める定義がありません。");
-      onApply(parsed.diagram, separate, title, parsed.tableCount);
+      onApply(parsed.diagram, separate, title, parsed.tableCount, skipped);
       onClose();
     } catch (e) {
       setError(messageOf(e));
@@ -147,6 +153,9 @@ export function SchemaImportDialog({
                 : "読み込める変更があります。"
               : "読み込める定義がありません。"}
           </strong>
+          {preview.ignoredCount ? (
+            <p>{skippedSummary(preview.ignoredCount)}</p>
+          ) : null}
           <ul>
             {preview.issues.map((issue, i) => (
               <li key={i}>
@@ -169,7 +178,9 @@ export function SchemaImportDialog({
           disabled={loading || !source.trim() || preview?.applied === 0}
           onClick={apply}
         >
-          {preview?.applied ? "読めた分を読み込む" : "読み込む"}
+          {preview?.applied && preview.issues.length
+            ? "読めた分を読み込む"
+            : "読み込む"}
         </button>
       </div>
     </Modal>

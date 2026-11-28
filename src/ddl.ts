@@ -1,6 +1,6 @@
 import { serialBase } from "./column-attributes.ts";
-import { expression } from "./ddl-tokens.ts";
-import { checkTokens, identifierPath } from "./schema-constraints.ts";
+import { checkSql, defaultSql } from "./ddl-expression.ts";
+import { identifierPath } from "./schema-constraints.ts";
 import { qualifiedTitle, tableKey } from "./model.ts";
 import { ddlType, detailsComment } from "./ddl-dialect.ts";
 import type { DdlDialect, Diagram, Table } from "./types.ts";
@@ -101,6 +101,21 @@ export function tableDDL(
           ? `TEXT CHECK (${quote(c.name)} IN (${values}))`
           : identifierPath(original).map(quote).join(".");
     }
+    const label = [table.schemaName, tableName, c.name]
+      .filter(Boolean)
+      .join(".");
+    if (
+      !enumType &&
+      dialect !== "PostgreSQL" &&
+      (/\[.*\]|\bARRAY\b/i.test(original) ||
+        (mysql &&
+          !/^(?:(?:tiny|small|medium|big)?int(?:eger)?|decimal|numeric|float[48]?|double(?: precision)?|real|bit|bool(?:ean)?|date(?:time)?|time(?:stamp)?|year|(?:var)?(?:char|binary)|(?:tiny|medium|long)?(?:text|blob)|json|set|geometry|point|linestring|polygon|multipoint|multilinestring|multipolygon|geometrycollection)(?:\s*\([^)]*\))?(?: unsigned)?(?: zerofill)?$/i.test(
+            type,
+          )))
+    )
+      throw new Error(
+        `${label} の型「${original}」は ${dialect} 用に変更してください。`,
+      );
     let generation = "";
     if (sqlite && (serial || c.identity)) {
       if (primary?.columnIds.length !== 1 || primary.columnIds[0] !== c.id)
@@ -125,13 +140,20 @@ export function tableDDL(
         );
       generation = ` GENERATED ${c.identity === "always" ? "ALWAYS" : "BY DEFAULT"} AS IDENTITY${c.identityOptions ? ` (${c.identityOptions})` : ""}`;
     }
-    let value = c.defaultValue;
+    const nativeDefault =
+      c.defaultValue &&
+      defaultSql(c.defaultValue, original, dialect, label + " の既定値", type);
+    let value = nativeDefault;
     if (mysql && value)
       value = value.replace(/'(?:''|[^'])*'/g, (str) =>
         str.replaceAll("\\", "\\\\"),
       );
     const comment = c.note || c.logicalName;
     const details = detailsComment({
+      defaultValue:
+        nativeDefault && c.defaultValue && nativeDefault !== c.defaultValue
+          ? { source: c.defaultValue, sql: nativeDefault }
+          : undefined,
       enumName: enumType && (mysql || sqlite) ? enumType.name : undefined,
       type: !enumType && original !== type ? original : undefined,
       logicalName: c.logicalName || undefined,
@@ -151,11 +173,22 @@ export function tableDDL(
   for (const k of keys.filter((k) => k.kind === "unique"))
     if (named(k.columnIds))
       lines.push(`  ${constraintName(k.name)}UNIQUE (${named(k.columnIds)})`);
-  for (const check of table.checks ?? [])
-    if (check.expression.trim())
-      lines.push(
-        `  ${constraintName(check.name)}CHECK (${expression(checkTokens(check.expression), "(" + check.expression + ")", dialect)})`,
-      );
+  for (const check of table.checks ?? []) {
+    if (!check.expression.trim()) continue;
+    const sql = checkSql(
+      check.expression,
+      columns.map((c) => c.name),
+      dialect,
+      tableName + " の CHECK",
+    );
+    const details = detailsComment({
+      check:
+        sql === check.expression
+          ? undefined
+          : { source: check.expression, sql },
+    });
+    lines.push(`  ${constraintName(check.name)}CHECK (${sql})${details}`);
+  }
   const indexes: string[] = [];
   keys
     .filter((k) => k.kind === "index" && named(k.columnIds))

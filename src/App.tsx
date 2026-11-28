@@ -1501,10 +1501,11 @@ function Editor({
           format={importFormat}
           state={state}
           onClose={() => setImportFormat(null)}
-          onApply={(diagram, separate, title, count) => {
-            const message = count
-              ? `${count}個のテーブルを読み込みました。`
-              : `${importFormat} を読み込みました。`;
+          onApply={(diagram, separate, title, count, skipped) => {
+            const message =
+              (count
+                ? `${count}個のテーブルを読み込みました。`
+                : `${importFormat} を読み込みました。`) + skipped;
             if (separate) {
               const doc = namedDocument(documentFromDiagram(diagram), title);
               createDiagram(doc, message, {
