@@ -24,6 +24,8 @@ export function identifyingForeignKey(child: Table, columnIds: string[]) {
 
 export function diagramMermaid(diagram: Diagram) {
   const lines = ["erDiagram"];
+  if (diagram.enums?.length)
+    lines.push("    %% simple-er-enums " + JSON.stringify(diagram.enums));
   const names = (t: Table, ids: string[]) =>
     ids.map((id) => t.columns.find((c) => c.id === id)!.name);
   for (const t of diagram.tables) {
@@ -44,7 +46,7 @@ export function diagramMermaid(diagram: Diagram) {
       const attrs = columnAttributes(c);
       return Object.keys(attrs).length ? [{ name: c.name, ...attrs }] : [];
     });
-    const block = t.columns.length > 0 || !!t.note;
+    const block = t.columns.length > 0 || !!t.note || !!t.checks?.length;
     lines.push("    " + entity + (block ? " {" : ""));
     for (const c of t.columns) {
       const flags = [
@@ -65,10 +67,10 @@ export function diagramMermaid(diagram: Diagram) {
             .join(" "),
       );
     }
-    if (t.note || columns.length) {
+    if (t.note || columns.length || t.checks?.length) {
       lines.push(
         "        %% simple-er-details " +
-          JSON.stringify({ note: t.note, columns }),
+          JSON.stringify({ note: t.note, checks: t.checks, columns }),
       );
     }
     if (block) lines.push("    }");

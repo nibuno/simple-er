@@ -22,7 +22,7 @@ export function tableWidth(t: Table) {
   );
   const type = Math.max(
     ...t.columns.map((c) =>
-      Math.max(textWidth(c.type, 12), textWidth(columnMarks(c), 10)),
+      Math.max(textWidth(c.type, 12), textWidth(columnMarks(c, t), 10)),
     ),
     0,
   );
@@ -31,7 +31,9 @@ export function tableWidth(t: Table) {
       textWidth(t.name ?? t.id, 17),
       textWidth(t.logicalName, 17),
       textWidth(t.schemaName, 11),
-    ) + 82;
+    ) +
+    82 +
+    (t.checks?.length ? 60 : 0);
   return Math.ceil(Math.max(WIDTH, heading, 39 + name + 24 + type + 14));
 }
 export const height = (t: Table) => HEADER + t.columns.length * ROW + 10;

@@ -1433,6 +1433,62 @@ test("single-column FK can be entered source-first and target choices retain uni
   });
 });
 
+test("CHECK and shared ENUM edits apply with the table, cancel and undo together", async () => {
+  const chooseType = async (label, value) =>
+    act(() => {
+      const select = byLabel(label);
+      select.value = value;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  await click(byLabel("ordersを編集"));
+  await click(byLabel("CHECK 制約を追加"));
+  await type(byLabel("CHECK 1の条件式"), "total >= 0");
+  await click(byLabel("ENUM 型を追加"));
+  await type(document.querySelector(".enum-editor input"), "state");
+  await type(byLabel("ENUM の値1"), "open");
+  await click(byText("＋ 値"));
+  await type(byLabel("ENUM の値2"), "closed");
+  await click(byText("完了"));
+  await chooseType("カラム3の型", "state");
+  await submit();
+  await click(byLabel("usersを編集"));
+  await chooseType("カラム2の型", "state");
+  await submit();
+  const before = saved();
+  await click(byLabel("ordersを編集"));
+  await click(byLabel("stateを編集"));
+  assert.equal(byText("型を削除").disabled, true);
+  await type(document.querySelector(".enum-editor input"), "order_state");
+  await type(byLabel("ENUM の値2"), "paid");
+  await click(byText("完了"));
+  await type(byLabel("CHECK 1の条件式"), "total <> 0");
+  await submit();
+  assert.deepEqual(saved().enums, [
+    { name: "order_state", values: ["open", "paid"] },
+  ]);
+  assert.equal(saved().tables[0].columns[1].type, "order_state");
+  assert.deepEqual(saved().tables[1].checks, [
+    { name: "", expression: "total <> 0" },
+  ]);
+  await click(byLabel("元に戻す"));
+  assert.deepEqual(saved(), before);
+  await click(byLabel("ordersを編集"));
+  await click(byLabel("CHECK 1を削除"));
+  await click(byText("キャンセル"));
+  assert.deepEqual(saved(), before);
+  await click(byLabel("usersを編集"));
+  await chooseType("カラム2の型", "text");
+  await submit();
+  await click(byLabel("ordersを編集"));
+  await chooseType("カラム3の型", "integer");
+  await click(byLabel("CHECK 1を削除"));
+  await click(byLabel("stateを編集"));
+  await click(byText("型を削除"));
+  await submit();
+  assert.equal(saved().enums, undefined);
+  assert.equal(saved().tables[1].checks, undefined);
+});
+
 test("column checks maintain one composite PK and independent single-column unique constraints", async () => {
   const before = saved();
   await click(byLabel("order_itemsを編集"));

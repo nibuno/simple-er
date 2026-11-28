@@ -8,6 +8,7 @@ import { TextField } from "../shared/TextField.tsx";
 import { library, emptyDocument, namedDocument, untitled } from "./library.ts";
 import { downloadFile, downloadPng } from "../shared/export.ts";
 import { diagramSvg, exportFilename, titleFromFile } from "./export.ts";
+import { importTableDefinition } from "./table-definition-import.ts";
 import { tableDefinition } from "./table-definition.ts";
 import { SchemaImportDialog } from "./SchemaImportDialog.tsx";
 import { diagramMermaid } from "./mermaid.ts";
@@ -961,7 +962,7 @@ function Editor({
           <input
             ref={file}
             type="file"
-            accept=".json,application/json"
+            accept=".json,.md,.csv,application/json,text/markdown,text/csv"
             hidden
             onChange={async (e) => {
               const input = e.currentTarget,
@@ -970,7 +971,10 @@ function Editor({
               try {
                 if (selectedFile.size > MAX_JSON_BYTES)
                   throw new Error("ファイルの上限は16MBです。");
-                const doc = decodeDocument(await selectedFile.text());
+                const text = await selectedFile.text();
+                const doc = /\.(md|csv)$/i.test(selectedFile.name)
+                  ? importTableDefinition(text)
+                  : decodeDocument(text);
                 createDiagram(
                   namedDocument(doc, titleFromFile(selectedFile.name)),
                   "ファイルを開きました",

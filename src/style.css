@@ -2646,6 +2646,42 @@ dialog::backdrop {
   outline: none;
 }
 
+.value-constraints .check-fields {
+  display: grid;
+  grid-template-columns: minmax(8em, 1fr) minmax(14em, 2fr) auto;
+  align-items: end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.value-constraints textarea {
+  min-width: 0;
+}
+.value-constraints td:last-child {
+  width: 60px;
+}
+.value-constraints td {
+  overflow-wrap: anywhere;
+}
+.value-constraints .enum-editor {
+  display: grid;
+  gap: 10px;
+}
+.enum-value,
+.enum-actions {
+  display: flex;
+  gap: 6px;
+}
+.enum-actions {
+  justify-content: flex-end;
+}
+@media (max-width: 650px) {
+  .value-constraints .check-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .check-fields > button {
+    justify-self: end;
+  }
+}
 .ddl-section {
   margin: 16px 0 12px;
   color: var(--text-2);
@@ -2802,6 +2838,7 @@ dialog::backdrop {
   width: fit-content;
 }
 .table-note textarea,
+.value-constraints textarea,
 .column-details textarea {
   width: 100%;
   box-sizing: border-box;

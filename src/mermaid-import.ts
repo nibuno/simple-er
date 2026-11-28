@@ -1,3 +1,4 @@
+import { readChecks, registerEnum } from "./schema-constraints.ts";
 import { messageOf } from "./utils.ts";
 import { decodeText, identifyingForeignKey } from "./mermaid.ts";
 import {
@@ -99,6 +100,8 @@ function restoreDetails(table: Table, text: string) {
     if (!column || changes.has(column)) bad("補足コメントのカラムが不正です。");
     changes.set(column, columnAttributes({ ...item, type: column.type }));
   }
+  const checks = readChecks(data.checks);
+  if (checks.length) table.checks = checks;
   Object.assign(table, note);
   for (const [column, attrs] of changes) Object.assign(column, attrs);
 }
@@ -190,6 +193,13 @@ export function importMermaid(
     const line = index + 1,
       text = raw.trim();
     if (!text) continue;
+    if (header && !block && text.startsWith("%% simple-er-enums ")) {
+      const data = JSON.parse(text.slice("%% simple-er-enums ".length));
+      if (!Array.isArray(data)) bad("ENUM の補足コメントが不正です。");
+      for (const definition of data)
+        registerEnum((next.enums ??= []), definition);
+      continue;
+    }
     if (text.startsWith("%% simple-er-details ")) {
       if (block?.table) {
         try {
@@ -350,7 +360,12 @@ export function importMermaid(
   return {
     diagram: layoutImportedTables(next, added, base),
     tableCount: added.length,
-    applied: added.length + count - base.edges.length,
+    applied:
+      added.length +
+      count -
+      base.edges.length +
+      (next.enums?.length ?? 0) -
+      (base.enums?.length ?? 0),
     issues: issues.sort((a, b) => a.line - b.line),
   };
 }

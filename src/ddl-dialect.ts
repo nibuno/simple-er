@@ -61,7 +61,7 @@ export function ddlType(type: string, dialect: DdlDialect, indexed: boolean) {
 type Details = Partial<
   Pick<Column, "type" | "logicalName" | "note" | "identity" | "identityOptions">
 > &
-  Pick<ForeignKey, "label" | "cardinality">;
+  Pick<ForeignKey, "label" | "cardinality"> & { enumName?: string };
 export const detailsPrefix = "/* simple-er ";
 export function detailsComment(details: Details) {
   if (!Object.values(details).some(Boolean)) return "";
@@ -93,6 +93,7 @@ export function readDetails(raw?: string): Details {
             (value === 0 || value === 1),
         ) && { cardinality }),
       ...(text(d.type, 40) && { type: d.type }),
+      ...(text(d.enumName, 40) && { enumName: d.enumName }),
       ...(typeof d.note === "string" &&
         d.note.length <= 2_000_000 && { note: d.note }),
       ...(d.identity === "always" && { identity: d.identity }),

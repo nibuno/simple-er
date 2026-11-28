@@ -1,4 +1,4 @@
-import type { Column } from "./types.ts";
+import type { Column, TableSchema } from "./types.ts";
 /** PostgreSQL serial types already include their own sequence default. */
 const serialTypes = new Map([
   ["smallserial", "smallint"],
@@ -26,8 +26,11 @@ export function serialType(type: string) {
   }
 }
 
-export function columnMarks(column: Column) {
+export function columnMarks(column: Column, table?: TableSchema) {
   return [
+    table?.keys?.some(
+      (k) => k.kind === "unique" && k.columnIds.includes(column.id),
+    ) && "UK",
     column.notNull && "NN",
     column.defaultValue && "DF",
     (column.identity || serialBase(column.type)) && "AI",

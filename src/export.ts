@@ -45,7 +45,7 @@ function tableSvg(
   const rows = table.columns
     .map((column, index) => {
       const y = HEADER + index * ROW;
-      const marks = columnMarks(column);
+      const marks = columnMarks(column, table);
       const both = column.key === "PK,FK";
       const badge = column.key
         ? `
@@ -62,6 +62,7 @@ function tableSvg(
     <rect width="${w}" height="${height(table)}" rx="9" fill="#fff" stroke="#a1a1aa"/>
     <path d="M9 1H${w - 9}Q${w - 1} 1 ${w - 1} 9V${HEADER}H1V9Q1 1 9 1" fill="${table.color ? tableColors[table.color].fill : "#f4f4f5"}"/>
     <path d="M1 ${HEADER}H${w - 1}" stroke="#d4d4d8"/>
+    ${table.checks?.length ? `<text x="${w - 16}" y="31" text-anchor="end" font-size="11" fill="#52525b">CHECK ${table.checks.length}</text>` : ""}
     ${table.schemaName ? `<text x="16" y="17" font-size="11" fill="#52525b">${escapeXml(table.schemaName)}.</text>` : ""}
     <text x="16" y="${table.schemaName ? 38 : 31}" font-weight="600" font-size="16">${escapeXml(tableName)}</text>${rows}
   </g>`;

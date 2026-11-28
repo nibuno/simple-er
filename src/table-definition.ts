@@ -1,11 +1,17 @@
+import { typeName } from "./schema-constraints.ts";
 import { serialBase } from "./column-attributes.ts";
 import { localDate } from "./export.ts";
-import type { Column, DiagramDocument, TableSchema } from "./types.ts";
+import type {
+  Column,
+  DiagramDocument,
+  EnumType,
+  TableSchema,
+} from "./types.ts";
 
 const physicalName = (table: TableSchema) =>
-  [table.schemaName, table.name].filter(Boolean).join(".");
+  typeName(table.schemaName ? [table.schemaName, table.name] : [table.name]);
 const columnName = (table: TableSchema, id: string) =>
-  table.columns.find((column) => column.id === id)!.name;
+  typeName([table.columns.find((column) => column.id === id)!.name]);
 
 function autoNumber(column: Column) {
   if (!column.identity) return serialBase(column.type) ? "SERIAL" : "";
@@ -35,9 +41,17 @@ function markdownTable(headers: string[], rows: string[][]) {
 
 function csvCell(text: string) {
   // Spreadsheet software evaluates formulas even inside quoted CSV fields.
-  if (/^\s*[=+@-]/u.test(text) && !/^[+-]?\d+(\.\d+)?$/.test(text))
+  if (/^\u0027*\s*[=+@-]/u.test(text) && !/^[+-]?\d+(\.\d+)?$/.test(text))
     text = "'" + text;
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+// Keep ordinary names readable and preserve line breaks inside a single FK name.
+function foreignNames(names: string[]) {
+  const text = names.join("\n");
+  return text.startsWith("[") || names.some((n) => /[\r\n]/.test(n))
+    ? JSON.stringify(names)
+    : text;
 }
 
 const columnAttributes = ["型", "PK", "NN", "既定値", "自動採番", "FK 参照先"];
@@ -73,12 +87,10 @@ function describeTable(
       columns: fk.columnIds.map((id) => columnName(table, id)).join(", "),
     };
   });
-  const constraints = table.keys
-    .filter((key) => key.kind !== "primary")
-    .map((key) => ({
-      key,
-      columns: key.columnIds.map((id) => columnName(table, id)).join(", "),
-    }));
+  const constraints = table.keys.map((key) => ({
+    key,
+    columns: key.columnIds.map((id) => columnName(table, id)).join(", "),
+  }));
   const primary = table.keys.find((key) => key.kind === "primary");
   const columns = table.columns.map((column) => {
     const refs = foreignKeys.filter(({ fk }) =>
@@ -98,7 +110,14 @@ function describeTable(
     ];
     return { id: column.id, cells, refs };
   });
-  return { info, group, columns, foreignKeys, constraints };
+  return {
+    info,
+    group,
+    columns,
+    foreignKeys,
+    constraints,
+    checks: table.checks ?? [],
+  };
 }
 type Definition = ReturnType<typeof describeTable>;
 
@@ -107,6 +126,7 @@ function markdown(
   day: string,
   names: string[],
   tables: Definition[],
+  enums: EnumType[],
 ) {
   const tableHeaders = [
     ...names,
@@ -122,7 +142,15 @@ function markdown(
       tables.map((table) => table.info),
     ),
   ];
-  for (const { info, columns, foreignKeys, constraints } of tables) {
+  if (enums.length)
+    sections.push(
+      "## ENUM 型",
+      markdownTable(
+        ["型名", "値（順序）"],
+        enums.map((e) => [e.name, JSON.stringify(e.values)]),
+      ),
+    );
+  for (const { info, columns, foreignKeys, constraints, checks } of tables) {
     sections.push(
       `## ${markdownText(info[0] || info[1])}`,
       markdownTable(tableHeaders, [info]),
@@ -132,30 +160,58 @@ function markdown(
         columns.map((column) => column.cells),
       ),
     );
+    const fkDetails = foreignKeys.some(({ fk }) => fk.label || fk.cardinality);
     if (foreignKeys.length)
       sections.push(
         "### 外部キー",
         markdownTable(
-          ["名前", "カラム", "参照先", "ON DELETE", "ON UPDATE"],
+          [
+            "名前",
+            "カラム",
+            "参照先",
+            "ON DELETE",
+            "ON UPDATE",
+            ...(fkDetails ? ["関係の補足"] : []),
+          ],
           foreignKeys.map(({ fk, columns, targets }) => [
             fk.name,
             columns,
             targets.join(", "),
             fk.onDelete ?? "",
             fk.onUpdate ?? "",
+            ...(fkDetails
+              ? [
+                  JSON.stringify({
+                    label: fk.label,
+                    cardinality: fk.cardinality,
+                  }),
+                ]
+              : []),
           ]),
         ),
       );
     if (constraints.length)
       sections.push(
-        "### インデックス・一意制約",
+        "### キー・インデックス",
         markdownTable(
           ["種類", "名前", "カラム"],
           constraints.map(({ key, columns }) => [
-            key.kind === "index" ? "インデックス" : "一意制約",
+            key.kind === "index"
+              ? "インデックス"
+              : key.kind === "primary"
+                ? "主キー"
+                : "一意制約",
             key.name,
             columns,
           ]),
+        ),
+      );
+    if (checks.length)
+      sections.push(
+        "### CHECK 制約",
+        markdownTable(
+          ["制約名", "条件式"],
+          checks.map((c) => [c.name, c.expression]),
         ),
       );
   }
@@ -167,7 +223,12 @@ function csv(
   day: string,
   names: string[],
   tables: Definition[],
+  enums: EnumType[],
 ) {
+  const fkDetails = tables.some((t) =>
+    t.foreignKeys.some(({ fk }) => fk.label || fk.cardinality),
+  );
+  const hasChecks = tables.some((t) => t.checks.length);
   const records = [
     [
       "図の名前",
@@ -183,29 +244,69 @@ function csv(
       "ON UPDATE",
       "インデックス",
       "一意制約",
+      "主キー",
+      "外部キーの順序",
+      ...(fkDetails ? ["関係の補足"] : []),
+      ...(hasChecks ? ["CHECK 制約"] : []),
+      ...(enums.length ? ["ENUM 型"] : []),
     ],
   ];
-  for (const { info, group, columns, constraints } of tables) {
-    if (!columns.length && group !== undefined) {
+  for (const { info, columns, constraints, foreignKeys, checks } of tables) {
+    const extra = (first: boolean) => [
+      ...(hasChecks
+        ? [first && checks.length ? JSON.stringify(checks) : ""]
+        : []),
+      ...(enums.length
+        ? [records.length === 1 ? JSON.stringify(enums) : ""]
+        : []),
+    ];
+    if (!columns.length) {
       const row = [title, day, ...info];
-      records.push([...row, ...Array(records[0].length - row.length).fill("")]);
+      const details = extra(true);
+      records.push([
+        ...row,
+        ...Array(records[0].length - row.length - details.length).fill(""),
+        ...details,
+      ]);
     }
     for (const { id, cells, refs } of columns) {
-      const memberships = (kind: "index" | "unique") =>
+      const memberships = (kind: "index" | "unique" | "primary") =>
         constraints
           .filter(({ key }) => key.kind === kind && key.columnIds.includes(id))
-          .map(({ key, columns }) => `${key.name} (${columns})`.trim())
+          .map(({ key, columns }) =>
+            `${key.name ? typeName([key.name]) : ""} (${columns})`.trim(),
+          )
           .join("\n");
       records.push([
         title,
         day,
         ...info,
         ...cells,
-        refs.map(({ fk }) => fk.name).join("\n"),
+        foreignNames(refs.map(({ fk }) => fk.name)),
         refs.map(({ fk }) => fk.onDelete ?? "").join("\n"),
         refs.map(({ fk }) => fk.onUpdate ?? "").join("\n"),
         memberships("index"),
         memberships("unique"),
+        memberships("primary"),
+        refs
+          .map(
+            (ref) =>
+              `${foreignKeys.indexOf(ref) + 1}.${ref.fk.columnIds.indexOf(id) + 1}`,
+          )
+          .join("\n"),
+        ...(fkDetails
+          ? [
+              refs.length
+                ? JSON.stringify(
+                    refs.map(({ fk }) => ({
+                      label: fk.label,
+                      cardinality: fk.cardinality,
+                    })),
+                  )
+                : "",
+            ]
+          : []),
+        ...extra(id === columns[0].id),
       ]);
     }
   }
@@ -239,5 +340,6 @@ export function tableDefinition(
     localDate(date),
     orderedNames("物理名", "論理名", logicalFirst),
     tables,
+    doc.schema.enums ?? [],
   );
 }
