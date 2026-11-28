@@ -487,37 +487,77 @@ test("pasted DDL previews line errors and adds the readable tables in one undo s
   assert.deepEqual(saved(), after);
 });
 
-test("SQL file import from an empty canvas creates its own undoable library entry", async () => {
-  await click(byText("新しい図"));
-  const original = library.restoreDiagram();
-  await click(
-    [...document.querySelectorAll(".empty-actions button")].find(
-      (b) => b.textContent === "DDL を読み込む",
-    ),
+test("Mermaid import previews issues, draws table relationships and undoes the import in one step", async () => {
+  const before = saved();
+  await click(byText("Mermaid を読み込む"));
+  await type(
+    document.querySelector("#ddl-source"),
+    "erDiagram\nusers }o..o{ Notes : 閲覧\ninvalid line!",
   );
-  const input = document.querySelector('#ddl-import-dialog input[type="file"]');
-  const sql =
-    "CREATE TABLE users(id int primary key); CREATE TABLE orders(user_id int REFERENCES users);";
-  Object.defineProperty(input, "files", {
-    value: [{ name: "顧客.sql", size: sql.length, text: async () => sql }],
-  });
-  await act(async () => {
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-  await click(document.querySelectorAll(".ddl-destination input")[1]);
   await click(byText("読み込む"));
-  const imported = library.restoreDiagram();
-  assert.notEqual(original.key, imported.key);
-  assert.equal(saved().title, "顧客");
-  assert.equal(saved().edges.length, 1);
-  assert.equal(library.listDiagrams().length, 3);
+  assert.match(document.querySelector(".ddl-issues").textContent, /3行目/);
+  assert.deepEqual(saved(), before);
+  await click(byText("読めた分を読み込む"));
+  const wire = byLabel("usersからNotesへの接続線");
+  assert.equal(
+    wire.querySelectorAll('[data-maximum="many"][data-minimum="0"]').length,
+    2,
+  );
+  assert.equal(wire.querySelector(".relationship-label").textContent, "閲覧");
+  await click(wire);
+  await click(byText("リレーションを削除"));
+  assert.equal(saved().edges.length, before.edges.length);
   await key(document.body, "z", { metaKey: true });
-  assert.equal(saved().tables.length, 0);
-  assert.equal(library.restoreDiagram().key, imported.key);
-  assert.equal(localStorage.getItem(original.key), original.raw);
-  await click(byLabel("やり直す"));
-  assert.equal(saved().tables.length, 2);
+  assert.equal(saved().edges.length, before.edges.length + 1);
+  await key(document.body, "z", { metaKey: true });
+  assert.deepEqual(saved(), before);
 });
+
+for (const [format, extension, source] of [
+  [
+    "DDL",
+    "sql",
+    "CREATE TABLE users(id int primary key); CREATE TABLE orders(user_id int REFERENCES users);",
+  ],
+  ["Mermaid", "mmd", "erDiagram\nusers ||--o{ orders : places"],
+])
+  test(`${format} file import from an empty canvas creates its own undoable library entry`, async () => {
+    await click(byText("新しい図"));
+    const original = library.restoreDiagram();
+    await click(
+      [...document.querySelectorAll(".empty-actions button")].find(
+        (b) => b.textContent === `${format} を読み込む`,
+      ),
+    );
+    const input = document.querySelector(
+      '#ddl-import-dialog input[type="file"]',
+    );
+    Object.defineProperty(input, "files", {
+      value: [
+        {
+          name: `顧客.${extension}`,
+          size: source.length,
+          text: async () => source,
+        },
+      ],
+    });
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await click(document.querySelectorAll(".ddl-destination input")[1]);
+    await click(byText("読み込む"));
+    const imported = library.restoreDiagram();
+    assert.notEqual(original.key, imported.key);
+    assert.equal(saved().title, "顧客");
+    assert.equal(saved().edges.length, 1);
+    assert.equal(library.listDiagrams().length, 3);
+    await key(document.body, "z", { metaKey: true });
+    assert.equal(saved().tables.length, 0);
+    assert.equal(library.restoreDiagram().key, imported.key);
+    assert.equal(localStorage.getItem(original.key), original.raw);
+    await click(byLabel("やり直す"));
+    assert.equal(saved().tables.length, 2);
+  });
 
 test("an empty diagram offers next steps, samples and help", async () => {
   assert.equal(document.querySelector(".empty-diagram"), null);
@@ -719,7 +759,7 @@ test("invalid imports preserve the diagram and importing a file twice creates in
   assert.equal(byLabel("元に戻す").disabled, true);
 });
 
-test("file menu copies and saves the same DDL and disables exports on an empty diagram", async (t) => {
+test("file menu copies and saves the same DDL and Mermaid text and disables exports on an empty diagram", async (t) => {
   let copied, blob, filename;
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
@@ -757,12 +797,19 @@ test("file menu copies and saves the same DDL and disables exports on an empty d
   await click(byText("全テーブルの DDL を保存"));
   assert.equal(await blob.text(), copied);
   assert.equal(filename, "注文_管理.sql");
+  await click(byText("Mermaid をコピー"));
+  assert.match(copied, /^erDiagram\n/);
+  await click(byText("Mermaid を保存"));
+  assert.equal(await blob.text(), copied);
+  assert.equal(filename, "注文_管理.mmd");
   await click(byText("新しい図"));
   for (const label of [
     "SVG で保存",
     "PNG で保存",
     "全テーブルの DDL をコピー",
     "全テーブルの DDL を保存",
+    "Mermaid をコピー",
+    "Mermaid を保存",
   ])
     assert.equal(byText(label).disabled, true);
 });

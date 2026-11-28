@@ -66,12 +66,8 @@ export function validateDiagram(input: unknown): Diagram {
       !coordinate(t.y)
     )
       fail("テーブル名・ID・位置が不正、または重複しています。");
-    if (
-      !Array.isArray(t.columns) ||
-      !t.columns.length ||
-      t.columns.length > MAX_COLUMNS
-    )
-      fail("カラム数は1〜60個にしてください。");
+    if (!Array.isArray(t.columns) || t.columns.length > MAX_COLUMNS)
+      fail("カラムは60個までです。");
     tableIds.add(t.id);
     names.add(title(t).trim().toLowerCase());
     const columnIds = new Set(),
@@ -121,12 +117,24 @@ export function validateDiagram(input: unknown): Diagram {
     if (!e || !boundedText(e.id, 200) || edgeIds.has(e.id))
       fail("接続IDが不正です。");
     edgeIds.add(e.id);
+    const relation = e.entityRelation;
+    if (
+      relation !== undefined &&
+      (!relation ||
+        e.foreignKeyId ||
+        !["||", "|o", "}|", "}o"].includes(relation.from) ||
+        !["||", "o|", "|{", "o{"].includes(relation.to) ||
+        typeof relation.identifying !== "boolean" ||
+        typeof relation.label !== "string" ||
+        relation.label.length > 80)
+    )
+      fail("テーブル間のリレーションが不正です。");
     for (const p of [e.from, e.to]) {
       const t = tables.find((t) => t.id === p?.table);
       if (
         !t ||
         !Number.isInteger(p.row) ||
-        p.row < 0 ||
+        (relation ? p.row !== -1 : p.row < 0) ||
         p.row >= t.columns.length ||
         !["left", "right"].includes(p.side)
       )
@@ -136,6 +144,7 @@ export function validateDiagram(input: unknown): Diagram {
     if (e.trunk != null && !coordinate(e.trunk)) fail("線の位置が不正です。");
     return {
       id: e.id,
+      ...(relation && { entityRelation: structuredClone(relation) }),
       ...(e.foreignKeyId ? { foreignKeyId: e.foreignKeyId } : {}),
       from: { table: e.from.table, row: e.from.row, side: e.from.side },
       to: { table: e.to.table, row: e.to.row, side: e.to.side },
@@ -205,17 +214,22 @@ export function documentFromDiagram(diagram: Diagram): DiagramDocument {
     },
     presentation: {
       tables: valid.tables.map((t) => ({ tableId: t.id, x: t.x, y: t.y })),
-      routes: valid.edges.map((e) => ({
-        foreignKeyId: e.foreignKeyId!,
-        columnId: valid.tables.find((t) => t.id === e.to.table)!.columns[
-          e.to.row
-        ].id,
-        fromSide: e.from.side,
-        toSide: e.to.side,
-        trunk: e.trunk,
-        manual: e.manual,
-      })),
+      routes: valid.edges
+        .filter((e) => e.foreignKeyId)
+        .map((e) => ({
+          foreignKeyId: e.foreignKeyId!,
+          columnId: valid.tables.find((t) => t.id === e.to.table)!.columns[
+            e.to.row
+          ].id,
+          fromSide: e.from.side,
+          toSide: e.to.side,
+          trunk: e.trunk,
+          manual: e.manual,
+        })),
     },
+    ...(valid.edges.some((e) => e.entityRelation) && {
+      entityEdges: valid.edges.filter((e) => e.entityRelation),
+    }),
     unresolvedEdges: structuredClone(valid.unresolvedEdges ?? []),
   };
 }
@@ -226,6 +240,9 @@ export function projectDocument(document: DiagramDocument): Diagram {
     !document ||
     document.format !== "er-sketch" ||
     document.version !== 2 ||
+    (document.entityEdges !== undefined &&
+      (!Array.isArray(document.entityEdges) ||
+        document.entityEdges.some((e) => !e?.entityRelation))) ||
     !Array.isArray(document.schema?.tables) ||
     !Array.isArray(document.presentation?.tables) ||
     !Array.isArray(document.presentation?.routes)
@@ -277,7 +294,7 @@ export function projectDocument(document: DiagramDocument): Diagram {
     schemaVersion: 2,
     title: document.title,
     tables,
-    edges: [],
+    edges: document.entityEdges ?? [],
     unresolvedEdges: document.unresolvedEdges ?? [],
   });
   const routes = new Map<string, RoutePresentation>();
@@ -297,6 +314,7 @@ export function projectDocument(document: DiagramDocument): Diagram {
     routes.set(key, r);
   }
   for (const edge of valid.edges) {
+    if (edge.entityRelation) continue;
     const columnId = valid.tables.find((t) => t.id === edge.to.table)!.columns[
       edge.to.row
     ].id;
@@ -386,6 +404,7 @@ export function editTable(diagram: Diagram, replacement: Table) {
       : [...diagram.tables, replacement],
   );
   const edges = diagram.edges.flatMap((edge) => {
+    if (edge.entityRelation) return [edge];
     const copy = structuredClone(edge);
     for (const side of ["from", "to"] as const) {
       if (copy[side].table !== replacement.id || !previous) continue;
@@ -625,6 +644,7 @@ function prepareRelations(diagram: Diagram) {
   }
   if (legacy) {
     for (const e of diagram.edges) {
+      if (e.entityRelation) continue;
       const directions = [
         [e.from, e.to],
         [e.to, e.from],
@@ -674,7 +694,15 @@ function prepareRelations(diagram: Diagram) {
 function normalizeRelations(diagram: Diagram): Diagram {
   const { tables, unresolved } = prepareRelations(diagram);
   validateConstraints(tables);
-  const edges = deriveEdges(tables, diagram.edges);
+  const edges = [
+    ...deriveEdges(tables, diagram.edges),
+    ...diagram.edges.filter((e) => e.entityRelation),
+  ];
+  if (
+    edges.length > 200 ||
+    new Set(edges.map((e) => e.id)).size !== edges.length
+  )
+    fail("接続は200本までです。接続IDは重複できません。");
   recomputeKeyFlags(tables);
   const title = typeof diagram.title === "string" ? diagram.title.trim() : "";
   return {

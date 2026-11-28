@@ -32,7 +32,7 @@ function foreignKeyLabel(
 export function Sidebar({
   state,
   selectedTable,
-  selectedForeignKey,
+  selectedRelation,
   onSelectTable,
   onSelectEdge,
   onAdd,
@@ -40,7 +40,7 @@ export function Sidebar({
 }: Names & {
   state: Diagram;
   selectedTable: string | null;
-  selectedForeignKey?: string;
+  selectedRelation?: string;
   onSelectTable: (id: string) => void;
   onSelectEdge: (edgeId: string) => void;
   onAdd: () => void;
@@ -58,10 +58,20 @@ export function Sidebar({
     (child.foreignKeys ?? []).flatMap((fk) => {
       const edge = state.edges.find((e) => e.foreignKeyId === fk.id);
       return edge
-        ? [{ fk, edge, ...foreignKeyLabel(state, child, fk, names) }]
+        ? [{ id: fk.id, edge, ...foreignKeyLabel(state, child, fk, names) }]
         : [];
     }),
   );
+  for (const edge of state.edges.filter((e) => e.entityRelation)) {
+    const tableName = (id: string) =>
+      names.displayTable(state.tables.find((t) => t.id === id)!);
+    relations.push({
+      id: edge.id,
+      edge,
+      from: tableName(edge.from.table),
+      to: tableName(edge.to.table),
+    });
+  }
   return (
     <aside className="sidebar" aria-label="テーブルとリレーションの一覧">
       <label className="sidebar-search">
@@ -116,10 +126,10 @@ export function Sidebar({
       </div>
       <ul className="sidebar-list">
         {relations.map((r) => (
-          <li key={r.fk.id}>
+          <li key={r.id}>
             <button
               className="sidebar-item relation"
-              aria-current={selectedForeignKey === r.fk.id || undefined}
+              aria-current={selectedRelation === r.id || undefined}
               onClick={() => onSelectEdge(r.edge.id)}
             >
               <span className="sidebar-name">{r.from}</span>

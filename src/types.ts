@@ -44,6 +44,8 @@ export interface DiagramDocument {
   title?: string;
   schema: Schema;
   presentation: Presentation;
+  /** Table-to-table relationships, with their header anchors and route. */
+  entityEdges?: Edge[];
   unresolvedEdges: Edge[];
 }
 export interface RenderColumn extends Column {
@@ -62,7 +64,14 @@ export interface Endpoint {
 export interface Port extends Endpoint {
   side: "left" | "right";
 }
+export interface EntityRelation {
+  from: "||" | "|o" | "}|" | "}o";
+  to: "||" | "o|" | "|{" | "o{";
+  identifying: boolean;
+  label: string;
+}
 export interface Edge {
+  entityRelation?: EntityRelation;
   id: string;
   foreignKeyId?: string;
   from: Port;

@@ -101,7 +101,7 @@ export function rounded(ps: Point[], r = 8) {
 export function port(t: Table, index: number, side: Port["side"]) {
   return {
     x: t.x + (side === "right" ? tableWidth(t) : 0),
-    y: t.y + HEADER + ROW * (index + 0.5),
+    y: t.y + (index === -1 ? HEADER / 2 : HEADER + ROW * (index + 0.5)),
   };
 }
 type Segment = { a: Point; b: Point; source?: string; target?: string };

@@ -2,13 +2,16 @@ import { useRef, useState } from "react";
 import type { Diagram } from "./types.ts";
 import { Modal } from "./Dialogs.tsx";
 import { importDDL } from "./ddl-import.ts";
+import { importMermaid } from "./mermaid-import.ts";
 import { messageOf } from "./utils.ts";
 
-export function DdlImportDialog({
+export function SchemaImportDialog({
+  format,
   state,
   onApply,
   onClose,
 }: {
+  format: "DDL" | "Mermaid";
   state: Diagram;
   onApply: (
     diagram: Diagram,
@@ -18,7 +21,9 @@ export function DdlImportDialog({
   ) => void;
   onClose: () => void;
 }) {
-  const [sql, setSql] = useState("");
+  const mermaid = format === "Mermaid";
+  const parse = mermaid ? importMermaid : importDDL;
+  const [source, setSource] = useState("");
   const [title, setTitle] = useState("");
   const [separate, setSeparate] = useState(false);
   const [preview, setPreview] = useState<ReturnType<typeof importDDL> | null>(
@@ -34,9 +39,9 @@ export function DdlImportDialog({
   }
   function apply() {
     try {
-      if (sql.length > 2_000_000)
-        throw new Error("DDL は2MBまで読み込めます。");
-      const parsed = preview ?? importDDL(sql, separate ? undefined : state);
+      if (source.length > 2_000_000)
+        throw new Error(`${format} は2MBまで読み込めます。`);
+      const parsed = preview ?? parse(source, separate ? undefined : state);
       if (!preview && parsed.issues.length) {
         setPreview(parsed);
         return;
@@ -51,20 +56,24 @@ export function DdlImportDialog({
   return (
     <Modal id="ddl-import-dialog" onClose={onClose}>
       <div className="dialog-heading">
-        <h2 id="ddl-import-heading">DDL を読み込む</h2>
+        <h2 id="ddl-import-heading">{format} を読み込む</h2>
         <button aria-label="閉じる" onClick={onClose}>
           ×
         </button>
       </div>
       <div className="ddl-source">
-        <label htmlFor="ddl-source">DDL を貼り付け</label>
+        <label htmlFor="ddl-source">{format} を貼り付け</label>
         <button onClick={() => file.current?.click()}>
-          SQL ファイルを開く
+          {mermaid ? "Mermaid" : "SQL"} ファイルを開く
         </button>
         <input
           ref={file}
           type="file"
-          accept=".sql,.ddl,text/plain,application/sql"
+          accept={
+            mermaid
+              ? ".mmd,.mermaid,.txt,text/plain"
+              : ".sql,.ddl,text/plain,application/sql"
+          }
           hidden
           onChange={async (e) => {
             const selected = e.currentTarget.files?.[0];
@@ -78,9 +87,14 @@ export function DdlImportDialog({
                 throw new Error("ファイルの上限は2MBです。");
               const source = await selected.text();
               if (request !== version.current) return;
-              setSql(source);
+              setSource(source);
               setTitle(
-                selected.name.replace(/\.(sql|ddl)$/i, "").slice(0, 200),
+                selected.name
+                  .replace(
+                    mermaid ? /\.(mmd|mermaid|txt)$/i : /\.(sql|ddl)$/i,
+                    "",
+                  )
+                  .slice(0, 200),
               );
             } catch (e) {
               if (request === version.current) setError(messageOf(e));
@@ -93,12 +107,16 @@ export function DdlImportDialog({
       <textarea
         id="ddl-source"
         spellCheck={false}
-        placeholder="CREATE TABLE ..."
-        value={sql}
+        placeholder={
+          mermaid
+            ? "erDiagram\n    CUSTOMER ||--o{ ORDER : places"
+            : "CREATE TABLE ..."
+        }
+        value={source}
         onChange={(e) => {
           version.current++;
           setLoading(false);
-          setSql(e.target.value);
+          setSource(e.target.value);
           setTitle("");
           reset();
         }}
@@ -148,7 +166,7 @@ export function DdlImportDialog({
         <button onClick={onClose}>キャンセル</button>
         <button
           className="primary"
-          disabled={loading || !sql.trim() || preview?.applied === 0}
+          disabled={loading || !source.trim() || preview?.applied === 0}
           onClick={apply}
         >
           {preview?.applied ? "読めた分を読み込む" : "読み込む"}

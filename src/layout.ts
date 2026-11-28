@@ -106,9 +106,8 @@ export function tidyDiagram(diagram: Diagram, _aspect = 1.5) {
   const next = validateDiagram(structuredClone(diagram));
   const ids = next.tables.map((t) => t.id).sort();
   const children = new Map(ids.map((id) => [id, new Set<string>()]));
-  for (const t of next.tables)
-    for (const f of t.foreignKeys ?? [])
-      if (f.target) children.get(f.target.tableId)!.add(t.id);
+  for (const edge of next.edges)
+    children.get(edge.from.table)!.add(edge.to.table);
   let counter = 0;
   const index = new Map<string, number>(),
     low = new Map<string, number>();
@@ -225,18 +224,18 @@ export function tidyDiagram(diagram: Diagram, _aspect = 1.5) {
         }
       }
       bottom = Math.max(bottom, y - ROW_GAP);
-      const labels = next.tables.flatMap((t) =>
-        (t.foreignKeys ?? [])
-          .filter(
-            (f) =>
-              f.label &&
-              f.target &&
-              rank.get(groupOf.get(f.target.tableId)!) === columnIndex &&
-              rank.get(groupOf.get(t.id)!) === columnIndex + 1 &&
-              component.includes(groupOf.get(t.id)!),
-          )
-          .map((f) => relationshipLabelWidth(f.label!)),
-      );
+      const labels = next.edges.flatMap((edge) => {
+        const child = tableById.get(edge.to.table)!;
+        if (
+          rank.get(groupOf.get(edge.from.table)!) !== columnIndex ||
+          rank.get(groupOf.get(child.id)!) !== columnIndex + 1
+        )
+          return [];
+        const label =
+          edge.entityRelation?.label ??
+          child.foreignKeys.find((f) => f.id === edge.foreignKeyId)?.label;
+        return label ? [relationshipLabelWidth(label)] : [];
+      });
       const corridor = Math.max(
         COLUMN_GAP,
         ...labels.map((width) => width + 64),
