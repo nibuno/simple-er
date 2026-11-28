@@ -1,3 +1,4 @@
+import { tableColors, type TableColor } from "./types.ts";
 import { isImeKey } from "../shared/ime.ts";
 import { KeyList, DefinitionEditor } from "./ConstraintsEditor.tsx";
 import type { DefinitionSelection } from "./ConstraintsEditor.tsx";
@@ -585,6 +586,40 @@ export function TableEditor({
               </label>
             </div>
             <div className="table-editor-body" ref={body}>
+              <div className="table-appearance">
+                <label>
+                  スキーマ名{" "}
+                  <input
+                    maxLength={80}
+                    value={draft.schemaName ?? ""}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        schemaName: e.target.value || undefined,
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  見出しの色{" "}
+                  <select
+                    value={draft.color ?? ""}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        color: (e.target.value as TableColor) || undefined,
+                      })
+                    }
+                  >
+                    <option value="">標準</option>
+                    {Object.entries(tableColors).map(([id, c]) => (
+                      <option key={id} value={id}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               <details className="table-note">
                 <summary>テーブルの説明</summary>
                 <textarea
@@ -1065,6 +1100,7 @@ const SHORTCUTS = [
   ["外部キーを登録", "カラム端の点から別のカラムへドラッグ"],
   ["キーボードで外部キーを登録", "カラム行で Enter（接続元と接続先で2回）"],
   ["テーブルを追加", "T"],
+  ["テーブルを囲む", "Shift＋クリックで複数選択 → ⌘ G"],
   ["図の中を検索", "⌘ F"],
   ["名前を変更", "ダブルクリック / F2（カラム行）"],
   ["次のカラムを追加", "カラム名の入力中に Enter"],

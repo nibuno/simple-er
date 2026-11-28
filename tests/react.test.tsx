@@ -2010,3 +2010,61 @@ test("column details and referential actions can be edited, cleared and undone",
   await click(byLabel("元に戻す"));
   assert.deepEqual(saved().tables[1], order);
 });
+
+test("Shift selection and Command+G group tables, search and filtered drag use full membership", async () => {
+  for (const id of ["orders", "order_items"]) {
+    const heading = document.querySelector(`[data-table="${id}"] .table-title`);
+    await act(() =>
+      heading.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, shiftKey: true }),
+      ),
+    );
+  }
+  assert.equal(document.querySelectorAll(".table.selected").length, 2);
+  await key(document.body, "g", { metaKey: true });
+  assert.equal(
+    document.querySelectorAll("#group-dialog input:checked").length,
+    2,
+  );
+  await type(document.querySelector("#group-dialog .field input"), "受注");
+  await submit();
+  assert.deepEqual(saved().groups[0].tableIds, ["orders", "order_items"]);
+  await key(document.body, "f", { metaKey: true });
+  await type(byLabel("図の中を検索"), "受注");
+  assert.equal(document.querySelectorAll(".sidebar-item").length, 2);
+  await click(byLabel("users.email を接続"));
+  await click(byText("関連だけ表示"));
+  assert.equal(document.querySelectorAll(".table").length, 2);
+  const before = saved(),
+    svg = document.querySelector("#diagram");
+  await pointer(byLabel("受注の囲みを編集"), "pointerdown", 100, 100);
+  await pointer(svg, "pointermove", 120, 115);
+  await pointer(svg, "pointerup", 120, 115);
+  const after = saved();
+  assert.deepEqual(after.tables[0], before.tables[0]);
+  assert.ok(after.tables[1].x > before.tables[1].x);
+  assert.equal(
+    after.tables[1].x - before.tables[1].x,
+    after.tables[2].x - before.tables[2].x,
+  );
+  await click(byLabel("元に戻す"));
+  assert.deepEqual(saved(), before);
+  await key(byLabel("受注の囲みを編集"), "Enter");
+  await click(byText("囲みを解除"));
+  assert.equal(saved().groups, undefined);
+  assert.equal(saved().tables.length, 3);
+});
+
+test("a table removed by undo is not preselected in a new group", async () => {
+  await click(byText("テーブルを追加"));
+  await submit();
+  const headings = [...document.querySelectorAll(".table-title")];
+  await click(headings.find((h) => h.textContent === "table_1"));
+  await click(byLabel("元に戻す"));
+  await key(document.body, "g", { ctrlKey: true });
+  await type(document.querySelector("#group-dialog .field input"), "注文");
+  assert.equal(document.querySelector("#group-dialog .primary").disabled, true);
+  await click(document.querySelector("#group-dialog input[type=checkbox]"));
+  await submit();
+  assert.deepEqual(saved().groups[0].tableIds, ["users"]);
+});

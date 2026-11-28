@@ -26,7 +26,21 @@ export interface TableSchema {
 export interface Schema {
   tables: TableSchema[];
 }
+export const tableColors = {
+  blue: { label: "青", fill: "#dfeaf5", dark: "#24384c" },
+  green: { label: "緑", fill: "#dcece3", dark: "#253c31" },
+  yellow: { label: "黄", fill: "#f5edcf", dark: "#403821" },
+  pink: { label: "桃", fill: "#f3e2e4", dark: "#463038" },
+  purple: { label: "紫", fill: "#e9e3f3", dark: "#393147" },
+} as const;
+export type TableColor = keyof typeof tableColors;
+export interface TableGroup {
+  id: string;
+  name: string;
+  tableIds: string[];
+}
 export interface TablePosition {
+  color?: TableColor;
   tableId: string;
   x: number;
   y: number;
@@ -40,6 +54,7 @@ export interface RoutePresentation {
   manual: boolean;
 }
 export interface Presentation {
+  groups?: TableGroup[];
   tables: TablePosition[];
   routes: RoutePresentation[];
 }
@@ -60,6 +75,7 @@ export interface RenderColumn extends Column {
 }
 /** Transient projection used by layout, canvas and editor drafts. */
 export interface Table extends Omit<TableSchema, "columns"> {
+  color?: TableColor;
   x: number;
   y: number;
   columns: RenderColumn[];
@@ -89,6 +105,7 @@ export interface Edge {
 /** Derived editing/rendering projection; never the history or storage source of truth. */
 export interface Diagram {
   ddlDialect?: DdlDialect;
+  groups?: TableGroup[];
   schemaVersion?: 2;
   title?: string;
   unresolvedEdges?: Edge[];

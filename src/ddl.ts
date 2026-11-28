@@ -34,6 +34,10 @@ const literal = (text: string, dialect: DdlDialect) =>
   ) +
   "'";
 
+// SQLite folds ASCII letters in database names. No qualifier means main.
+const sqliteDatabase = (table: Table) =>
+  (table.schemaName ?? "main").replace(/[A-Z]/g, (ch) => ch.toLowerCase());
+
 /** Incomplete editor drafts can lack names or foreign key targets. */
 export function tableDDL(
   table: Table,
@@ -148,10 +152,7 @@ export function tableDDL(
       throw new Error(
         `${tableName} の外部キーにある SET DEFAULT は MySQL では使えません。`,
       );
-    if (
-      sqlite &&
-      (parent.schemaName ?? "main") !== (table.schemaName ?? "main")
-    )
+    if (sqlite && sqliteDatabase(parent) !== sqliteDatabase(table))
       throw new Error(
         `${tableName} から別のデータベースへの外部キーは SQLite では使えません。`,
       );

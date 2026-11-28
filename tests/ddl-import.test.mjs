@@ -398,3 +398,75 @@ test("native MySQL integer ranges and binary and date types translate to Postgre
     diagram.tables[0].columns.map((c) => c.type),
   );
 });
+
+test("schema-qualified tables, indexes and forward references round-trip in each dialect", () => {
+  const { diagram: original, issues } =
+    importDDL(`CREATE TABLE "Sales DB"."Order" (
+    id integer PRIMARY KEY, buyer integer REFERENCES "Sales DB".people(id) ON DELETE CASCADE
+  );
+  CREATE INDEX "By buyer" ON "Sales DB"."Order"(buyer);
+  CREATE TABLE "Sales DB".people(id integer PRIMARY KEY);
+  COMMENT ON COLUMN "Sales DB"."Order".buyer IS '購入者';`);
+  assert.deepEqual(issues, []);
+  for (const dialect of ddlDialects) {
+    const ddl = diagramDDL(original, dialect);
+    const restored = importDDL(ddl);
+    assert.deepEqual(restored.issues, [], dialect);
+    assert.deepEqual(
+      schemaByName(restored.diagram),
+      schemaByName(original),
+      dialect,
+    );
+    if (dialect === "SQLite") {
+      const db = new DatabaseSync(":memory:");
+      try {
+        db.exec(`ATTACH ':memory:' AS "Sales DB";`);
+        db.exec(ddl);
+        const indexes = db
+          .prepare(
+            `SELECT name FROM "Sales DB".sqlite_schema WHERE type='index'`,
+          )
+          .all();
+        assert.ok(indexes.some((i) => i.name === "By buyer"));
+        db.exec(`INSERT INTO "Sales DB".people VALUES(1);
+          INSERT INTO "Sales DB"."Order" VALUES(10, 1);
+          DELETE FROM "Sales DB".people;`);
+        assert.equal(
+          db.prepare(`SELECT count(*) AS n FROM "Sales DB"."Order"`).get().n,
+          0,
+        );
+      } finally {
+        db.close();
+      }
+    }
+  }
+  original.tables[1].schemaName = "Customers";
+  for (const dialect of ["PostgreSQL", "MySQL"]) {
+    const restored = importDDL(diagramDDL(original, dialect));
+    assert.deepEqual(restored.issues, [], dialect);
+    assert.deepEqual(
+      schemaByName(restored.diagram),
+      schemaByName(original),
+      dialect,
+    );
+  }
+  assert.throws(() => diagramDDL(original, "SQLite"), /別のデータベース/);
+});
+
+test("SQLite's explicit MAIN and the default database can reference each other", () => {
+  const { diagram, issues } = importDDL(
+    "CREATE TABLE parent(id integer PRIMARY KEY); CREATE TABLE MAIN.child(p integer REFERENCES parent(id));",
+  );
+  assert.deepEqual(issues, []);
+  const ddl = diagramDDL(diagram, "SQLite");
+  const restored = importDDL(ddl);
+  assert.deepEqual(restored.issues, []);
+  assert.deepEqual(schemaByName(restored.diagram), schemaByName(diagram));
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(ddl);
+    assert.throws(() => db.exec("INSERT INTO child VALUES (5)"), /FOREIGN KEY/);
+  } finally {
+    db.close();
+  }
+});
