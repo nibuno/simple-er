@@ -1,5 +1,6 @@
 import type { Table, Edge, Point, Port, Route } from "./types.ts";
-type Box = { l: number; r: number; t: number; b: number };
+import { detour, interference } from "./detour.ts";
+import type { Box } from "./detour.ts";
 export const WIDTH = 230,
   HEADER = 52,
   ROW = 38,
@@ -116,26 +117,6 @@ export function connectionSides(
   return ["right", "right"];
 }
 
-// Table bodies are hard obstacles. Preferred whitespace is a soft cost: it
-// must not create an extra dogleg immediately before an otherwise clear port.
-function clearanceCost(a: Point, b: Point, preferred: Box[]) {
-  let cost = 0;
-  for (const box of preferred) {
-    if (a.x === b.x && a.x > box.l && a.x < box.r)
-      cost += Math.max(
-        0,
-        Math.min(Math.max(a.y, b.y), box.b) -
-          Math.max(Math.min(a.y, b.y), box.t),
-      );
-    if (a.y === b.y && a.y > box.t && a.y < box.b)
-      cost += Math.max(
-        0,
-        Math.min(Math.max(a.x, b.x), box.r) -
-          Math.max(Math.min(a.x, b.x), box.l),
-      );
-  }
-  return cost * 0.35;
-}
 const segments = (points: Point[]): Segment[] =>
   points.slice(1).map((b, i) => ({ a: points[i], b }));
 
@@ -165,86 +146,21 @@ function sharedLength(a: Point, b: Point, shared: Segment[]) {
   return length;
 }
 
-function interference(a: Point, b: Point, occupied: Segment[]) {
-  let cost = 0;
-  for (const { a: c, b: d } of occupied) {
-    const vertical = a.x === b.x,
-      otherVertical = c.x === d.x;
-    if (vertical === otherVertical) {
-      const distance = vertical ? Math.abs(a.x - c.x) : Math.abs(a.y - c.y);
-      if (distance === 0 || (vertical && distance < 12)) {
-        const overlap = vertical
-          ? Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y)) -
-            Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y))
-          : Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x)) -
-            Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x));
-        cost += Math.max(0, overlap) * 8 * (1 - distance / 12);
-      }
-    } else {
-      const at = vertical ? c.y : c.x;
-      const lo = vertical ? Math.min(a.y, b.y) : Math.min(a.x, b.x);
-      const hi = vertical ? Math.max(a.y, b.y) : Math.max(a.x, b.x);
-      const insideOther = vertical
-        ? a.x > Math.min(c.x, d.x) && a.x < Math.max(c.x, d.x)
-        : a.y > Math.min(c.y, d.y) && a.y < Math.max(c.y, d.y);
-      if (insideOther && at >= lo && at <= hi)
-        // Grid subdivision must not make a crossing at a grid vertex free.
-        cost += at === lo || at === hi ? 320 : 640;
-    }
-  }
-  return cost;
-}
-
-// The visibility graph can contain thousands of points for a large diagram.
-// A heap and adjacent grid neighbors avoid quadratic graph construction/search.
-class RouteQueue {
-  items: [number, number, number][] = [];
-  push(item: [number, number, number]) {
-    const a = this.items;
-    a.push(item);
-    let i = a.length - 1;
-    while (i > 0) {
-      const p = (i - 1) >> 1;
-      if (a[p][2] <= item[2]) break;
-      a[i] = a[p];
-      i = p;
-    }
-    a[i] = item;
-  }
-  pop() {
-    const a = this.items,
-      first = a[0],
-      last = a.pop()!;
-    if (a.length) {
-      let i = 0;
-      while (i * 2 + 1 < a.length) {
-        let child = i * 2 + 1;
-        if (child + 1 < a.length && a[child + 1][2] < a[child][2]) child++;
-        if (last[2] <= a[child][2]) break;
-        a[i] = a[child];
-        i = child;
-      }
-      a[i] = last;
-    }
-    return first;
-  }
-}
-
 export function route(
   edge: Edge,
   ts: Table[],
   occupied: Segment[] = [],
   lane = 0,
   shared: Segment[] = [],
+  rs = boxes(ts, CLEARANCE),
+  preferred = boxes(ts),
 ): Route {
   const s = ts.find((t) => t.id === edge.from.table)!,
     t = ts.find((t) => t.id === edge.to.table)!,
     a = port(s, edge.from.row, edge.from.side),
     b = port(t, edge.to.row, edge.to.side),
     aa = { x: a.x + (edge.from.side === "right" ? PAD : -PAD), y: a.y },
-    bb = { x: b.x + (edge.to.side === "right" ? PAD : -PAD), y: b.y },
-    rs = boxes(ts, CLEARANCE),
-    preferred = boxes(ts);
+    bb = { x: b.x + (edge.to.side === "right" ? PAD : -PAD), y: b.y };
   if (
     s.id === t.id &&
     edge.from.row === edge.to.row &&
@@ -349,131 +265,114 @@ export function route(
         ...rs.flatMap((r) => [r.t, r.b, r.t - spacing, r.b + spacing]),
       ]),
     ].sort((a, b) => a - b);
-  const nodes: Point[] = [];
-  const rows = new Map<number, number[]>(),
-    columns = new Map<number, number[]>();
-  for (const y of ys)
-    for (const x of xs)
-      if (!rs.some((r) => x > r.l && x < r.r && y > r.t && y < r.b)) {
-        const i = nodes.length;
-        nodes.push({ x, y });
-        if (!rows.has(y)) rows.set(y, []);
-        if (!columns.has(x)) columns.set(x, []);
-        rows.get(y)!.push(i);
-        columns.get(x)!.push(i);
-      }
-  const start = nodes.findIndex((p) => p.x === aa.x && p.y === aa.y),
-    goal = nodes.findIndex((p) => p.x === bb.x && p.y === bb.y);
-  if (start < 0 || goal < 0) return { points: [a, aa, bb, b], blocked: true };
-  const adjacency: [number, number, number][][] = nodes.map(() => []);
-  for (const line of [...rows.values(), ...columns.values()])
-    for (let k = 1; k < line.length; k++) {
-      const i = line[k - 1],
-        j = line[k];
-      let p = nodes[i],
-        q = nodes[j];
-      if ((p.x === q.x || p.y === q.y) && clear(p, q, rs)) {
-        const dir = p.x === q.x ? 1 : 0,
-          len =
-            Math.abs(p.x - q.x) +
-            Math.abs(p.y - q.y) +
-            interference(p, q, occupied) +
-            clearanceCost(p, q, preferred);
-        adjacency[i].push([j, dir, len]);
-        adjacency[j].push([i, dir, len]);
-      }
-    }
-  const dist = new Map([[`${start},0`, 0]]),
-    prev = new Map<string, string>(),
-    queue = new RouteQueue();
-  queue.push([start, 0, 0]);
-  let end: string | null = null;
-  while (queue.items.length) {
-    const [n, dir, cost] = queue.pop()!,
-      key = `${n},${dir}`;
-    if (cost !== dist.get(key)) continue;
-    if (n === goal) {
-      end = key;
-      break;
-    }
-    for (const [j, d, len] of adjacency[n]) {
-      if (
-        n === start &&
-        d === 0 &&
-        (nodes[j].x - aa.x) * (edge.from.side === "right" ? 1 : -1) < 0
-      )
-        continue;
-      if (
-        j === goal &&
-        d === 0 &&
-        (nodes[n].x - bb.x) * (edge.to.side === "right" ? 1 : -1) < 0
-      )
-        continue;
-      const next = `${j},${d}`,
-        v =
-          cost +
-          len +
-          (dir === d ? 0 : 180) +
-          (j === goal && d === 1 ? 180 : 0) +
-          (d === 1 ? Math.abs(nodes[j].x - x) * 0.08 : 0);
-      if (v < (dist.get(next) ?? Infinity)) {
-        dist.set(next, v);
-        prev.set(next, key);
-        queue.push([j, d, v]);
-      }
-    }
-  }
-  if (!end) return { points: [a, aa, bb, b], blocked: true };
-  const ps = [];
-  for (let k: string | undefined = end; k; k = prev.get(k))
-    ps.unshift(nodes[Number(k.split(",")[0])]);
-  return { points: simplify([a, ...ps, b]), detour: true };
+  const points = detour(
+    xs,
+    ys,
+    { ...aa, side: edge.from.side },
+    { ...bb, side: edge.to.side },
+    x,
+    { hard: rs, preferred, occupied },
+  );
+  return points
+    ? { points: simplify([a, ...points, b]), detour: true }
+    : { points: [a, aa, bb, b], blocked: true };
 }
+type CachedEdge = { key: string; path: Route };
+
+// A detour can depend on any table and on every previously routed edge.
+// Keep two layouts for undo/redo; within each layout reuse the matching
+// prefix in routing order. The cache belongs to one editor.
+export class EdgeRouteCache {
+  private layouts = new Map<string, CachedEdge[]>();
+  forLayout(obstacles: Box[]) {
+    const key = JSON.stringify(obstacles);
+    const entries = this.layouts.get(key) ?? [];
+    this.layouts.delete(key);
+    this.layouts.set(key, entries);
+    if (this.layouts.size > 2)
+      this.layouts.delete(this.layouts.keys().next().value!);
+    return entries;
+  }
+}
+
+type RouteOptions =
+  | { cache?: EdgeRouteCache; preview?: never }
+  | { preview: { tableId: string; routes: Map<string, Route> }; cache?: never };
 
 // Route nearby columns first. Within a fan-out to one column, route the farthest
 // child first so shorter branches can nest without crossing it.
-// Manual routes are kept and act as obstacles to overlapping automatic lines.
-export function routeEdges(edges: Edge[], tables: Table[]): Map<string, Route> {
+export function routeEdges(
+  edges: Edge[],
+  tables: Table[],
+  options: RouteOptions = {},
+): Map<string, Route> {
   const byId = new Map(tables.map((t) => [t.id, t]));
-  const effective = edges.map((e) => {
-    if (e.manual) return e;
-    const [fromSide, toSide] = connectionSides(
-      byId.get(e.from.table)!,
-      byId.get(e.to.table)!,
-    );
-    return {
-      ...e,
-      from: { ...e.from, side: fromSide },
-      to: { ...e.to, side: toSide },
-    };
-  });
-  const span = (e: Edge) => {
-    const a = port(byId.get(e.from.table)!, e.from.row, e.from.side);
-    const b = port(byId.get(e.to.table)!, e.to.row, e.to.side);
-    return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-  };
-  const horizontalSpan = (e: Edge) =>
-    Math.abs(
-      port(byId.get(e.from.table)!, e.from.row, e.from.side).x -
-        port(byId.get(e.to.table)!, e.to.row, e.to.side).x,
-    );
+  const rs = boxes(tables, CLEARANCE),
+    preferred = boxes(tables);
   const nearest = new Map<string, number>();
-  for (const e of effective) {
-    const key = endpointKey(e.from);
-    nearest.set(key, Math.min(nearest.get(key) ?? Infinity, span(e)));
-  }
-  const ordered = [...effective].sort(
+  const ordered = edges.map((original) => {
+    const s = byId.get(original.from.table)!,
+      t = byId.get(original.to.table)!;
+    const [from, to] = original.manual
+      ? [original.from.side, original.to.side]
+      : connectionSides(s, t);
+    const edge = {
+      ...original,
+      from: { ...original.from, side: from },
+      to: { ...original.to, side: to },
+    };
+    const source = endpointKey(edge.from);
+    const a = port(s, edge.from.row, from),
+      b = port(t, edge.to.row, to);
+    const horizontal = Math.abs(a.x - b.x),
+      span = horizontal + Math.abs(a.y - b.y);
+    nearest.set(source, Math.min(nearest.get(source) ?? Infinity, span));
+    return { edge, source, horizontal, span };
+  });
+  ordered.sort(
     (a, b) =>
-      Number(b.manual) - Number(a.manual) ||
-      nearest.get(endpointKey(a.from))! - nearest.get(endpointKey(b.from))! ||
-      endpointKey(a.from).localeCompare(endpointKey(b.from)) ||
-      horizontalSpan(a) - horizontalSpan(b) ||
-      span(b) - span(a) ||
-      a.id.localeCompare(b.id),
+      Number(b.edge.manual) - Number(a.edge.manual) ||
+      nearest.get(a.source)! - nearest.get(b.source)! ||
+      a.source.localeCompare(b.source) ||
+      a.horizontal - b.horizontal ||
+      b.span - a.span ||
+      a.edge.id.localeCompare(b.edge.id),
   );
+
   const result = new Map<string, Route>(),
     occupied: Segment[] = [];
-  for (const [i, edge] of ordered.entries()) {
+  const cache = options.cache?.forLayout(rs);
+  for (const [i, { edge }] of ordered.entries()) {
+    const key = cache
+      ? JSON.stringify([
+          edge.id,
+          endpointKey(edge.from),
+          endpointKey(edge.to),
+          edge.manual,
+          edge.trunk,
+        ])
+      : "";
+    if (cache?.[i] && cache[i].key !== key) cache.length = i;
+    const preview = options.preview;
+    const previous =
+      preview &&
+      edge.from.table !== preview.tableId &&
+      edge.to.table !== preview.tableId
+        ? preview.routes.get(edge.id)
+        : undefined;
+    const path = previous ?? cache?.[i]?.path ?? bestRoute(edge, i);
+    if (cache && !cache[i]) cache[i] = { key, path };
+    result.set(edge.id, path);
+    const source = endpointKey({ ...edge.from, side: path.fromSide! });
+    const target = endpointKey({ ...edge.to, side: path.toSide! });
+    occupied.push(
+      ...segments(path.points).map((s) => ({ ...s, source, target })),
+    );
+  }
+  if (cache) cache.length = ordered.length;
+  return result;
+
+  function bestRoute(edge: Edge, i: number): Route {
     const sourceTable = byId.get(edge.from.table)!,
       targetTable = byId.get(edge.to.table)!;
     const sides: [Port["side"], Port["side"]][] = [
@@ -493,6 +392,12 @@ export function routeEdges(edges: Edge[], tables: Table[]): Map<string, Route> {
     }
     const candidates = sides
       .map(([fromSide, toSide], preference) => {
+        if (
+          preference &&
+          fromSide === edge.from.side &&
+          toSide === edge.to.side
+        )
+          return null;
         const effective = {
           ...edge,
           from: { ...edge.from, side: fromSide },
@@ -512,6 +417,8 @@ export function routeEdges(edges: Edge[], tables: Table[]): Map<string, Route> {
           edge.manual ? [] : obstacles,
           i,
           shared,
+          rs,
+          preferred,
         );
         const score =
           (path.blocked ? 1e9 : 0) +
@@ -525,21 +432,13 @@ export function routeEdges(edges: Edge[], tables: Table[]): Map<string, Route> {
           ) +
           Math.max(0, path.points.length - 2) * 180 +
           preference;
-        return { path, fromSide, toSide, source, target, score };
+        return { path, fromSide, toSide, score };
       })
+      .filter((candidate) => candidate !== null)
       .sort((a, b) => a.score - b.score);
-    const { path, fromSide, toSide, source, target } = candidates[0];
+    const { path, fromSide, toSide } = candidates[0];
     path.fromSide = fromSide;
     path.toSide = toSide;
-    result.set(edge.id, path);
-    if (path.points.length >= 2) {
-      // A whole stem may be shared when it belongs to the same column. Treating
-      // only the first segment as shared made large fan-outs cross themselves.
-      // Unrelated column connections still reserve their own corridors.
-      occupied.push(
-        ...segments(path.points).map((s) => ({ ...s, source, target })),
-      );
-    }
+    return path;
   }
-  return result;
 }

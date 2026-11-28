@@ -33,7 +33,7 @@ import {
   title,
   uid,
 } from "./model.ts";
-import { tableWidth } from "./geometry.ts";
+import { EdgeRouteCache, routeEdges, tableWidth } from "./geometry.ts";
 import { tidyDiagram } from "./layout.ts";
 import { historyReducer } from "./history.ts";
 import { DiagramCanvas } from "./DiagramCanvas.tsx";
@@ -94,9 +94,32 @@ function Editor({
     past: before ? [before] : [],
     future: [],
   });
-  const state = useMemo(
+  const committed = useMemo(
     () => projectDocument(history.present),
     [history.present],
+  );
+  const [routeCache] = useState(() => new EdgeRouteCache());
+  const committedRoutes = useMemo(
+    () => routeEdges(committed.edges, committed.tables, { cache: routeCache }),
+    [committed, routeCache],
+  );
+  const [preview, setPreview] = useState<{
+    base: Diagram;
+    diagram: Diagram;
+    tableId?: string;
+  } | null>(null);
+  const activePreview = preview?.base === committed ? preview : null;
+  const state = activePreview?.diagram ?? committed;
+  const routes = useMemo(
+    () =>
+      activePreview
+        ? routeEdges(state.edges, state.tables, {
+            preview: activePreview.tableId
+              ? { tableId: activePreview.tableId, routes: committedRoutes }
+              : undefined,
+          })
+        : committedRoutes,
+    [state, activePreview, committedRoutes],
   );
   const [selected, setSelected] = useState<string | null>(null);
   const [focusedTable, setFocusedTable] = useState<string | null>(null);
@@ -205,13 +228,10 @@ function Editor({
   useEffect(() => {
     document.title = (history.present.title || untitled) + " — SimpleER";
   }, [history.present.title]);
-  function commit(next: Diagram, before?: Diagram) {
+  function commit(next: Diagram) {
     const valid = documentFromDiagram(next);
-    dispatch({
-      type: "commit",
-      next: valid,
-      before: before ? documentFromDiagram(before) : undefined,
-    });
+    setPreview(null);
+    dispatch({ type: "commit", next: valid });
     save(valid);
   }
   function clear() {
@@ -526,7 +546,7 @@ function Editor({
   async function download(format: "json" | "svg" | "png" | "sql") {
     flushTitle();
     const doc = currentDoc.current;
-    const diagram = projectDocument(doc);
+    const diagram = doc === history.present ? state : projectDocument(doc);
     const name = exportFilename(doc.title) + "." + format;
     try {
       if (format === "json") downloadFile(encodeDocument(doc), name);
@@ -537,7 +557,14 @@ function Editor({
           "application/sql;charset=utf-8",
         );
       else {
-        const svg = diagramSvg(diagram, displayTable, displayColumn);
+        const svg = diagramSvg(
+          diagram,
+          displayTable,
+          displayColumn,
+          diagram === state
+            ? routes
+            : routeEdges(diagram.edges, diagram.tables, { cache: routeCache }),
+        );
         if (format === "svg")
           downloadFile(svg, name, "image/svg+xml;charset=utf-8");
         else {
@@ -1047,6 +1074,7 @@ function Editor({
           )}
           <DiagramCanvas
             state={state}
+            routes={routes}
             selected={selected}
             selectedTable={focusedTable}
             onSelectTable={selectTable}
@@ -1086,8 +1114,8 @@ function Editor({
             onClear={clear}
             onHint={setHint}
             onCommit={commit}
-            onPreview={(next) =>
-              dispatch({ type: "preview", next: documentFromDiagram(next) })
+            onPreview={(diagram, tableId) =>
+              setPreview(diagram ? { base: committed, diagram, tableId } : null)
             }
             fitRequest={fitRequest}
             viewRef={view}
