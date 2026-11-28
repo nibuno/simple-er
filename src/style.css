@@ -2864,3 +2864,75 @@ dialog::backdrop {
     grid-column: 1 / -1;
   }
 }
+
+.group-border {
+  fill: none;
+  stroke: var(--muted);
+  stroke-dasharray: 5 4;
+  stroke-width: 1;
+  pointer-events: none;
+}
+.group-heading {
+  cursor: grab;
+}
+.group-heading:active {
+  cursor: grabbing;
+}
+.group-heading text {
+  fill: var(--text-2);
+  font-size: 14px;
+}
+.table-schema {
+  fill: var(--text-2);
+  font: 11px var(--mono);
+}
+.table-appearance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0 0 10px;
+}
+.table-appearance label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.table-appearance input {
+  width: 11em;
+}
+#group-dialog {
+  width: min(380px, calc(100vw - 24px));
+}
+#group-dialog form {
+  display: flex;
+  flex-direction: column;
+  max-height: 80dvh;
+}
+.group-fields {
+  padding: 16px;
+  overflow: auto;
+}
+.group-fields fieldset {
+  border: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.group-fields fieldset input {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.group-fields fieldset label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  overflow-wrap: anywhere;
+}
+.group-fields small {
+  color: var(--muted);
+}

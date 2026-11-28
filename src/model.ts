@@ -14,6 +14,8 @@ import { referenceActions } from "./types.ts";
 import { serialBase } from "./column-attributes.ts";
 import { tableWidth, connectionSides } from "./geometry.ts";
 
+import { tableColors, type TableGroup } from "./types.ts";
+
 export const uid = () => crypto.randomUUID();
 export const title = (table: Table) => table.name ?? table.id;
 export const MAX_TABLES = 150;
@@ -107,6 +109,9 @@ export function validateDiagram(input: unknown): Diagram {
       !boundedText(title(t)) ||
       (t.schemaName !== undefined && !boundedText(t.schemaName)) ||
       names.has(title(t).trim().toLowerCase()) ||
+      (t.color !== undefined &&
+        (typeof t.color !== "string" ||
+          !Object.hasOwn(tableColors, t.color))) ||
       !coordinate(t.x) ||
       !coordinate(t.y)
     )
@@ -145,9 +150,10 @@ export function validateDiagram(input: unknown): Diagram {
     return {
       id: t.id,
       name: title(t).trim(),
-      ...(t.schemaName && { schemaName: t.schemaName }),
+      ...(t.schemaName && { schemaName: t.schemaName.trim() }),
       logicalName: logicalName(t.logicalName),
       ...readNote(t.note),
+      ...(t.color && { color: t.color }),
       x: t.x,
       y: t.y,
       columns,
@@ -194,9 +200,40 @@ export function validateDiagram(input: unknown): Diagram {
       manual: !!e.manual,
     };
   });
-  return normalizeRelations({ ...value, tables, edges });
+  const groups = readGroups(value.groups, new Set(tables.map((t) => t.id)));
+  return normalizeRelations({ ...value, groups, tables, edges });
 }
 
+function readGroups(groups: TableGroup[] | undefined, tables: Set<string>) {
+  if (groups === undefined) return undefined;
+  if (!Array.isArray(groups) || groups.length > tables.size)
+    fail("囲みのデータが不正です。");
+  const ids = new Set<string>(),
+    members = new Set<string>();
+  return groups.map((group) => {
+    if (
+      !group ||
+      !validId(group.id) ||
+      ids.has(group.id) ||
+      !boundedText(group.name) ||
+      !Array.isArray(group.tableIds) ||
+      !group.tableIds.length ||
+      group.tableIds.length > tables.size
+    )
+      fail("囲みの名前またはテーブルが不正です。");
+    ids.add(group.id);
+    for (const id of group.tableIds) {
+      if (!tables.has(id) || members.has(id))
+        fail("囲みのテーブルが不明、または重複しています。");
+      members.add(id);
+    }
+    return {
+      id: group.id,
+      name: group.name.trim(),
+      tableIds: [...group.tableIds],
+    };
+  });
+}
 /** The only tuple-column boundary: version 1 import. Never returns tuples. */
 export function migrateLegacyDiagram(input: unknown): Diagram {
   if (
@@ -251,7 +288,13 @@ export function documentFromDiagram(diagram: Diagram): DiagramDocument {
       })),
     },
     presentation: {
-      tables: valid.tables.map((t) => ({ tableId: t.id, x: t.x, y: t.y })),
+      ...(valid.groups?.length && { groups: valid.groups }),
+      tables: valid.tables.map((t) => ({
+        tableId: t.id,
+        x: t.x,
+        y: t.y,
+        ...(t.color && { color: t.color }),
+      })),
       routes: valid.edges
         .filter((e) => e.foreignKeyId)
         .map((e) => ({
@@ -314,6 +357,7 @@ export function projectDocument(
       note: document.version === 2 ? (t.logicalName ?? undefined) : t.note,
       keys: t.keys,
       foreignKeys: t.foreignKeys,
+      color: pos.color,
       x: pos.x,
       y: pos.y,
       columns: t.columns.map((c) => {
@@ -330,6 +374,7 @@ export function projectDocument(
   const valid = validateDiagram({
     schemaVersion: 2,
     title: document.title,
+    groups: document.presentation.groups,
     tables,
     edges: document.entityEdges ?? [],
     unresolvedEdges: document.unresolvedEdges ?? [],
@@ -745,6 +790,7 @@ function normalizeRelations(diagram: Diagram): Diagram {
   return {
     schemaVersion: 2,
     ...(title && { title }),
+    ...(diagram.groups?.length && { groups: diagram.groups }),
     tables,
     edges,
     unresolvedEdges: unresolved,
@@ -898,6 +944,11 @@ export function removeTable(diagram: Diagram, id: string) {
     .filter((f) => f.target?.tableId === id).length;
   const next: Diagram = {
     ...diagram,
+    ...(diagram.groups && {
+      groups: diagram.groups
+        .map((g) => ({ ...g, tableIds: g.tableIds.filter((t) => t !== id) }))
+        .filter((g) => g.tableIds.length),
+    }),
     tables: diagram.tables
       .filter((t) => t.id !== id)
       .map((t) => ({

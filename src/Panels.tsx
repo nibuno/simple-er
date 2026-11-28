@@ -74,8 +74,13 @@ export function Sidebar({
       return label ? [{ id: c.id, label }] : [];
     });
     const tableMatch =
-      [table.name, table.logicalName, table.id].find(matches) ||
-      noteMatch(table.note, query);
+      [
+        table.name,
+        table.logicalName,
+        table.id,
+        table.schemaName,
+        state.groups?.find((g) => g.tableIds.includes(table.id))?.name,
+      ].find(matches) || noteMatch(table.note, query);
     if (!tableMatch && !columns.length) return [];
     const detail = [
       tableMatch !== names.displayTable(table) && tableMatch,
@@ -111,7 +116,7 @@ export function Sidebar({
           type="search"
           ref={searchRef}
           aria-label="図の中を検索"
-          placeholder="テーブル・カラムを検索"
+          placeholder="テーブル・カラム・囲みを検索"
           onKeyDown={(e) => {
             if (
               e.key === "Enter" &&
