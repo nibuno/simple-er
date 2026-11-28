@@ -56,7 +56,11 @@ import { clearGroupFrame, tidyDiagram } from "./layout.ts";
 import { historyReducer } from "./history.ts";
 import { GroupDialog } from "./GroupDialog.tsx";
 import { DiagramCanvas } from "./DiagramCanvas.tsx";
-import { relatedDiagram, type TableReveal } from "./diagram-view.ts";
+import {
+  hasMultipleSchemas,
+  relatedDiagram,
+  type TableReveal,
+} from "./diagram-view.ts";
 import {
   TableEditor,
   InferDialog,
@@ -243,8 +247,7 @@ function Editor({
   stateRef.current = state;
   const tableHeading = (t: Table) =>
     logical && t.logicalName ? t.logicalName : title(t);
-  const showSchema =
-    new Set(state.tables.map((t) => t.schemaName ?? "")).size > 1;
+  const showSchema = hasMultipleSchemas(state);
   const displayTable = (t: Table) =>
     showSchema ? qualifiedTitle(t, tableHeading(t)) : tableHeading(t);
   const displayColumn = (c: Column) =>
@@ -695,6 +698,7 @@ function Editor({
           diagram === visible
             ? routes
             : routeEdges(diagram.edges, diagram.tables, { cache: routeCache }),
+          logical,
         );
         if (format === "svg")
           downloadFile(svg, name, "image/svg+xml;charset=utf-8");

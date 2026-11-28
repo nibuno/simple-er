@@ -9,6 +9,7 @@ import {
   ROW,
   tableWidth,
 } from "./geometry.ts";
+import { hasMultipleSchemas } from "./diagram-view.ts";
 import { columnMarks } from "./column-attributes.ts";
 import { tableColors } from "./types.ts";
 import { title } from "./model.ts";
@@ -40,6 +41,8 @@ function tableSvg(
   table: Table,
   tableName: string,
   columnName: (c: Column) => string,
+  showSchema: boolean,
+  logical: boolean,
 ) {
   const w = tableWidth(table);
   const rows = table.columns
@@ -53,7 +56,7 @@ function tableSvg(
       <text x="${both ? 22 : 21}" y="${y + ROW / 2 + 3.5}" text-anchor="middle" font-size="10" font-weight="600" fill="${column.key === "PK" ? "#92400e" : "#1e40af"}">${both ? "P/F" : column.key}</text>`
         : "";
       return `${badge}
-      <text x="41" y="${y + 24}" font-size="14">${escapeXml(columnName(column))}</text>
+      <text x="41" y="${y + 24}" font-size="14"${logical && !column.logicalName ? ' fill="#52525b" font-style="italic"' : ""}>${escapeXml(columnName(column))}</text>
       <text x="${w - 14}" y="${y + (marks ? 17 : 24)}" text-anchor="end" font-size="12" fill="#52525b">${escapeXml(column.type)}</text>
       ${marks ? `<text x="${w - 14}" y="${y + 31}" text-anchor="end" font-size="10" fill="#52525b">${marks}</text>` : ""}`;
     })
@@ -63,8 +66,8 @@ function tableSvg(
     <path d="M9 1H${w - 9}Q${w - 1} 1 ${w - 1} 9V${HEADER}H1V9Q1 1 9 1" fill="${table.color ? tableColors[table.color].fill : "#f4f4f5"}"/>
     <path d="M1 ${HEADER}H${w - 1}" stroke="#d4d4d8"/>
     ${table.checks?.length ? `<text x="${w - 16}" y="31" text-anchor="end" font-size="11" fill="#52525b">CHECK ${table.checks.length}</text>` : ""}
-    ${table.schemaName ? `<text x="16" y="17" font-size="11" fill="#52525b">${escapeXml(table.schemaName)}.</text>` : ""}
-    <text x="16" y="${table.schemaName ? 38 : 31}" font-weight="600" font-size="16">${escapeXml(tableName)}</text>${rows}
+    ${showSchema && table.schemaName ? `<text x="16" y="17" font-size="11" fill="#52525b">${escapeXml(table.schemaName)}.</text>` : ""}
+    <text x="16" y="${showSchema && table.schemaName ? 38 : 31}" font-weight="600" font-size="16">${escapeXml(tableName)}</text>${rows}
   </g>`;
 }
 
@@ -85,7 +88,9 @@ export function diagramSvg(
   tableName = title,
   columnName = (c: Column) => c.name,
   routes = routeEdges(state.edges, state.tables),
+  logical = false,
 ) {
+  const showSchema = hasMultipleSchemas(state);
   const labels = relationshipLabels(state, routes);
   const frames = groupFrames(state);
   const bounds = diagramBounds(state.tables, routes.values(), [
@@ -136,6 +141,6 @@ export function diagramSvg(
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${x} ${y} ${width} ${height}">
     <title>${escapeXml(state.title || "SimpleER")}</title>
     <rect x="${x}" y="${y}" width="${width}" height="${height}" fill="#fff"/>
-    <g fill="#18181b" font-family="ui-monospace,Menlo,Consolas,monospace">${surrounds}${wires}${state.tables.map((t) => tableSvg(t, tableName(t), columnName)).join("")}</g>
+    <g fill="#18181b" font-family="ui-monospace,Menlo,Consolas,monospace">${surrounds}${wires}${state.tables.map((t) => tableSvg(t, tableName(t), columnName, showSchema, logical)).join("")}</g>
   </svg>`;
 }

@@ -106,3 +106,27 @@ test("filenames preserve diagram names and use the local date for unnamed diagra
   assert.equal(titleFromFile("er-sketch-2026-01-01.json"), undefined);
   assert.equal(titleFromFile("simple-er-2026-01-01.json"), undefined);
 });
+
+test("exported drawings use the same schema and missing-name display as the logical canvas", () => {
+  const d = decode(
+    readFileSync(
+      new URL("../examples/composite-keys.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  for (const t of d.tables) t.schemaName = "shop";
+  const svg = diagramSvg(
+    d,
+    undefined,
+    (c) => c.logicalName || c.name,
+    undefined,
+    true,
+  );
+  assert.doesNotMatch(svg, />shop\.<\/text>/);
+  assert.match(svg, /font-style="italic"/);
+  d.tables[0].schemaName = "archive";
+  const mixed = diagramSvg(d);
+  assert.match(mixed, />shop\.<\/text>/);
+  assert.match(mixed, />archive\.<\/text>/);
+  assert.doesNotMatch(mixed, /font-style="italic"/);
+});
