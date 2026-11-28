@@ -1770,6 +1770,10 @@ test("related view keeps both ends editable and saves and exports the whole diag
   assert.equal(JSON.parse(await blob.text()).schema.tables.length, 3);
   await click(byText("SVG で保存"));
   assert.match(await blob.text(), /order_items/);
+  await click(byText("定義書を保存（Markdown）"));
+  assert.match(await blob.text(), /\n## order_items\n/);
+  await click(byText("定義書を保存（CSV）"));
+  assert.match(await blob.text(), /,order_items,[^\r\n]*,product_name,/);
   await click(byLabel("元に戻す"));
   assert.deepEqual(saved().tables, before.tables);
   assert.deepEqual(tables(), ["users", "orders"]);
