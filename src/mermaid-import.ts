@@ -1,6 +1,13 @@
 import { messageOf } from "./utils.ts";
 import { decodeText, identifyingForeignKey } from "./mermaid.ts";
-import { columnAttributes, readNote, MAX_COLUMNS, uid } from "./model.ts";
+import {
+  columnAttributes,
+  readNote,
+  MAX_COLUMNS,
+  MAX_TABLES,
+  MAX_CONNECTIONS,
+  uid,
+} from "./model.ts";
 import { childMaximum } from "./relationships.ts";
 import { layoutImportedTables } from "./import-layout.ts";
 import { referenceActions } from "./types.ts";
@@ -156,7 +163,8 @@ export function importMermaid(
       return bad("テーブル名は80文字以内で指定してください。");
     if (next.tables.some((t) => t.name.toLowerCase() === name.toLowerCase()))
       return bad(`${name} はすでにあります。`);
-    if (next.tables.length >= 40) return bad("テーブルは40個までです。");
+    if (next.tables.length >= MAX_TABLES)
+      return bad(`テーブルは${MAX_TABLES}個までです。`);
     const table: Table = {
       id: uid(),
       name,
@@ -294,7 +302,7 @@ export function importMermaid(
   for (const { line, from, to, relation, hint } of relations) {
     const previousCount = added.length;
     try {
-      if (count >= 200) bad("接続は200本までです。");
+      if (count >= MAX_CONNECTIONS) bad(`接続は${MAX_CONNECTIONS}本までです。`);
       if (skipped.has(from) || skipped.has(to))
         bad("重複したテーブルのリレーションを省きました。");
       const parent = tableFor(from),
@@ -309,7 +317,7 @@ export function importMermaid(
             relation,
             hint,
             mapped,
-            200 - count,
+            MAX_CONNECTIONS - count,
           );
           continue;
         } catch {
