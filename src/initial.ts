@@ -3,7 +3,7 @@ import { projectDocument } from "./model.ts";
 
 export const initialDocument: DiagramDocument = {
   format: "er-sketch",
-  version: 2,
+  version: 3,
   schema: {
     tables: [
       {

@@ -5,14 +5,18 @@ export interface Column {
   name: string;
   type: string;
   notNull?: boolean;
+  identity?: "always" | "byDefault";
+  identityOptions?: string;
   defaultValue?: string;
   logicalName: string;
+  note?: string;
 }
 export interface TableSchema {
   schemaName?: string;
   id: string;
   name: string;
   logicalName: string;
+  note?: string;
   columns: Column[];
   keys: KeyDefinition[];
   foreignKeys: ForeignKey[];
@@ -37,10 +41,10 @@ export interface Presentation {
   tables: TablePosition[];
   routes: RoutePresentation[];
 }
-/** The authoritative runtime state and version 2 file contract. */
+/** The authoritative runtime state and version 3 file contract. */
 export interface DiagramDocument {
   format: "er-sketch";
-  version: 2;
+  version: 3;
   title?: string;
   schema: Schema;
   presentation: Presentation;
@@ -123,7 +127,17 @@ export interface KeyDefinition {
   kind: "primary" | "unique" | "index";
   columnIds: string[];
 }
+export const referenceActions = [
+  "NO ACTION",
+  "RESTRICT",
+  "CASCADE",
+  "SET NULL",
+  "SET DEFAULT",
+] as const;
+export type ReferenceAction = (typeof referenceActions)[number];
 export interface ForeignKey {
+  onDelete?: ReferenceAction;
+  onUpdate?: ReferenceAction;
   id: string;
   name: string;
   columnIds: string[];

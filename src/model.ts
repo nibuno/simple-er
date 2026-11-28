@@ -1,4 +1,5 @@
 import type {
+  Column,
   Diagram,
   Table,
   RenderColumn,
@@ -9,6 +10,8 @@ import type {
   TablePosition,
   RoutePresentation,
 } from "./types.ts";
+import { referenceActions } from "./types.ts";
+import { serialBase } from "./column-attributes.ts";
 import { tableWidth, connectionSides } from "./geometry.ts";
 
 export const uid = () => crypto.randomUUID();
@@ -41,6 +44,44 @@ const logicalName = (value: unknown) => {
     fail("論理名は80文字以内にしてください。");
   return value.trim();
 };
+export function readNote(value: unknown) {
+  if (value === undefined || value === "") return {};
+  if (typeof value !== "string" || value.length > 2_000_000)
+    fail("説明は200万文字以内にしてください。");
+  return { note: value };
+}
+export function columnAttributes(
+  c: Pick<
+    Column,
+    | "type"
+    | "notNull"
+    | "defaultValue"
+    | "identity"
+    | "identityOptions"
+    | "note"
+  >,
+) {
+  if (c.notNull !== undefined && typeof c.notNull !== "boolean")
+    fail("NOT NULL の指定が不正です。");
+  if (c.defaultValue !== undefined && !boundedText(c.defaultValue, 2_000_000))
+    fail("既定値の指定が不正です。");
+  if (c.identity !== undefined && !["always", "byDefault"].includes(c.identity))
+    fail("自動採番の指定が不正です。");
+  if (
+    c.identityOptions !== undefined &&
+    (!c.identity || !boundedText(c.identityOptions, 2_000_000))
+  )
+    fail("自動採番のオプションが不正です。");
+  if (c.identity && (c.defaultValue || serialBase(c.type)))
+    fail("IDENTITY と既定値や SERIAL は同時に指定できません。");
+  return {
+    ...readNote(c.note),
+    ...(c.notNull && { notNull: true }),
+    ...(c.defaultValue && { defaultValue: c.defaultValue }),
+    ...(c.identity && { identity: c.identity }),
+    ...(c.identityOptions && { identityOptions: c.identityOptions }),
+  };
+}
 const keys = ["", "PK", "FK", "PK,FK"];
 
 // Column IDs remain stable when names or ordering change. Row indexes are only
@@ -78,9 +119,6 @@ export function validateDiagram(input: unknown): Diagram {
         Array.isArray(c) ||
         !boundedText(c.name) ||
         !boundedText(c.type, 40) ||
-        (c.notNull !== undefined && typeof c.notNull !== "boolean") ||
-        (c.defaultValue !== undefined &&
-          !boundedText(c.defaultValue, 2000000)) ||
         !keys.includes(c.key)
       )
         fail("カラム名・型・キーが不正です。");
@@ -94,8 +132,7 @@ export function validateDiagram(input: unknown): Diagram {
       return {
         name: c.name.trim(),
         type: c.type.trim(),
-        ...(c.notNull && { notNull: true }),
-        ...(c.defaultValue && { defaultValue: c.defaultValue }),
+        ...columnAttributes(c),
         key: c.key,
         id,
         logicalName: logicalName(c.logicalName),
@@ -106,6 +143,7 @@ export function validateDiagram(input: unknown): Diagram {
       name: title(t).trim(),
       ...(t.schemaName && { schemaName: t.schemaName }),
       logicalName: logicalName(t.logicalName),
+      ...readNote(t.note),
       x: t.x,
       y: t.y,
       columns,
@@ -164,13 +202,14 @@ export function migrateLegacyDiagram(input: unknown): Diagram {
   )
     fail("ER図のデータ形式が正しくありません。");
   const value = input as {
-    tables: { columns?: unknown[] }[];
+    tables: { logicalName?: string; columns?: unknown[] }[];
     edges?: unknown[];
   };
   return validateDiagram({
     ...value,
     tables: value.tables.map((table) => ({
       ...table,
+      note: table?.logicalName ?? undefined,
       columns: Array.isArray(table?.columns)
         ? table.columns.map((column) => {
             if (!Array.isArray(column)) fail("旧形式のカラムが不正です。");
@@ -180,6 +219,7 @@ export function migrateLegacyDiagram(input: unknown): Diagram {
               key: column[2],
               id: column[3],
               logicalName: column[4],
+              note: column[4] ?? undefined,
             };
           })
         : table?.columns,
@@ -192,7 +232,7 @@ export function documentFromDiagram(diagram: Diagram): DiagramDocument {
   const valid = validateDiagram(diagram);
   return {
     format: "er-sketch",
-    version: 2,
+    version: 3,
     ...(valid.title && { title: valid.title }),
     schema: {
       tables: valid.tables.map((t) => ({
@@ -200,16 +240,10 @@ export function documentFromDiagram(diagram: Diagram): DiagramDocument {
         name: t.name,
         ...(t.schemaName !== undefined && { schemaName: t.schemaName }),
         logicalName: t.logicalName,
+        ...(t.note !== undefined && { note: t.note }),
         keys: structuredClone(t.keys),
         foreignKeys: structuredClone(t.foreignKeys),
-        columns: t.columns.map((c) => ({
-          id: c.id,
-          name: c.name,
-          type: c.type,
-          ...(c.notNull !== undefined && { notNull: c.notNull }),
-          ...(c.defaultValue !== undefined && { defaultValue: c.defaultValue }),
-          logicalName: c.logicalName,
-        })),
+        columns: t.columns.map(({ key, ...column }) => column),
       })),
     },
     presentation: {
@@ -235,11 +269,13 @@ export function documentFromDiagram(diagram: Diagram): DiagramDocument {
 }
 
 /** Rebuild disposable rows, badges and edges; never mutates the document. */
-export function projectDocument(document: DiagramDocument): Diagram {
+export function projectDocument(
+  document: Omit<DiagramDocument, "version"> & { version: 2 | 3 },
+): Diagram {
   if (
     !document ||
     document.format !== "er-sketch" ||
-    document.version !== 2 ||
+    ![2, 3].includes(document.version) ||
     (document.entityEdges !== undefined &&
       (!Array.isArray(document.entityEdges) ||
         document.entityEdges.some((e) => !e?.entityRelation))) ||
@@ -269,8 +305,9 @@ export function projectDocument(document: DiagramDocument): Diagram {
     return {
       id: t.id,
       name: t.name,
-      ...(t.schemaName !== undefined && { schemaName: t.schemaName }),
+      schemaName: t.schemaName,
       logicalName: t.logicalName,
+      note: document.version === 2 ? (t.logicalName ?? undefined) : t.note,
       keys: t.keys,
       foreignKeys: t.foreignKeys,
       x: pos.x,
@@ -279,12 +316,8 @@ export function projectDocument(document: DiagramDocument): Diagram {
         if (!c || Array.isArray(c) || !boundedText(c.id, 180))
           fail("カラムIDが不正です。");
         return {
-          id: c.id,
-          name: c.name,
-          type: c.type,
-          ...(c.notNull !== undefined && { notNull: c.notNull }),
-          ...(c.defaultValue !== undefined && { defaultValue: c.defaultValue }),
-          logicalName: c.logicalName,
+          ...c,
+          note: document.version === 2 ? (c.logicalName ?? undefined) : c.note,
           key: "",
         };
       }),
@@ -354,7 +387,7 @@ export function decodeDocument(text: string): DiagramDocument {
   } catch {
     fail("JSONファイルとして読み取れません。");
   }
-  if (data?.format !== "er-sketch" || ![1, 2].includes(data.version))
+  if (data?.format !== "er-sketch" || ![1, 2, 3].includes(data.version))
     fail("対応していない形式です。ERスケッチで保存したJSONを選んでください。");
   if (data.version === 1)
     return documentFromDiagram(migrateLegacyDiagram(data.diagram));
@@ -753,6 +786,9 @@ function validateConstraints(tables: Table[]) {
     for (const f of t.foreignKeys) {
       identity(f.id, f.name);
       columns(t, f.columnIds);
+      for (const action of [f.onDelete, f.onUpdate])
+        if (action !== undefined && !referenceActions.includes(action))
+          fail("外部キーの参照動作が不正です。");
       if (f.label !== undefined) {
         if (typeof f.label !== "string" || f.label.length > 80)
           fail("関係ラベルは80文字以内にしてください。");

@@ -1,8 +1,9 @@
 import { messageOf } from "./utils.ts";
 import { decodeText, identifyingForeignKey } from "./mermaid.ts";
-import { MAX_COLUMNS, uid } from "./model.ts";
+import { columnAttributes, readNote, MAX_COLUMNS, uid } from "./model.ts";
 import { childMaximum } from "./relationships.ts";
 import { layoutImportedTables } from "./import-layout.ts";
+import { referenceActions } from "./types.ts";
 import type {
   Diagram,
   EntityRelation,
@@ -73,6 +74,26 @@ function idsFor(table: Table, names: unknown): string[] {
       table.columns.find((c) => c.name === name)?.id ??
       bad("補足コメントのカラムが見つかりません。"),
   );
+}
+function restoreDetails(table: Table, text: string) {
+  const data = JSON.parse(text);
+  const note = readNote(data.note);
+  if (
+    !Array.isArray(data.columns) ||
+    data.columns.length > table.columns.length
+  )
+    bad("カラムの補足コメントが不正です。");
+  const changes = new Map<
+    Table["columns"][number],
+    ReturnType<typeof columnAttributes>
+  >();
+  for (const item of data.columns) {
+    const column = table.columns.find((c) => c.name === item.name);
+    if (!column || changes.has(column)) bad("補足コメントのカラムが不正です。");
+    changes.set(column, columnAttributes({ ...item, type: column.type }));
+  }
+  Object.assign(table, note);
+  for (const [column, attrs] of changes) Object.assign(column, attrs);
 }
 function restoreKeys(table: Table, hint: Hint) {
   const data = JSON.parse(hint.text);
@@ -161,6 +182,19 @@ export function importMermaid(
     const line = index + 1,
       text = raw.trim();
     if (!text) continue;
+    if (text.startsWith("%% simple-er-details ")) {
+      if (block?.table) {
+        try {
+          restoreDetails(
+            block.table,
+            text.slice("%% simple-er-details ".length),
+          );
+        } catch {
+          report(line, "テーブルとカラムの補足コメントを省きました。");
+        }
+      }
+      continue;
+    }
     if (text.startsWith("%%")) {
       const note = /^%% simple-er-(keys|fk) (.+)$/.exec(text);
       if (note) hint = { line, kind: note[1], text: note[2] };
@@ -326,22 +360,28 @@ function addAttribute(t: Table, match: RegExpExecArray) {
     rawName = unquote(match[2]);
   const star = match[2].startsWith("*");
   const name = star ? rawName.slice(1) : rawName;
-  const logicalName = decodeText(match[4] ?? "");
+  const comment = decodeText(match[4] ?? "");
   if (
     !name.trim() ||
     name.trim() !== name ||
     !type.trim() ||
     name.length > 80 ||
-    type.length > 40 ||
-    logicalName.length > 80
+    type.length > 40
   )
-    return bad("カラム名とコメントは80文字、型は40文字までです。");
+    return bad("カラム名は80文字、型は40文字までです。");
   if (t.columns.some((c) => c.name.toLowerCase() === name.toLowerCase()))
     return bad(`${name} が重複しています。`);
   if (t.columns.length >= MAX_COLUMNS) return bad("カラムは60個までです。");
   const flags = (match[3] ?? "").toUpperCase().split(/\s*,\s*/);
   const id = uid();
-  t.columns.push({ id, name, type, logicalName, key: "" });
+  t.columns.push({
+    id,
+    name,
+    type,
+    logicalName: comment.length <= 80 ? comment : "",
+    ...(comment.length > 80 && { note: comment }),
+    key: "",
+  });
   if (star || flags.includes("PK")) {
     const pk = t.keys.find((k) => k.kind === "primary");
     if (pk) pk.columnIds.push(id);
@@ -372,6 +412,9 @@ function restoreForeignKey(
     relation.from.startsWith("}") ||
     typeof data.name !== "string" ||
     data.name.length > 80 ||
+    [data.onDelete, data.onUpdate].some(
+      (action) => action !== undefined && !referenceActions.includes(action),
+    ) ||
     references.length !== columnIds.length ||
     columnIds.some((id) => !pending.some((f) => f.columnIds.includes(id))) ||
     !parent.keys.some(
@@ -389,6 +432,8 @@ function restoreForeignKey(
   const fk: ForeignKey = {
     id: uid(),
     name: data.name,
+    ...(data.onDelete && { onDelete: data.onDelete }),
+    ...(data.onUpdate && { onUpdate: data.onUpdate }),
     columnIds,
     target: { tableId: parent.id, columnIds: references },
   };

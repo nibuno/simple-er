@@ -1,12 +1,16 @@
 import { expression, SqlError, statements, Tokens } from "./ddl-tokens.ts";
 import { layoutImportedTables } from "./import-layout.ts";
 import { MAX_COLUMNS, uid } from "./model.ts";
-import type { Diagram, KeyDefinition, Table } from "./types.ts";
+import { referenceActions } from "./types.ts";
+import type { Diagram, ForeignKey, KeyDefinition, Table } from "./types.ts";
 
 type Name = string[];
 type Constraint = { name: string; columns: string[] } & (
   | { kind: KeyDefinition["kind"] }
-  | { kind: "foreign"; parent: Name; targets?: string[] }
+  | ({ kind: "foreign"; parent: Name; targets?: string[] } & Pick<
+      ForeignKey,
+      "onDelete" | "onUpdate"
+    >)
 );
 type Change = { table: Name; line: number } & (
   Constraint | { kind: "comment"; column?: string; text: string }
@@ -17,7 +21,7 @@ export interface DdlIssue {
 }
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const modifiers = new Set(
-  "NOT NULL DEFAULT PRIMARY UNIQUE REFERENCES CONSTRAINT COMMENT AUTO_INCREMENT CHECK GENERATED COLLATE CHARACTER ON".split(
+  "NOT NULL DEFAULT PRIMARY UNIQUE REFERENCES CONSTRAINT COMMENT AUTO_INCREMENT AUTOINCREMENT CHECK GENERATED COLLATE CHARACTER ON".split(
     " ",
   ),
 );
@@ -32,14 +36,23 @@ function reference(
 ): Constraint {
   const parent = tokens.qualifiedName();
   const targets = tokens.keyword === "(" ? tokens.names() : undefined;
+  const actions: Pick<ForeignKey, "onDelete" | "onUpdate"> = {};
   while (tokens.eat("ON")) {
-    if (!tokens.eat("DELETE")) tokens.need("UPDATE");
-    if (tokens.eat("SET")) {
-      if (!tokens.eat("NULL")) tokens.need("DEFAULT");
-    } else if (tokens.eat("NO")) tokens.need("ACTION");
-    else if (!tokens.eat("CASCADE")) tokens.need("RESTRICT");
+    const deleting = tokens.eat("DELETE");
+    if (!deleting) tokens.need("UPDATE");
+    const action = referenceActions.find((action) =>
+      action
+        .split(" ")
+        .every(
+          (word, i) =>
+            tokens.items[tokens.index + i]?.raw.toUpperCase() === word,
+        ),
+    );
+    if (!action) tokens.fail("参照動作を読み取れません。");
+    tokens.index += action.split(" ").length;
+    actions[deleting ? "onDelete" : "onUpdate"] = action;
   }
-  return { kind: "foreign", columns, name, parent, targets };
+  return { kind: "foreign", columns, name, parent, targets, ...actions };
 }
 
 function tableConstraint(tokens: Tokens): Constraint {
@@ -120,16 +133,24 @@ function parseColumn(tokens: Tokens, sql: string, issues: DdlIssue[]) {
         if (!value) tokens.fail("既定値がありません。");
         column.defaultValue = value;
       } else if (tokens.eat("GENERATED")) {
-        if (!tokens.eat("ALWAYS")) {
+        const always = tokens.eat("ALWAYS");
+        if (!always) {
           tokens.need("BY");
           tokens.need("DEFAULT");
         }
         tokens.need("AS");
         tokens.need("IDENTITY");
+        column.identity = always ? "always" : "byDefault";
         if (tokens.eat("(")) {
-          tokens.until((word) => word === ")");
+          column.identityOptions =
+            expression(
+              tokens.until((word) => word === ")"),
+              sql,
+            ) || undefined;
           tokens.need(")");
         }
+      } else if (tokens.eat("AUTO_INCREMENT") || tokens.eat("AUTOINCREMENT")) {
+        column.identity = "byDefault";
       } else if (tokens.eat("CHECK")) {
         issues.push({
           line: tokens.line,
@@ -138,7 +159,7 @@ function parseColumn(tokens: Tokens, sql: string, issues: DdlIssue[]) {
         tokens.need("(");
         tokens.until((word) => word === ")");
         tokens.need(")");
-      } else if (tokens.eat("COMMENT")) column.logicalName = tokens.string();
+      } else if (tokens.eat("COMMENT")) column.note = tokens.string();
       else if (tokens.eat("CHARACTER")) {
         tokens.need("SET");
         tokens.name();
@@ -150,8 +171,7 @@ function parseColumn(tokens: Tokens, sql: string, issues: DdlIssue[]) {
           if (/^\d+$/.test(tokens.keyword)) tokens.index++;
           tokens.need(")");
         }
-      } else if (!tokens.eat("NULL") && !tokens.eat("AUTO_INCREMENT"))
-        tokens.end();
+      } else if (!tokens.eat("NULL")) tokens.end();
     }
   } catch (error) {
     if (!(error instanceof SqlError)) throw error;
@@ -164,7 +184,7 @@ function parseOptions(tokens: Tokens, table: Table) {
   while (tokens.current) {
     if (tokens.eat("COMMENT")) {
       tokens.eat("=");
-      table.logicalName = tokens.string();
+      table.note = tokens.string();
     } else {
       tokens.eat("DEFAULT");
       if (tokens.eat("CHARACTER")) tokens.need("SET");
@@ -246,13 +266,6 @@ export function importDDL(
             part.fail("カラムは60個までです。");
           if (table.columns.some((c) => same(c.name, column.name)))
             part.fail(`${column.name} が重複しています。`);
-          if (column.logicalName.length > 80) {
-            issues.push({
-              line: at,
-              message: `${column.name} のコメントは80文字を超えるため省きました。`,
-            });
-            column.logicalName = "";
-          }
           table.columns.push(column);
           keys = inline;
         }
@@ -264,13 +277,6 @@ export function importDDL(
     if (!table.columns.length)
       t.fail(`${name} に読み込めるカラムがありません。`);
     attempt(t.line, () => parseOptions(t, table));
-    if (table.logicalName.length > 80) {
-      issues.push({
-        line,
-        message: `${name} のコメントは80文字を超えるため省きました。`,
-      });
-      table.logicalName = "";
-    }
     next.tables.push(table);
     added.push(table);
     changes.push(...local);
@@ -375,15 +381,10 @@ export function importDDL(
           `既存の ${table.name} への変更は省きました。`,
         );
       if (op.kind === "comment") {
-        if (op.text.length > 80)
-          throw new SqlError(
-            op.line,
-            "コメントは80文字以内で指定してください。",
-          );
-        if (!op.column) table.logicalName = op.text;
+        if (!op.column) table.note = op.text;
         else {
           const [id] = columnIds(table, [op.column], op.line);
-          table.columns.find((c) => c.id === id)!.logicalName = op.text;
+          table.columns.find((c) => c.id === id)!.note = op.text;
         }
       } else {
         const ids = columnIds(table, op.columns, op.line);
@@ -414,6 +415,8 @@ export function importDDL(
             id: uid(),
             name: op.name,
             columnIds: ids,
+            ...(op.onDelete && { onDelete: op.onDelete }),
+            ...(op.onUpdate && { onUpdate: op.onUpdate }),
             target: { tableId: parent.id, columnIds: targets },
           });
           connections += ids.length;

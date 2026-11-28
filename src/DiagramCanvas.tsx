@@ -1,3 +1,4 @@
+import { columnMarks, serialBase } from "./column-attributes.ts";
 import { isImeKey } from "../shared/ime.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -658,7 +659,7 @@ export function DiagramCanvas(p: Props) {
                       p.onCommit(next);
                   }}
                 >
-                  <title>{`${t.logicalName ? t.logicalName + " / " : ""}${t.name ?? t.id}`}</title>
+                  <title>{`${t.logicalName ? t.logicalName + " / " : ""}${t.name ?? t.id}${t.note ? "\n" + t.note : ""}`}</title>
                   <path
                     d={`M9 1H${width - 9}Q${width - 1} 1 ${width - 1} 9V${HEADER}H1V9Q1 1 9 1`}
                   />
@@ -710,6 +711,19 @@ export function DiagramCanvas(p: Props) {
                 </g>
                 {t.columns.map((c, i) => {
                   const y = HEADER + i * ROW;
+                  const generated = c.identity || serialBase(c.type);
+                  const marks = columnMarks(c);
+                  const tooltip = [
+                    c.logicalName,
+                    c.name + " · " + c.type,
+                    c.key,
+                    c.notNull && "NOT NULL",
+                    c.defaultValue && "既定値 " + c.defaultValue,
+                    generated && "自動採番",
+                    c.note,
+                  ]
+                    .filter(Boolean)
+                    .join("\n");
                   return (
                     <g
                       key={c.id}
@@ -731,7 +745,7 @@ export function DiagramCanvas(p: Props) {
                         }
                       }}
                     >
-                      <title>{`${c.logicalName ? c.logicalName + " / " : ""}${c.name} · ${c.type} ${c.key}`}</title>
+                      <title>{tooltip}</title>
                       <rect
                         x={1}
                         y={y}
@@ -764,12 +778,22 @@ export function DiagramCanvas(p: Props) {
                       </text>
                       <text
                         x={width - 14}
-                        y={y + 24}
+                        y={y + (marks ? 17 : 24)}
                         textAnchor="end"
                         className="column-type"
                       >
                         {c.type}
                       </text>
+                      {marks && (
+                        <text
+                          className="column-marks"
+                          x={width - 14}
+                          y={y + 31}
+                          textAnchor="end"
+                        >
+                          {marks}
+                        </text>
+                      )}
                       {(["left", "right"] as const).map((side) => (
                         <g key={side}>
                           <circle

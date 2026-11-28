@@ -2716,3 +2716,99 @@ dialog::backdrop {
   padding-left: 1.5em;
   margin: 5px 0;
 }
+
+.table-note {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.table-note summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.table-note textarea,
+.column-details textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  resize: vertical;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 8px;
+}
+.table-note textarea {
+  margin-top: 6px;
+}
+.column-details {
+  grid-column: 2 / -1;
+  display: grid;
+  grid-template-columns: 1fr minmax(140px, 0.65fr) 1.5fr;
+  gap: 12px;
+  padding: 4px 0 8px;
+  align-items: start;
+}
+#table-editor .row-actions {
+  display: flex;
+  align-items: center;
+}
+#table-editor .detail-toggle {
+  width: auto;
+  padding: 0 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+#table-editor .nn-check:has(input:checked) > span {
+  color: var(--text);
+  background: var(--hover);
+  border-color: var(--muted);
+}
+#edge-label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.column-marks {
+  font: 10px var(--mono);
+  fill: var(--text-2);
+}
+#selection {
+  width: max-content;
+}
+.edge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 3px;
+}
+@media (max-width: 760px) {
+  .edge-actions {
+    justify-content: center;
+  }
+}
+@media (min-width: 761px) {
+  #table-editor {
+    --column-grid: 20px minmax(76px, 1fr) minmax(76px, 1fr) minmax(95px, 0.85fr)
+      32px 30px 28px minmax(76px, 1fr) 70px;
+  }
+}
+@media (max-width: 760px) {
+  #table-editor .nn-check {
+    grid-column: 2;
+    grid-row: 3;
+  }
+  #table-editor .column-references {
+    grid-column: 3 / 5;
+    grid-row: 3;
+  }
+  #table-editor .row-actions {
+    flex-direction: column;
+  }
+  .column-details {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-row: 4;
+  }
+  .column-note {
+    grid-column: 1 / -1;
+  }
+}

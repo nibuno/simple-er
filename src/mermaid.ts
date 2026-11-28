@@ -1,4 +1,5 @@
 import type { Diagram, EntityRelation, Table } from "./types.ts";
+import { columnAttributes } from "./model.ts";
 import { childMaximum } from "./relationships.ts";
 
 const encodeText = (text: string) =>
@@ -39,7 +40,12 @@ export function diagramMermaid(diagram: Diagram) {
     }
     const entity =
       quoted(t.name) + (t.logicalName ? "[" + quoted(t.logicalName) + "]" : "");
-    lines.push("    " + entity + (t.columns.length ? " {" : ""));
+    const columns = t.columns.flatMap((c) => {
+      const attrs = columnAttributes(c);
+      return Object.keys(attrs).length ? [{ name: c.name, ...attrs }] : [];
+    });
+    const block = t.columns.length > 0 || !!t.note;
+    lines.push("    " + entity + (block ? " {" : ""));
     for (const c of t.columns) {
       const flags = [
         c.key.includes("PK") && "PK",
@@ -59,7 +65,13 @@ export function diagramMermaid(diagram: Diagram) {
             .join(" "),
       );
     }
-    if (t.columns.length) lines.push("    }");
+    if (t.note || columns.length) {
+      lines.push(
+        "        %% simple-er-details " +
+          JSON.stringify({ note: t.note, columns }),
+      );
+    }
+    if (block) lines.push("    }");
   }
   function relation(from: Table, to: Table, r: EntityRelation) {
     lines.push(
@@ -77,6 +89,8 @@ export function diagramMermaid(diagram: Diagram) {
         "    %% simple-er-fk " +
           JSON.stringify({
             name: fk.name,
+            onDelete: fk.onDelete,
+            onUpdate: fk.onUpdate,
             columns: names(child, fk.columnIds),
             references: names(parent, fk.target.columnIds),
             ...(parentMin === undefined && { unknownParentMinimum: true }),

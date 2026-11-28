@@ -1197,7 +1197,19 @@ function Editor({
               </div>
             )}
             <div id="selection" hidden={!edge}>
-              <span id="edge-label">{edgeLabel}</span>
+              <span id="edge-label">
+                {edgeLabel}
+                {(selectedFk?.onDelete || selectedFk?.onUpdate) && (
+                  <span className="edge-actions">
+                    {selectedFk.onDelete && (
+                      <small>削除時 {selectedFk.onDelete}</small>
+                    )}
+                    {selectedFk.onUpdate && (
+                      <small>更新時 {selectedFk.onUpdate}</small>
+                    )}
+                  </span>
+                )}
+              </span>
               <button
                 aria-pressed={adjustingLine}
                 disabled={!adjustable}
