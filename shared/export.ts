@@ -77,3 +77,14 @@ export async function pngBlob(svg: string) {
 export async function downloadPng(svg: string, name: string) {
   downloadFile(await pngBlob(svg), name);
 }
+
+export async function copyPng(svg: string) {
+  if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined")
+    throw new Error("このブラウザでは画像をコピーできません。");
+  // Safari needs write() during the gesture, before the PNG is ready.
+  await navigator.clipboard.write([
+    new ClipboardItem({
+      "image/png": pngBlob(svg),
+    }),
+  ]);
+}

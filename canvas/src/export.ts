@@ -9,7 +9,7 @@ import { textWidth } from "./text";
 import {
   escapeXml as esc,
   downloadPng,
-  pngBlob,
+  copyPng,
   filename,
 } from "../../shared/export.ts";
 export { downloadFile, filename } from "../../shared/export.ts";
@@ -323,12 +323,5 @@ export async function copyImage(
   selection: string[],
   computed?: SceneRoutes,
 ) {
-  if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined")
-    throw new Error("このブラウザでは画像をコピーできません。");
-  // Safari needs write() during the gesture, before the PNG is ready.
-  await navigator.clipboard.write([
-    new ClipboardItem({
-      "image/png": pngBlob(toSvg(doc, selection, computed)),
-    }),
-  ]);
+  await copyPng(toSvg(doc, selection, computed));
 }

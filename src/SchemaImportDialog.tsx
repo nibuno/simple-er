@@ -1,225 +1,161 @@
-import { useRef, useState } from "react";
-import type { Diagram } from "./types.ts";
-import { Modal } from "./Dialogs.tsx";
+import { useState } from "react";
+import { ImportDialog, type ImportSource } from "../shared/FileDialogs.tsx";
 import { importDDL } from "./ddl-import.ts";
 import { importMermaid } from "./mermaid-import.ts";
+import { decode, MAX_JSON_BYTES, projectDocument } from "./model.ts";
+import {
+  applyDefinitionCsv,
+  importTableDefinition,
+} from "./table-definition-import.ts";
+import { appendDiagram, erFormat } from "./file-import.ts";
+import { titleFromFile } from "./export.ts";
 import { untitled } from "./library.ts";
-import { messageOf } from "./utils.ts";
-
-function skippedSummary(count?: number) {
-  return count ? `図に関係しない文を${count}件読み飛ばしました。` : "";
-}
+import type { Diagram } from "./types.ts";
 
 export function SchemaImportDialog({
-  format,
   state,
+  initialText,
   onApply,
   onClose,
 }: {
-  format: "DDL" | "Mermaid";
   state: Diagram;
+  initialText: string;
   onApply: (
     diagram: Diagram,
     separate: boolean,
-    title: string,
-    count: number,
-    skipped: string,
+    message: string,
+    undoable: boolean,
   ) => void;
   onClose: () => void;
 }) {
-  const mermaid = format === "Mermaid";
-  const hasSchema = !!(state.tables.length || state.enums?.length);
-  const [source, setSource] = useState("");
-  const [title, setTitle] = useState("");
-  const [separate, setSeparate] = useState(!mermaid && hasSchema);
   const [commentTarget, setCommentTarget] = useState<"logicalName" | "note">(
     "logicalName",
   );
-  type Result = ReturnType<typeof importMermaid> &
-    Partial<Pick<ReturnType<typeof importDDL>, "database" | "ignoredCount">>;
-  const [preview, setPreview] = useState<Result | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const file = useRef<HTMLInputElement>(null);
-  const version = useRef(0);
-  function reset() {
-    setPreview(null);
-    setError("");
-  }
-  function apply() {
-    try {
-      if (source.length > 2_000_000)
-        throw new Error(`${format} は2MBまで読み込めます。`);
-      const base = separate ? undefined : state;
-      const parsed: Result =
-        preview ??
-        (mermaid
-          ? importMermaid(source, base)
-          : importDDL(source, base, commentTarget));
-      const skipped = skippedSummary(parsed.ignoredCount);
-      if (!preview && (parsed.issues.length || (!parsed.applied && skipped))) {
-        setPreview(parsed);
-        return;
-      }
-      if (!parsed.applied) throw new Error("読み込める定義がありません。");
-      const diagram = parsed.diagram;
-      if (!mermaid && (separate || !hasSchema)) {
-        diagram.ddlDialect ??= state.ddlDialect;
-        if (separate || !diagram.title || diagram.title === untitled)
-          diagram.title = parsed.database || title || diagram.title;
-      }
-      onApply(diagram, separate, title, parsed.tableCount, skipped);
-      onClose();
-    } catch (e) {
-      setError(messageOf(e));
+  const hasSchema = !!(state.tables.length || state.enums?.length);
+  function prepare({ text, filename, target }: ImportSource) {
+    const bytes = new TextEncoder().encode(text).length;
+    if (bytes > MAX_JSON_BYTES) throw new Error("ファイルの上限は16MBです。");
+    const format = erFormat(text, filename);
+    const separate = target === "new";
+    const title =
+      format === "JSON"
+        ? titleFromFile(filename)
+        : filename.replace(/\.[^.]*$/, "").slice(0, 200);
+    if (target === "labels") {
+      const diagram = applyDefinitionCsv(text, state);
+      return {
+        apply: () =>
+          onApply(diagram, false, "論理名と説明を反映しました。", true),
+      };
     }
+    if (format === "JSON" || format.startsWith("定義書")) {
+      const doc =
+        format === "JSON"
+          ? decode(text.trimStart())
+          : projectDocument(importTableDefinition(text.trimStart()));
+      doc.title ||= title;
+      const diagram = separate
+        ? doc
+        : !hasSchema && !state.unresolvedEdges?.length
+          ? { ...doc, title: state.title }
+          : appendDiagram(state, doc);
+      if (!separate && !hasSchema) {
+        diagram.ddlDialect = doc.ddlDialect ?? state.ddlDialect;
+        diagram.ddlAnnotations = doc.ddlAnnotations ?? state.ddlAnnotations;
+        if (state.title === untitled) diagram.title = doc.title || state.title;
+      }
+      return {
+        apply: () =>
+          onApply(diagram, separate, format + " を読み込みました。", false),
+      };
+    }
+    if (!format)
+      throw new Error(
+        "形式を判定できません。JSON、DDL、Mermaid、定義書を選んでください。",
+      );
+    if (bytes > 2_000_000) throw new Error(format + " は2MBまで読み込めます。");
+    const base = separate ? undefined : state;
+    const result: ReturnType<typeof importMermaid> &
+      Partial<Pick<ReturnType<typeof importDDL>, "database" | "ignoredCount">> =
+      format === "DDL"
+        ? importDDL(text, base, commentTarget)
+        : importMermaid(text, base);
+    const { diagram, issues, applied, tableCount } = result;
+    const ignored = result.ignoredCount
+      ? "図に関係しない文を" + result.ignoredCount + "件読み飛ばしました。"
+      : "";
+    if (separate || !hasSchema) {
+      diagram.ddlDialect ??= state.ddlDialect;
+      if (separate || !diagram.title || diagram.title === untitled)
+        diagram.title =
+          result.database ||
+          (format === "Mermaid" &&
+            diagram.title !== untitled &&
+            diagram.title) ||
+          title ||
+          diagram.title;
+    }
+    const warnings = issues.map(
+      (issue) => issue.line + "行目：" + issue.message,
+    );
+    if (!applied || warnings.length)
+      warnings.unshift(
+        (applied
+          ? tableCount
+            ? tableCount + "個のテーブルを読み込めます。"
+            : "読み込める変更があります。"
+          : "読み込める定義がありません。") + ignored,
+      );
+    return {
+      warnings,
+      blocked: !applied,
+      apply: () =>
+        onApply(
+          diagram,
+          separate,
+          (tableCount ? tableCount + "個のテーブル" : format) +
+            "を読み込みました。" +
+            ignored,
+          true,
+        ),
+    };
   }
   return (
-    <Modal id="ddl-import-dialog" onClose={onClose}>
-      <div className="dialog-heading">
-        <h2 id="ddl-import-heading">{format} を読み込む</h2>
-        <button aria-label="閉じる" onClick={onClose}>
-          ×
-        </button>
-      </div>
-      <div className="ddl-source">
-        <label htmlFor="ddl-source">{format} を貼り付け</label>
-        <button onClick={() => file.current?.click()}>
-          {mermaid ? "Mermaid" : "SQL"} ファイルを開く
-        </button>
-        <input
-          ref={file}
-          type="file"
-          accept={
-            mermaid
-              ? ".mmd,.mermaid,.txt,text/plain"
-              : ".sql,.ddl,text/plain,application/sql"
-          }
-          hidden
-          onChange={async (e) => {
-            const selected = e.currentTarget.files?.[0];
-            e.currentTarget.value = "";
-            if (!selected) return;
-            const request = ++version.current;
-            setLoading(true);
-            reset();
-            try {
-              if (selected.size > 2_000_000)
-                throw new Error("ファイルの上限は2MBです。");
-              const source = await selected.text();
-              if (request !== version.current) return;
-              setSource(source);
-              setTitle(
-                selected.name
-                  .replace(
-                    mermaid ? /\.(mmd|mermaid|txt)$/i : /\.(sql|ddl)$/i,
-                    "",
-                  )
-                  .slice(0, 200),
-              );
-            } catch (e) {
-              if (request === version.current) setError(messageOf(e));
-            } finally {
-              if (request === version.current) setLoading(false);
-            }
-          }}
-        />
-      </div>
-      <textarea
-        id="ddl-source"
-        spellCheck={false}
-        placeholder={
-          mermaid
-            ? "erDiagram\n    CUSTOMER ||--o{ ORDER : places"
-            : "CREATE TABLE ..."
-        }
-        value={source}
-        onChange={(e) => {
-          version.current++;
-          setLoading(false);
-          setSource(e.target.value);
-          setTitle("");
-          reset();
-        }}
-      />
-      {!mermaid && (
-        <fieldset className="ddl-destination">
-          <legend>コメントの読み込み方</legend>
-          {(["logicalName", "note"] as const).map((target) => (
-            <label key={target}>
-              <input
-                type="radio"
-                name="ddl-comments"
-                checked={commentTarget === target}
-                onChange={() => {
-                  setCommentTarget(target);
-                  reset();
-                }}
-              />
-              {target === "logicalName"
-                ? "短いコメントを論理名にする"
-                : "すべて説明にする"}
-            </label>
-          ))}
-          <small>81文字以上、または改行を含むコメントは説明に入ります。</small>
-        </fieldset>
-      )}
-      <fieldset className="ddl-destination">
-        <legend>読み込み先</legend>
-        {[false, true].map((value) => (
-          <label key={String(value)}>
-            <input
-              type="radio"
-              name="ddl-destination"
-              checked={separate === value}
-              onChange={() => {
-                setSeparate(value);
-                reset();
-              }}
-            />
-            {value ? "新しい図" : "今の図に追加"}
-          </label>
-        ))}
-      </fieldset>
-      {preview && (
-        <div className="ddl-issues" role="status">
-          <strong>
-            {preview.applied
-              ? preview.tableCount
-                ? `${preview.tableCount}個のテーブルを読み込めます。`
-                : "読み込める変更があります。"
-              : "読み込める定義がありません。"}
-          </strong>
-          {preview.ignoredCount ? (
-            <p>{skippedSummary(preview.ignoredCount)}</p>
-          ) : null}
-          <ul>
-            {preview.issues.map((issue, i) => (
-              <li key={i}>
-                {issue.line}行目：{issue.message}
-              </li>
+    <ImportDialog
+      initialText={initialText}
+      formats="JSON · DDL · Mermaid · 定義書（Markdown / CSV）"
+      accept=".json,.sql,.ddl,.mmd,.mermaid,.md,.csv,.txt"
+      maxBytes={MAX_JSON_BYTES}
+      detect={erFormat}
+      defaultNew={!initialText && hasSchema}
+      canApplyLabels={(format) =>
+        format === "定義書（CSV）" && !!state.tables.length
+      }
+      options={(format) =>
+        format === "DDL" && (
+          <fieldset>
+            <legend>コメントの読み込み方</legend>
+            {(["logicalName", "note"] as const).map((target) => (
+              <label key={target}>
+                <input
+                  type="radio"
+                  name="ddl-comments"
+                  checked={target === commentTarget}
+                  onChange={() => setCommentTarget(target)}
+                />
+                {target === "logicalName"
+                  ? "短いコメントを論理名にする"
+                  : "すべて説明にする"}
+              </label>
             ))}
-          </ul>
-        </div>
-      )}
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="dialog-actions">
-        <span />
-        <button onClick={onClose}>キャンセル</button>
-        <button
-          className="primary"
-          disabled={loading || !source.trim() || preview?.applied === 0}
-          onClick={apply}
-        >
-          {preview?.applied && preview.issues.length
-            ? "読めた分を読み込む"
-            : "読み込む"}
-        </button>
-      </div>
-    </Modal>
+            <small>
+              81文字以上、または改行を含むコメントは説明に入ります。
+            </small>
+          </fieldset>
+        )
+      }
+      prepare={prepare}
+      onClose={onClose}
+    />
   );
 }
