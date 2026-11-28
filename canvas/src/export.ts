@@ -1,6 +1,6 @@
 import type { CanvasDocument, CanvasNode } from "./types";
 import { memoStatusLabels } from "./types";
-import { noteContent, wrapText } from "./model";
+import { expandedIds, noteContent, wrapText } from "./model";
 import { documentRoutes, memoRoutes, sceneBounds } from "./geometry";
 import { boxTextArea, memoMarker, shapePaths } from "./shapes";
 import { DEFAULT_COLORS, nodeAppearance, safeColor } from "./colors";
@@ -9,6 +9,7 @@ import { textWidth } from "./text";
 import {
   escapeXml as esc,
   downloadPng,
+  pngBlob,
   filename,
 } from "../../shared/export.ts";
 export { downloadFile, filename } from "../../shared/export.ts";
@@ -46,10 +47,26 @@ function textBlock(
     )
     .join("");
 }
-export function toSvg(doc: CanvasDocument) {
+export function toSvg(doc: CanvasDocument, selection: string[] = []) {
   const routes = documentRoutes(doc),
-    memos = memoRoutes(doc, routes),
-    b = sceneBounds(doc, routes, memos),
+    memos = memoRoutes(doc, routes);
+  // Route in the original scene so even a single selected wire keeps its path.
+  const ids = selection.length ? expandedIds(doc, selection) : null;
+  const nodes = ids ? doc.nodes.filter((n) => ids.has(n.id)) : doc.nodes;
+  const edges = ids
+    ? doc.edges.filter(
+        (e) => ids.has(e.id) || (ids.has(e.from) && ids.has(e.to)),
+      )
+    : doc.edges;
+  if (ids) {
+    const visibleEdges = new Set(edges.map((e) => e.id));
+    for (const id of routes.keys())
+      if (!visibleEdges.has(id)) routes.delete(id);
+    for (const note of doc.nodes)
+      if (!ids.has(note.id) || !note.attachedTo || !ids.has(note.attachedTo))
+        memos.delete(note.id);
+  }
+  const b = sceneBounds({ ...doc, nodes, edges }, routes, memos),
     pad = 48;
   const width = Math.ceil(b.w + pad * 2),
     height = Math.ceil(b.h + pad * 2);
@@ -169,7 +186,7 @@ export function toSvg(doc: CanvasDocument) {
       )
     );
   };
-  const frames = doc.nodes
+  const frames = nodes
     .filter((n) => n.kind === "group")
     .map(nodeSvg)
     .join("");
@@ -179,7 +196,7 @@ export function toSvg(doc: CanvasDocument) {
         `<path d="${r.path}" fill="none" stroke="${DEFAULT_COLORS.muted}" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="0 4"/>`,
     )
     .join("");
-  const wires = doc.edges
+  const wires = edges
     .map((e, i) => {
       const r = routes.get(e.id)!;
       const color = safeColor(e.strokeColor, DEFAULT_COLORS.line);
@@ -207,11 +224,11 @@ export function toSvg(doc: CanvasDocument) {
       );
     })
     .join("");
-  const content = doc.nodes
+  const content = nodes
     .filter((n) => n.kind !== "group")
     .map(nodeSvg)
     .join("");
-  const markers = doc.edges
+  const markers = edges
     .map(
       (edge, i) =>
         `<marker id="arrow-${i}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="${safeColor(edge.strokeColor, DEFAULT_COLORS.line)}" stroke-width="1.5"/></marker>`,
@@ -252,4 +269,13 @@ export function toSvg(doc: CanvasDocument) {
 }
 export function exportPng(doc: CanvasDocument) {
   return downloadPng(toSvg(doc), filename(doc.title) + ".png");
+}
+
+export async function copyImage(doc: CanvasDocument, selection: string[]) {
+  if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined")
+    throw new Error("このブラウザでは画像をコピーできません。");
+  // Safari needs write() during the gesture, before the PNG is ready.
+  await navigator.clipboard.write([
+    new ClipboardItem({ "image/png": pngBlob(toSvg(doc, selection)) }),
+  ]);
 }

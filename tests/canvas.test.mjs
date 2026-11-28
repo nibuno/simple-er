@@ -35,6 +35,30 @@ import {
   nodeAppearance,
 } from "../canvas/src/colors.ts";
 
+test("画像の選択範囲に囲みの中身と線が入り、線だけでも元の経路を保つ", () => {
+  const { doc, id } = groupSelection(sampleDocument(), ["queue", "worker"]);
+  const root = (selection) =>
+    new JSDOM(toSvg(doc, selection), { contentType: "image/svg+xml" }).window
+      .document.documentElement;
+  const full = root([]);
+  const group = root([id]);
+  assert.equal(group.querySelectorAll("[data-node-shape]").length, 2);
+  assert.match(group.textContent, /Queue/);
+  assert.match(group.textContent, /Worker のメモ/);
+  assert.equal(group.querySelectorAll("marker").length, 1);
+  assert.ok(
+    Number(group.getAttribute("width")) < Number(full.getAttribute("width")),
+  );
+  const edge = doc.edges.find((e) => e.label);
+  const wire = root([edge.id]);
+  assert.equal(wire.querySelector("[data-node-shape]"), null);
+  assert.equal(wire.querySelector("text").textContent, edge.label);
+  assert.equal(
+    wire.querySelector("path[marker-end]").getAttribute("d"),
+    documentRoutes(doc).get(edge.id).path,
+  );
+});
+
 test("canvas JSON round-trips Japanese text, attachment identity, groups, and labelled edges", () => {
   let doc = growNodes(sampleDocument());
   doc = groupSelection(doc, ["queue", "worker"]).doc;

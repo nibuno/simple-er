@@ -32,8 +32,8 @@ import {
   selectionDocument,
   uid,
 } from "./model";
-import { looksLikeFlowchart, parseFlowchart } from "./flowchart";
-import { downloadFile, exportPng, filename, toSvg } from "./export";
+import { looksLikeFlowchart, parseFlowchart, toFlowchart } from "./flowchart";
+import { copyImage, downloadFile, exportPng, filename, toSvg } from "./export";
 import { Canvas } from "./Canvas";
 import { DiagramList } from "../../shared/DiagramList.tsx";
 import { TextField } from "../../shared/TextField.tsx";
@@ -168,7 +168,9 @@ function Editor({
   pausedRef.current = paused;
   const [recovery, setRecovery] = useState(initial.error ? initial.raw : null),
     [remote, setRemote] = useState<string | null>(null),
-    [exporting, setExporting] = useState<"png" | "markdown" | null>(null);
+    [exporting, setExporting] = useState<"png" | "image" | "markdown" | null>(
+      null,
+    );
   const saveWarning = paused
     ? "自動保存を停止中"
     : saveProblem
@@ -187,6 +189,7 @@ function Editor({
       remove: () => {},
       group: () => {},
       save: () => {},
+      copyImage: () => {},
       connectMode: () => {},
       fit: () => {},
     });
@@ -488,14 +491,18 @@ function Editor({
     );
     notify("ファイルに保存しました");
   }
-  async function exportDiagram(format: "png" | "markdown") {
+  async function exportDiagram(format: "png" | "image" | "markdown") {
     flushInput();
     const current = docRef.current;
+    if (!current.nodes.length || exporting) return;
     setExporting(format);
     try {
       if (format === "png") {
         await exportPng(current);
         notify("PNGで保存しました");
+      } else if (format === "image") {
+        await copyImage(current, selectionRef.current);
+        notify("画像をコピーしました");
       } else {
         const { markdownArchive } = await import("./markdown");
         downloadFile(
@@ -505,9 +512,35 @@ function Editor({
         notify("Markdownと図を保存しました");
       }
     } catch (e) {
-      setError(errorMessage(e));
+      setError(
+        format === "image"
+          ? "画像をコピーできません。メニューの「PNGで保存」を使ってください。"
+          : errorMessage(e),
+      );
     } finally {
       setExporting(null);
+    }
+  }
+  async function exportMermaid(action: "copy" | "save") {
+    flushInput();
+    const current = docRef.current;
+    const text = toFlowchart(current);
+    if (action === "save") {
+      downloadFile(
+        text,
+        filename(current.title) + ".mmd",
+        "text/plain;charset=utf-8",
+      );
+      notify("Mermaidで保存しました");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      notify("Mermaidでコピーしました");
+    } catch {
+      setError(
+        "コピーできません。メニューの「Mermaidで保存」を使ってください。",
+      );
     }
   }
   function pause(raw: string | null) {
@@ -625,6 +658,7 @@ function Editor({
     remove,
     group,
     save,
+    copyImage: () => exportDiagram("image"),
     connectMode,
     fit: () => canvas.current?.fit(),
   };
@@ -677,6 +711,9 @@ function Editor({
         } else if (e.key.toLowerCase() === "y") {
           e.preventDefault();
           actions.current.redo();
+        } else if (e.shiftKey && e.key.toLowerCase() === "c") {
+          e.preventDefault();
+          actions.current.copyImage();
         } else if (e.key.toLowerCase() === "d") {
           e.preventDefault();
           actions.current.duplicate();
@@ -755,8 +792,14 @@ function Editor({
           typeof parsed === "object" &&
           "format" in parsed &&
           parsed.format === "simple-canvas";
-        if (!isCanvas && text.length > MAX_TEXT)
+        if (
+          !isCanvas &&
+          text.length > MAX_TEXT &&
+          !/^\s*(?:flowchart|graph)\b/i.test(text)
+        )
           throw new Error(`テキストは${MAX_TEXT}文字までです`);
+        if (!isCanvas && text.length > 2_000_000)
+          throw new Error("Mermaidの上限は200万文字です");
         if (isCanvas || looksLikeFlowchart(text)) {
           const fragment = isCanvas ? decode(text) : parseFlowchart(text);
           const area = bounds(fragment.nodes);
@@ -817,6 +860,7 @@ function Editor({
       window.removeEventListener("beforeunload", beforeUnload);
     };
   }, []);
+  const canExportMermaid = doc.nodes.some((n) => n.kind === "box");
   const node =
     selection.length === 1
       ? doc.nodes.find((n) => n.id === selection[0])
@@ -973,9 +1017,27 @@ function Editor({
               </button>
               <button
                 disabled={!doc.nodes.length || !!exporting}
+                onClick={() => exportDiagram("image")}
+              >
+                画像をコピー <kbd>⌘⇧C</kbd>
+              </button>
+              <button
+                disabled={!doc.nodes.length || !!exporting}
                 onClick={() => exportDiagram("markdown")}
               >
                 Markdownで保存（図付き）
+              </button>
+              <button
+                disabled={!canExportMermaid}
+                onClick={() => exportMermaid("copy")}
+              >
+                Mermaidでコピー
+              </button>
+              <button
+                disabled={!canExportMermaid}
+                onClick={() => exportMermaid("save")}
+              >
+                Mermaidで保存
               </button>
               <hr />
               <button
@@ -1342,6 +1404,7 @@ function Editor({
             ["囲む", "⌘ G"],
             ["選択中のものを移動", "矢印キー（Shiftで大きく）"],
             ["複製 / コピー / 貼り付け", "⌘ D / ⌘ C / ⌘ V"],
+            ["画像をコピー", "⌘ Shift C"],
             ["Mermaid を図にする", "⌘ V"],
             ["キャンバスを移動", "2本指スクロール / Space＋ドラッグ"],
             ["拡大・縮小", "ピンチ / Ctrl＋ホイール"],
