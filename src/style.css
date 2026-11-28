@@ -2536,6 +2536,15 @@ dialog::backdrop {
   }
 }
 
+@media (max-width: 420px) {
+  .editing-tools > button {
+    padding-inline: 5px;
+  }
+  .editing-tools .primary .icon {
+    display: none;
+  }
+}
+
 .connect-hint {
   position: absolute;
   top: 14px;
