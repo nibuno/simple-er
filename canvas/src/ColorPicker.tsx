@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { isImeKey } from "../../shared/ime.ts";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { COLOR_FAMILIES, DEFAULT_COLORS, normalizeColor } from "./colors";
 
@@ -26,7 +27,9 @@ export function ColorPicker({
   const [expanded, setExpanded] = useState(false);
   const [draft, setDraft] = useState(initialColor);
   const [invalid, setInvalid] = useState(false);
+  const dirty = useRef(false);
   useEffect(() => {
+    dirty.current = false;
     setDraft(initialColor);
     setInvalid(false);
   }, [initialColor, mixed]);
@@ -49,11 +52,22 @@ export function ColorPicker({
     : value === undefined
       ? "標準"
       : (palette.find((p) => p.color === value)?.name ?? value);
-  function apply() {
-    const color = normalizeColor(draft);
+  function apply(text = draft) {
+    const color = normalizeColor(text);
     setInvalid(!color);
+    dirty.current = false;
     if (color) onChange(color);
   }
+  const draftInput = {
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+      dirty.current = true;
+      setDraft(e.currentTarget.value);
+      setInvalid(false);
+    },
+    onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+      if (dirty.current) apply(e.currentTarget.value);
+    },
+  };
   return (
     <div className="color-picker" role="group" aria-label={label + "の色"}>
       <div className="color-heading">
@@ -72,7 +86,10 @@ export function ColorPicker({
           className="color-expand"
           aria-label={label + (expanded ? "の色を閉じる" : "の色を選ぶ")}
           aria-expanded={expanded}
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => {
+            if (expanded && dirty.current) apply();
+            setExpanded(!expanded);
+          }}
         >
           {expanded ? "閉じる" : "他の色"}
         </button>
@@ -101,10 +118,7 @@ export function ColorPicker({
               type="color"
               aria-label={label + "の任意の色"}
               value={normalizeColor(draft) ?? DEFAULT_COLORS.fill}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setInvalid(false);
-              }}
+              {...draftInput}
             />
             <input
               aria-label={label + "の色コード"}
@@ -113,18 +127,16 @@ export function ColorPicker({
               maxLength={7}
               spellCheck={false}
               aria-invalid={invalid}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setInvalid(false);
-              }}
+              {...draftInput}
               onKeyDown={(e) => {
-                if (e.nativeEvent.isComposing) return;
+                if (isImeKey(e.nativeEvent)) return;
                 if (e.key === "Enter") {
                   e.preventDefault();
                   apply();
                 }
                 if (e.key === "Escape") {
                   e.stopPropagation();
+                  e.currentTarget.blur();
                   setExpanded(false);
                 }
               }}
@@ -132,7 +144,7 @@ export function ColorPicker({
             <button
               className="secondary"
               aria-label={label + "に適用"}
-              onClick={apply}
+              onClick={() => apply()}
             >
               適用
             </button>

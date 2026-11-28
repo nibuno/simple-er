@@ -1,3 +1,4 @@
+import { isImeKey } from "../shared/ime.ts";
 import { watchStorage } from "../shared/storage.ts";
 import { checkDiagram, DiagramChanged } from "../shared/diagram-library.ts";
 import type { DiagramEntry, OpenDiagram } from "../shared/diagram-library.ts";
@@ -327,6 +328,7 @@ function Editor({
   }, []);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      if (isImeKey(e)) return;
       if (e.key === "Escape" && options.current?.open) {
         options.current.open = false;
         options.current.querySelector("summary")?.focus();
@@ -690,6 +692,7 @@ function Editor({
             <TextField
               className="document-title"
               label="図の名前"
+              cancelOnEscape
               value={history.present.title || untitled}
               emptyValue={untitled}
               onCommit={(title) => {
