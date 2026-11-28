@@ -99,7 +99,17 @@ function equalItem(a: CanvasNode | CanvasEdge, b: CanvasNode | CanvasEdge) {
   const fields = (item: CanvasNode | CanvasEdge): Record<string, unknown> =>
     "from" in item
       ? { ...item, arrowheads: item.arrowheads ?? "end" }
-      : { ...item };
+      : {
+          ...item,
+          // Compare the link by value across independently decoded documents.
+          erLink:
+            item.erLink &&
+            JSON.stringify([
+              item.erLink.store,
+              item.erLink.key,
+              item.erLink.id,
+            ]),
+        };
   const left = fields(a),
     right = fields(b);
   return (

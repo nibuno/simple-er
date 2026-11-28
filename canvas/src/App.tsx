@@ -1,3 +1,13 @@
+import { erCatalog } from "../../shared/diagram-catalog.ts";
+import {
+  clearLinkedUrl,
+  linkedUrl,
+  storageScope,
+} from "../../shared/diagram-links.ts";
+import {
+  useDiagramLinks,
+  MissingDiagram,
+} from "../../shared/useDiagramLinks.tsx";
 import { isImeKey } from "../../shared/ime.ts";
 import { watchStorage } from "../../shared/storage.ts";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -55,7 +65,6 @@ import {
   newDiagramKey,
   openDiagram,
   rememberDiagram,
-  restoreDiagram,
   viewKeyFor,
   writeDiagram,
 } from "./library";
@@ -80,16 +89,18 @@ const SHORT_SAVE_STATES: Record<string, string> = {
 };
 export function App() {
   const [session, setSession] = useState(() => ({
-    initial: restoreDiagram(),
+    initial: library.restoreLinkedDiagram(),
     visit: 0,
     message: "",
   }));
+  if (!session.initial) return <MissingDiagram app="SimpleCanvas" />;
   return (
     <Editor
       key={session.visit}
       initial={session.initial}
       message={session.message}
       onOpen={(initial, message = "") => {
+        clearLinkedUrl();
         setSession((old) => ({ initial, message, visit: old.visit + 1 }));
       }}
     />
@@ -113,6 +124,18 @@ function Editor({
   // Only the first editing session can amend the step that placed this box.
   const newBox = useRef<string | null>(null);
   const [savePoint, setSavePoint] = useState(0);
+  const erDiagrams = useDiagramLinks(erCatalog);
+  const sharedSite = /\/canvas\/(?:index\.html)?$/.test(
+    window.location.pathname,
+  );
+  function erTarget(node: CanvasNode) {
+    const link = node.erLink;
+    return sharedSite && link && link.store === erDiagrams.store
+      ? erDiagrams.entries.find(
+          (entry) => entry.key === link.key && entry.id === link.id,
+        )
+      : undefined;
+  }
   const [draftNode, setDraftNode] = useState<CanvasNode | null>(null),
     draftRef = useRef<CanvasNode | null>(null);
   // Empty text has no visible face. Keep it and its optional line in a draft.
@@ -682,6 +705,18 @@ function Editor({
       return;
     persist();
   }
+  function openEr(node: CanvasNode) {
+    const link = node.erLink;
+    if (!link || !erTarget(node)) {
+      select([node.id]);
+      setBarRequest({ id: node.id, panel: "er" });
+      return;
+    }
+    runMenu(() => {
+      saveBeforeSwitch();
+      window.location.assign(linkedUrl("er", link));
+    });
+  }
   function createDiagram(doc: CanvasDocument, message: string) {
     saveBeforeSwitch();
     onOpen(writeDiagram(newDiagramKey(), decode(encode(doc)), null), message);
@@ -852,6 +887,10 @@ function Editor({
         );
       } else if (
         e.key === "Enter" &&
+        !(
+          e.target instanceof Element &&
+          e.target.closest(".selection-bar button, .er-marker")
+        ) &&
         selectionRef.current.length === 1 &&
         docRef.current.nodes.some((n) => n.id === selectionRef.current[0])
       ) {
@@ -994,6 +1033,8 @@ function Editor({
             dispatch({ type: "preview", next });
           }}
           onCommit={commit}
+          erTitle={(node) => erTarget(node)?.title}
+          onOpenEr={openEr}
           selectionBar={
             <SelectionBar
               flushInput={flushInput}
@@ -1002,6 +1043,32 @@ function Editor({
               edge={edge}
               count={selection.length}
               selection={selection}
+              sharedSite={sharedSite}
+              erEntries={erDiagrams.entries}
+              selectedEr={node && erTarget(node)?.key}
+              onOpenEr={openEr}
+              onLinkEr={(key) =>
+                runMenu(() => {
+                  if (!node) return;
+                  const entry = erDiagrams.entries.find(
+                    (entry) => entry.key === key,
+                  );
+                  if (!entry) {
+                    patchNode(node.id, { erLink: undefined });
+                    return;
+                  }
+                  let store;
+                  try {
+                    store = storageScope(true)!;
+                  } catch {
+                    throw new Error(
+                      "リンクを保存できません。ブラウザの空き容量を確認してください。",
+                    );
+                  }
+                  patchNode(node.id, { erLink: { store, key, id: entry.id } });
+                  if (store !== erDiagrams.store) erDiagrams.refresh();
+                })
+              }
               onColors={patchColors}
               onPatch={patchNode}
               onEdge={patchEdge}

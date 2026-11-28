@@ -177,6 +177,52 @@ afterEach(async () => {
   await act(() => root.unmount());
 });
 
+test("図形の ER リンクで旧データ・改名・最後の図の削除と再設定を扱う", async (t) => {
+  const { library: er, emptyDocument: emptyER } =
+    await import("../src/library.ts");
+  const key = "er-sketch.local.v1";
+  const original = JSON.stringify({ ...emptyER(), title: "注文" });
+  localStorage.setItem(key, original);
+  const notifyErChange = () =>
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key })));
+  await click(label("DBを選択"));
+  await panel("ER 図");
+  assert.match(document.querySelector(".er-picker").textContent, /8765/);
+  assert.equal(document.querySelector(".er-picker select").options.length, 1);
+
+  await act(() => root.unmount());
+  window.history.replaceState(null, "", "/canvas/");
+  t.after(() => window.history.replaceState(null, "", "/"));
+  await mount();
+  await click(label("DBを選択"));
+  await panel("ER 図");
+  const picker = () => document.querySelector(".er-picker select");
+  await choose(picker(), key);
+  assert.ok(label("注文を SimpleER で開く"));
+  const link = saved().nodes.find((node) => node.id === "db").erLink;
+  assert.equal(link.key, key);
+  assert.equal(link.id, key);
+  assert.equal(localStorage.getItem(key), original);
+
+  er.writeDiagram(key, { ...emptyER(), title: "受注" }, original);
+  await notifyErChange();
+  assert.ok(label("受注を SimpleER で開く"));
+  er.deleteDiagram(er.listDiagrams()[0], key);
+  await notifyErChange();
+  await click(label("ER 図のリンクを変更"));
+  assert.equal(picker().selectedOptions[0].textContent, "図が見つかりません");
+  await choose(picker(), key);
+  const updated = saved().nodes.find((node) => node.id === "db").erLink;
+  assert.notEqual(updated.id, link.id);
+  await choose(picker(), "");
+  assert.equal(document.querySelector(".er-marker"), null);
+  await click(label("元に戻す"));
+  assert.deepEqual(
+    saved().nodes.find((node) => node.id === "db").erLink,
+    updated,
+  );
+});
+
 test("inline Japanese edits persist; Escape keeps edits and undo takes them back", async () => {
   const before = saved();
   await addFigure("箱を追加");
@@ -965,7 +1011,10 @@ test("variants keep the original, compare either pair in sync, and remember the 
   const dialog = document.querySelector(".variant-comparison");
   assert.match(dialog.textContent, /追加 1/);
   assert.match(dialog.textContent, /通知先/);
-  const paper = () => [...dialog.querySelectorAll(".variant-paper")].map(el => el.getAttribute("viewBox"));
+  const paper = () =>
+    [...dialog.querySelectorAll(".variant-paper")].map((el) =>
+      el.getAttribute("viewBox"),
+    );
   const [fit] = paper();
   await click(dialog.querySelector('[aria-label="拡大"]'));
   assert.equal(paper()[0], paper()[1]);
@@ -985,7 +1034,10 @@ test("variants keep the original, compare either pair in sync, and remember the 
   await act(() => root.unmount());
   await mount();
   await click(button("図の一覧"));
-  assert.equal(document.querySelector(".diagram-link strong").textContent, "案2");
+  assert.equal(
+    document.querySelector(".diagram-link strong").textContent,
+    "案2",
+  );
   assert.match(label(original.title + "を開く").textContent, /案 ·/);
   await click(label(original.title + "を開く"));
   assert.deepEqual(saved(), original);

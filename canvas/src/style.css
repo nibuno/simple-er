@@ -1705,7 +1705,7 @@ kbd {
   }
 }
 @media (max-width: 360px) {
-  .bar-row:has(.bar-arrowheads) .bar-button > span:not(.bar-swatch) {
+  .bar-row .bar-button > span:not(.bar-swatch) {
     display: none;
   }
 }
@@ -1745,4 +1745,39 @@ kbd {
       background-color 0.12s,
       border-color 0.12s;
   }
+}
+
+.er-marker {
+  position: absolute;
+  top: 2px;
+  right: 12%;
+  padding: 1px 5px;
+  min-height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  pointer-events: auto;
+}
+.er-marker[data-missing] {
+  color: var(--muted);
+  border-style: dashed;
+}
+.er-picker select {
+  width: 100%;
+}
+.er-picker p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.er-picker a {
+  color: var(--accent);
+}
+
+.er-picker .open-er {
+  color: var(--accent);
+  border: 1px solid var(--border);
 }

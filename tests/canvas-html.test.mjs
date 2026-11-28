@@ -2,6 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
+import { unzipSync } from "fflate";
+import { markdownArchive } from "../canvas/src/markdown.ts";
+import { decode, encode } from "../canvas/src/model.ts";
+import { toSvg } from "../canvas/src/export.ts";
 import { viewerHtml } from "../canvas/src/html.ts";
 import { emptyDocument, sampleDocument } from "../canvas/src/model.ts";
 
@@ -10,6 +14,25 @@ const template = readFileSync(
   "utf8",
 );
 const render = (doc) => viewerHtml(doc, template);
+
+test("ER リンクは編集用 JSON で復元し、閲覧用 HTML・SVG・Markdown には出さない", async () => {
+  const plain = sampleDocument(),
+    linked = structuredClone(plain);
+  const link = {
+    key: "er-sketch.local.v1",
+    id: "original",
+    store: "local-store",
+  };
+  linked.nodes[0].erLink = link;
+  assert.deepEqual(decode(encode(linked)).nodes[0].erLink, link);
+  assert.equal(render(linked), render(plain));
+  assert.equal(toSvg(linked), toSvg(plain));
+  const unpack = async (doc) =>
+    unzipSync(new Uint8Array(await markdownArchive(doc).arrayBuffer()));
+  assert.deepEqual(await unpack(linked), await unpack(plain));
+  linked.nodes[0].erLink = { ...link, key: "simple-canvas.active.v1" };
+  assert.throws(() => decode(encode(linked)), /リンク/);
+});
 
 test("閲覧用HTMLに図と状態付きメモを一覧順で埋め込み、入力した文字をそのまま表示する", () => {
   const doc = sampleDocument();

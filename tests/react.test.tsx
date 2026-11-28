@@ -148,6 +148,73 @@ afterEach(async () => {
   await act(() => root.unmount());
 });
 
+test("リンク先を開き、参照元の構成図が改名・削除されたら表示を更新する", async (t) => {
+  const { linkedUrl, storageScope } =
+    await import("../shared/diagram-links.ts");
+  const { canvasCatalog } = await import("../shared/diagram-catalog.ts");
+  const { library: canvas } = await import("../canvas/src/library.ts");
+  const { sampleDocument } = await import("../canvas/src/model.ts");
+  const original = localStorage.getItem(storageKey);
+  const other = library.writeDiagram(
+    library.newDiagramKey(),
+    library.openDiagram(storageKey).doc,
+    null,
+  );
+  library.rememberDiagram(other.key);
+  const store = storageScope(true);
+  const link = { key: storageKey, id: storageKey, store };
+  const diagram = sampleDocument();
+  diagram.nodes[0].erLink = link;
+  diagram.nodes[1].erLink = link;
+  const canvasKey = canvasCatalog.storageKey;
+  const source = canvas.writeDiagram(canvasKey, diagram, null);
+  const foreign = structuredClone(diagram);
+  for (const node of foreign.nodes)
+    if (node.erLink) node.erLink.store = "other";
+  canvas.writeDiagram(canvas.newDiagramKey(), foreign, null);
+
+  await act(() => root.unmount());
+  window.history.replaceState(null, "", linkedUrl("er", link));
+  t.after(() => window.history.replaceState(null, "", "/"));
+  await mount();
+  const sources = () => [...document.querySelectorAll(".canvas-sources a")];
+  assert.equal(library.restoreDiagram().key, storageKey);
+  assert.equal(localStorage.getItem(storageKey), original);
+  assert.equal(sources().length, 1);
+  const query = new URL(sources()[0].href).searchParams;
+  assert.equal(query.get("diagram"), canvasKey);
+  assert.equal(query.get("id"), source.linkId);
+  assert.equal(query.get("store"), store);
+  const update = () =>
+    act(() =>
+      window.dispatchEvent(
+        new window.StorageEvent("storage", { key: canvasKey }),
+      ),
+    );
+  canvas.writeDiagram(
+    canvasKey,
+    { ...diagram, title: "受注システム" },
+    source.raw,
+  );
+  await update();
+  assert.equal(sources()[0].textContent, "受注システム");
+  canvas.removeDiagram(
+    canvas.listDiagrams().find((entry) => entry.key === canvasKey),
+  );
+  await update();
+  assert.equal(sources().length, 0);
+
+  await act(() => root.unmount());
+  window.history.replaceState(
+    null,
+    "",
+    linkedUrl("er", { ...link, store: "other" }),
+  );
+  await mount();
+  assert.equal(document.querySelector("h1").textContent, "図が見つかりません");
+  assert.equal(localStorage.getItem(storageKey), original);
+});
+
 test("React restores legacy JSON, edits logical names, persists and undoes/redoes", async () => {
   assert.equal(document.querySelectorAll("[data-table]").length, 3);
   await click(byLabel("usersを編集"));

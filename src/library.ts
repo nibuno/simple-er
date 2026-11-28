@@ -1,12 +1,11 @@
+import { erCatalog } from "../shared/diagram-catalog.ts";
 import { createDiagramLibrary } from "../shared/diagram-library.ts";
 import { initial } from "./initial.ts";
 import { decodeDocument, documentFromDiagram } from "./model.ts";
 import type { DiagramDocument } from "./types.ts";
 
-const storageKey = "er-sketch.local.v1";
+const { storageKey, fallbackTitle } = erCatalog;
 export const untitled = "無題の図";
-const fallbackTitle = (key: string) =>
-  key === storageKey + ".previous" ? "前の図" : untitled;
 // Keep the canonical field order used by history and no-op save comparisons.
 export function namedDocument(doc: DiagramDocument, fallback?: string) {
   const { format, version, title, ...contents } = doc;
@@ -22,12 +21,8 @@ export const emptyDocument = () =>
   documentFromDiagram({ title: untitled, tables: [], edges: [] });
 
 export const library = createDiagramLibrary({
-  storageKey,
-  // Keep the .v1-backup and .recovery keys outside the library.
-  prefix: "er-sketch.diagram.",
+  catalog: erCatalog,
   activeKey: "er-sketch.active.v1",
-  format: "er-sketch",
-  fallbackTitle,
   decode(raw, key) {
     return namedDocument(decodeDocument(raw), fallbackTitle(key));
   },
