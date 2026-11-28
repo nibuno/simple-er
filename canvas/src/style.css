@@ -373,6 +373,18 @@ kbd {
   width: 17px;
   height: 17px;
 }
+.bar-arrowheads {
+  min-height: 30px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 7px;
+  background-color: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.bar-arrowheads:hover {
+  background-color: var(--selected);
+}
 .bar-button:hover,
 .bar-button.open,
 .bar-button[aria-pressed="true"] {
@@ -1629,6 +1641,11 @@ kbd {
   }
   .canvas-controls button {
     min-height: 32px;
+  }
+}
+@media (max-width: 360px) {
+  .bar-row:has(.bar-arrowheads) .bar-button > span:not(.bar-swatch) {
+    display: none;
   }
 }
 @media (pointer: coarse) {

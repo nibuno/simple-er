@@ -735,6 +735,33 @@ test("selecting two elements creates one connection and editing its label surviv
   assert.ok(document.body.textContent.includes("結果を保存"));
   assert.equal(saved().edges.length, 5);
 });
+test("the edge toolbar changes arrowheads independently of dashes and new connections", async () => {
+  const firstWire = () => document.querySelector(".edge-visible");
+  const ends = (path) =>
+    ["marker-start", "marker-end"].map((attr) => path.hasAttribute(attr));
+  await click(document.querySelector(".edge-control"));
+  assert.equal(label("矢印の種類").value, "end");
+  assert.deepEqual(ends(firstWire()), [false, true]);
+  await click(label("破線"));
+  await choose(label("矢印の種類"), "both");
+  assert.deepEqual(ends(firstWire()), [true, true]);
+  assert.equal(label("向きを反転").disabled, true);
+  await choose(label("矢印の種類"), "none");
+  assert.deepEqual(ends(firstWire()), [false, false]);
+  assert.equal(firstWire().getAttribute("stroke-dasharray"), "7 5");
+  await act(() => root.unmount());
+  await mount();
+  await click(document.querySelector(".edge-control"));
+  assert.equal(label("矢印の種類").value, "none");
+  await click(label("接続"));
+  await click(label("Workerを選択"));
+  await click(label("DBを選択"));
+  assert.deepEqual(ends(document.querySelectorAll(".edge-visible")[4]), [
+    false,
+    true,
+  ]);
+  assert.equal(label("向きを反転").disabled, false);
+});
 test("a box memo and its canvas note remain in sync through edits and undo", async () => {
   await click(label("Workerを選択"));
   await panel("メモを開く");

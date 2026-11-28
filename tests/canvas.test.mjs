@@ -48,6 +48,36 @@ test("canvas JSON round-trips Japanese text, attachment identity, groups, and la
     doc.nodes.find((n) => n.id === "worker").body,
   );
 });
+test("saved edges keep their arrowheads and dashes in SVG and the Markdown diagram", async () => {
+  const doc = growNodes(sampleDocument());
+  doc.edges[1].arrowheads = "both";
+  doc.edges[2].arrowheads = "none";
+  doc.edges[3].arrowheads = "end";
+  for (const edge of doc.edges) edge.dashed = true;
+  const restored = decode(encode(doc));
+  assert.deepEqual(restored.edges, doc.edges);
+  const svg = toSvg(restored);
+  const files = unzipSync(
+    new Uint8Array(await markdownArchive(restored).arrayBuffer()),
+  );
+  assert.equal(strFromU8(files["diagram.svg"]), svg);
+  const xml = new JSDOM(svg, { contentType: "image/svg+xml" }).window.document;
+  const wires = [...xml.querySelectorAll('path[stroke-dasharray="7 5"]')];
+  assert.deepEqual(
+    wires.map((wire) => [
+      wire.getAttribute("marker-start"),
+      wire.getAttribute("marker-end"),
+    ]),
+    [
+      [null, "url(#arrow-0)"],
+      ["url(#arrow-1)", "url(#arrow-1)"],
+      [null, null],
+      [null, "url(#arrow-3)"],
+    ],
+  );
+  doc.edges[0].arrowheads = "invalid";
+  assert.throws(() => decode(encode(doc)), /矢印の種類/);
+});
 test("memo status belongs to the figure and older documents keep their unassigned memos", () => {
   const doc = decode(encode(sampleDocument()));
   const worker = doc.nodes.find((n) => n.id === "worker");

@@ -1,5 +1,5 @@
 import { reduceHistory } from "../../shared/history.ts";
-import { memoStatusLabels } from "./types";
+import { arrowheadLabels, memoStatusLabels } from "./types";
 import type {
   CanvasDocument,
   CanvasNode,
@@ -291,6 +291,12 @@ export function decode(raw: string): CanvasDocument {
       fail("接続先の要素がありません。");
     if (!str(e.label, 200) || typeof e.dashed !== "boolean")
       fail("接続線の設定が不正です。");
+    if (
+      e.arrowheads !== undefined &&
+      (typeof e.arrowheads !== "string" ||
+        !Object.hasOwn(arrowheadLabels, e.arrowheads))
+    )
+      fail("矢印の種類が不正です。");
     if (e.strokeColor !== undefined && !validColor(e.strokeColor))
       fail("接続線の色が不正です。");
   }
