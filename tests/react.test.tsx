@@ -99,7 +99,9 @@ async function click(element) {
 async function type(element, value) {
   await act(() => {
     Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
+      element instanceof dom.window.HTMLTextAreaElement
+        ? dom.window.HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype,
       "value",
     ).set.call(element, value);
     element.dispatchEvent(new Event("input", { bubbles: true }));
@@ -413,6 +415,59 @@ test("a stale delete confirmation preserves an update from another tab", async (
   assert.equal(library.listDiagrams().length, 2);
   await click(byLabel("図の一覧を閉じる"));
   assert.equal(document.querySelector(".migration-notice"), null);
+});
+
+test("pasted DDL previews line errors and adds the readable tables in one undo step", async () => {
+  const before = saved();
+  await click(byText("DDL を読み込む"));
+  const textarea = document.querySelector("#ddl-source");
+  await type(
+    textarea,
+    "DROP TABLE x;\nCREATE TABLE notes(user_id uuid REFERENCES users(id));",
+  );
+  await click(byText("読み込む"));
+  assert.match(document.querySelector(".ddl-issues").textContent, /1行目/);
+  assert.deepEqual(saved(), before);
+  await click(byText("読めた分を読み込む"));
+  const after = saved();
+  assert.equal(after.tables.length, before.tables.length + 1);
+  assert.equal(after.edges.length, before.edges.length + 1);
+  await key(document.body, "z", { metaKey: true });
+  assert.deepEqual(saved(), before);
+  await key(document.body, "z", { metaKey: true, shiftKey: true });
+  assert.deepEqual(saved(), after);
+});
+
+test("SQL file import from an empty canvas creates its own undoable library entry", async () => {
+  await click(byText("新しい図"));
+  const original = library.restoreDiagram();
+  await click(
+    [...document.querySelectorAll(".empty-actions button")].find(
+      (b) => b.textContent === "DDL を読み込む",
+    ),
+  );
+  const input = document.querySelector('#ddl-import-dialog input[type="file"]');
+  const sql =
+    "CREATE TABLE users(id int primary key); CREATE TABLE orders(user_id int REFERENCES users);";
+  Object.defineProperty(input, "files", {
+    value: [{ name: "顧客.sql", size: sql.length, text: async () => sql }],
+  });
+  await act(async () => {
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await click(document.querySelectorAll(".ddl-destination input")[1]);
+  await click(byText("読み込む"));
+  const imported = library.restoreDiagram();
+  assert.notEqual(original.key, imported.key);
+  assert.equal(saved().title, "顧客");
+  assert.equal(saved().edges.length, 1);
+  assert.equal(library.listDiagrams().length, 3);
+  await key(document.body, "z", { metaKey: true });
+  assert.equal(saved().tables.length, 0);
+  assert.equal(library.restoreDiagram().key, imported.key);
+  assert.equal(localStorage.getItem(original.key), original.raw);
+  await click(byLabel("やり直す"));
+  assert.equal(saved().tables.length, 2);
 });
 
 test("an empty diagram offers next steps, samples and help", async () => {

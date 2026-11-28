@@ -60,6 +60,7 @@ export function validateDiagram(input: unknown): Diagram {
       !validId(t.id) ||
       tableIds.has(t.id) ||
       !boundedText(title(t)) ||
+      (t.schemaName !== undefined && !boundedText(t.schemaName)) ||
       names.has(title(t).trim().toLowerCase()) ||
       !coordinate(t.x) ||
       !coordinate(t.y)
@@ -81,6 +82,9 @@ export function validateDiagram(input: unknown): Diagram {
         Array.isArray(c) ||
         !boundedText(c.name) ||
         !boundedText(c.type, 40) ||
+        (c.notNull !== undefined && typeof c.notNull !== "boolean") ||
+        (c.defaultValue !== undefined &&
+          !boundedText(c.defaultValue, 2000000)) ||
         !keys.includes(c.key)
       )
         fail("カラム名・型・キーが不正です。");
@@ -94,6 +98,8 @@ export function validateDiagram(input: unknown): Diagram {
       return {
         name: c.name.trim(),
         type: c.type.trim(),
+        ...(c.notNull && { notNull: true }),
+        ...(c.defaultValue && { defaultValue: c.defaultValue }),
         key: c.key,
         id,
         logicalName: logicalName(c.logicalName),
@@ -102,6 +108,7 @@ export function validateDiagram(input: unknown): Diagram {
     return {
       id: t.id,
       name: title(t).trim(),
+      ...(t.schemaName && { schemaName: t.schemaName }),
       logicalName: logicalName(t.logicalName),
       x: t.x,
       y: t.y,
@@ -182,6 +189,7 @@ export function documentFromDiagram(diagram: Diagram): DiagramDocument {
       tables: valid.tables.map((t) => ({
         id: t.id,
         name: t.name,
+        ...(t.schemaName !== undefined && { schemaName: t.schemaName }),
         logicalName: t.logicalName,
         keys: structuredClone(t.keys),
         foreignKeys: structuredClone(t.foreignKeys),
@@ -189,6 +197,8 @@ export function documentFromDiagram(diagram: Diagram): DiagramDocument {
           id: c.id,
           name: c.name,
           type: c.type,
+          ...(c.notNull !== undefined && { notNull: c.notNull }),
+          ...(c.defaultValue !== undefined && { defaultValue: c.defaultValue }),
           logicalName: c.logicalName,
         })),
       })),
@@ -242,6 +252,7 @@ export function projectDocument(document: DiagramDocument): Diagram {
     return {
       id: t.id,
       name: t.name,
+      ...(t.schemaName !== undefined && { schemaName: t.schemaName }),
       logicalName: t.logicalName,
       keys: t.keys,
       foreignKeys: t.foreignKeys,
@@ -254,6 +265,8 @@ export function projectDocument(document: DiagramDocument): Diagram {
           id: c.id,
           name: c.name,
           type: c.type,
+          ...(c.notNull !== undefined && { notNull: c.notNull }),
+          ...(c.defaultValue !== undefined && { defaultValue: c.defaultValue }),
           logicalName: c.logicalName,
           key: "",
         };

@@ -35,7 +35,7 @@ const TYPES = [
   "decimal",
   "json",
 ];
-function Modal({
+export function Modal({
   id,
   onClose,
   children,

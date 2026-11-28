@@ -19,6 +19,11 @@ export function identifier(name: string) {
     ? name
     : `"${name.replaceAll('"', '""')}"`;
 }
+const tableIdentifier = (table: Table) =>
+  [table.schemaName, table.name?.trim() || table.id]
+    .filter((part): part is string => !!part)
+    .map(identifier)
+    .join(".");
 const literal = (text: string) => `'${text.replaceAll("'", "''")}'`;
 
 /**
@@ -39,11 +44,12 @@ export function tableDDL(
       ? names.map(identifier).join(", ")
       : "";
   };
-  const name = identifier(table.name?.trim() || table.id);
+  const name = tableIdentifier(table);
   const columns = table.columns.filter((c) => c.name.trim());
   const width = Math.max(0, ...columns.map((c) => identifier(c.name).length));
   const lines = columns.map(
-    (c) => `  ${identifier(c.name).padEnd(width)} ${c.type.trim() || "text"}`,
+    (c) =>
+      `  ${identifier(c.name).padEnd(width)} ${c.type.trim() || "text"}${c.notNull ? " NOT NULL" : ""}${c.defaultValue ? ` DEFAULT ${c.defaultValue}` : ""}`,
   );
   const keys = table.keys ?? [];
   const primary = keys.find((k) => k.kind === "primary");
@@ -66,7 +72,7 @@ export function tableDDL(
       (id) => parent?.columns.find((c) => c.id === id)?.name.trim() ?? "",
     );
     if (!parent || !targets.every(Boolean)) continue;
-    const constraint = `${fk.name ? `CONSTRAINT ${identifier(fk.name)} ` : ""}FOREIGN KEY (${named(fk.columnIds)}) REFERENCES ${identifier(parent.name?.trim() || parent.id)} (${targets.map(identifier).join(", ")})`;
+    const constraint = `${fk.name ? `CONSTRAINT ${identifier(fk.name)} ` : ""}FOREIGN KEY (${named(fk.columnIds)}) REFERENCES ${tableIdentifier(parent)} (${targets.map(identifier).join(", ")})`;
     if (
       forwardReferences &&
       state.tables.indexOf(parent) > state.tables.indexOf(table)

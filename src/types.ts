@@ -4,9 +4,12 @@ export interface Column {
   id: string;
   name: string;
   type: string;
+  notNull?: boolean;
+  defaultValue?: string;
   logicalName: string;
 }
 export interface TableSchema {
+  schemaName?: string;
   id: string;
   name: string;
   logicalName: string;

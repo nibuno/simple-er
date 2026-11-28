@@ -6,6 +6,7 @@ import { TextField } from "../shared/TextField.tsx";
 import { library, emptyDocument, namedDocument, untitled } from "./library.ts";
 import { downloadFile, downloadPng } from "../shared/export.ts";
 import { diagramSvg, exportFilename, titleFromFile } from "./export.ts";
+import { DdlImportDialog } from "./DdlImportDialog.tsx";
 import { diagramDDL } from "./ddl.ts";
 import { messageOf, overlaps } from "./utils.ts";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -51,14 +52,20 @@ export function App() {
   const [session, setSession] = useState(() => ({
     initial: library.restoreDiagram(),
     visit: 0,
+    before: undefined as DiagramDocument | undefined,
     message: "",
   }));
   return (
     <Editor
       key={session.visit}
       {...session}
-      onOpen={(initial, message = "") =>
-        setSession((old) => ({ initial, message, visit: old.visit + 1 }))
+      onOpen={(initial, message = "", before) =>
+        setSession((old) => ({
+          initial,
+          message,
+          before,
+          visit: old.visit + 1,
+        }))
       }
     />
   );
@@ -66,18 +73,24 @@ export function App() {
 
 function Editor({
   initial,
+  before,
   visit,
   message,
   onOpen,
 }: {
   initial: SavedDiagram;
+  before?: DiagramDocument;
   visit: number;
   message: string;
-  onOpen: (next: SavedDiagram, message?: string) => void;
+  onOpen: (
+    next: SavedDiagram,
+    message?: string,
+    before?: DiagramDocument,
+  ) => void;
 }) {
   const [history, dispatch] = useReducer(historyReducer, {
     present: initial.doc,
-    past: [],
+    past: before ? [before] : [],
     future: [],
   });
   const state = useMemo(
@@ -123,6 +136,7 @@ function Editor({
     string | undefined
   >();
   const [infer, setInfer] = useState(false);
+  const [ddlImport, setDdlImport] = useState(false);
   const [help, setHelp] = useState(false);
   const [sampleList, setSampleList] = useState(false);
   const [exportingPng, setExportingPng] = useState(false);
@@ -222,10 +236,18 @@ function Editor({
     if (pausedSave.current && isSaved(currentDoc.current)) return;
     persist(currentDoc.current);
   }
-  function createDiagram(doc: DiagramDocument, message: string) {
+  function createDiagram(
+    doc: DiagramDocument,
+    message: string,
+    before?: DiagramDocument,
+  ) {
     if (!mounted.current) return;
     saveBeforeSwitch();
-    onOpen(library.writeDiagram(library.newDiagramKey(), doc, null), message);
+    onOpen(
+      library.writeDiagram(library.newDiagramKey(), doc, null),
+      message,
+      before,
+    );
   }
   function newDiagram() {
     createDiagram(emptyDocument(), "新しい図を作成しました");
@@ -314,6 +336,7 @@ function Editor({
         draft ||
         infer ||
         help ||
+        ddlImport ||
         sampleList ||
         listOpen ||
         (e.target instanceof Element &&
@@ -694,6 +717,7 @@ function Editor({
               <button onClick={() => file.current?.click()}>
                 ファイルを開く
               </button>
+              <button onClick={() => setDdlImport(true)}>DDL を読み込む</button>
               <button onClick={() => download("json")}>ファイルに保存</button>
               <hr />
               <button
@@ -1077,6 +1101,9 @@ function Editor({
                   <button onClick={() => file.current?.click()}>
                     ファイルを開く
                   </button>
+                  <button onClick={() => setDdlImport(true)}>
+                    DDL を読み込む
+                  </button>
                   <button onClick={() => setSampleList(true)}>
                     サンプルを開く
                   </button>
@@ -1156,6 +1183,24 @@ function Editor({
                 n: (r?.n ?? 0) + 1,
                 nearest: true,
               }));
+          }}
+        />
+      )}
+      {ddlImport && (
+        <DdlImportDialog
+          state={state}
+          onClose={() => setDdlImport(false)}
+          onApply={(diagram, separate, title, count) => {
+            const message = count
+              ? `${count}個のテーブルを読み込みました。`
+              : "DDL を読み込みました。";
+            if (separate) {
+              const doc = namedDocument(documentFromDiagram(diagram), title);
+              createDiagram(doc, message, {
+                ...emptyDocument(),
+                title: doc.title,
+              });
+            } else replace(diagram, message, true);
           }}
         />
       )}

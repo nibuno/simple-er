@@ -2432,7 +2432,7 @@ dialog::backdrop {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: min(420px, calc(100% - 32px));
+  width: min(600px, calc(100% - 32px));
   text-align: center;
 }
 .empty-diagram h2 {
@@ -2659,4 +2659,60 @@ dialog::backdrop {
   .editor-header .name-segments span {
     padding-inline: 6px;
   }
+}
+
+#ddl-import-dialog {
+  width: 600px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  padding: 20px;
+}
+.ddl-source,
+.ddl-destination label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ddl-source {
+  justify-content: space-between;
+  margin: 16px 0 6px;
+}
+#ddl-source {
+  width: 100%;
+  min-height: 6em;
+  height: min(220px, 32dvh);
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-2);
+  font: 13px/1.5 var(--mono);
+  resize: vertical;
+}
+.ddl-destination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  border: 0;
+  margin: 14px 0;
+  padding: 0;
+}
+.ddl-destination legend {
+  margin-bottom: 6px;
+}
+.ddl-destination input {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  accent-color: var(--accent);
+  margin: 0;
+}
+.ddl-issues {
+  max-height: 20dvh;
+  overflow: auto;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.ddl-issues ul {
+  padding-left: 1.5em;
+  margin: 5px 0;
 }
