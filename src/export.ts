@@ -11,7 +11,7 @@ import {
 import { title } from "./model.ts";
 import {
   cardinalityMarker,
-  childMaximum,
+  relationshipEnds,
   relationshipLabels,
 } from "./relationships.ts";
 import type { Column, Diagram, Point, Port, Table } from "./types.ts";
@@ -89,19 +89,19 @@ export function diagramSvg(
     .map((edge) => {
       const route = routes.get(edge.id)!;
       const child = state.tables.find((t) => t.id === edge.to.table)!;
-      const fk = child.foreignKeys.find((f) => f.id === edge.foreignKeyId);
-      const ends = fk
+      const relation = relationshipEnds(edge, child);
+      const ends = relation
         ? markerSvg(
             route.points[0],
             route.fromSide ?? edge.from.side,
-            "one",
-            fk.cardinality?.parentMinimum,
+            relation.from.maximum,
+            relation.from.minimum,
           ) +
           markerSvg(
             route.points.at(-1)!,
             route.toSide ?? edge.to.side,
-            childMaximum(child, fk),
-            fk.cardinality?.childMinimum,
+            relation.to.maximum,
+            relation.to.minimum,
           )
         : "";
       const label = labels.get(edge.id);
@@ -111,7 +111,7 @@ export function diagramSvg(
       ${label.lines.map((line, i) => `<text x="${label.width / 2}" y="${14 + i * 16}" text-anchor="middle" font-size="12">${escapeXml(line)}</text>`).join("")}
     </g>`
         : "";
-      return `<path d="${rounded(route.points)}" fill="none" stroke="#71717a" stroke-width="1.5"/>${ends}${caption}`;
+      return `<path d="${rounded(route.points)}"${edge.entityRelation?.identifying === false ? ' stroke-dasharray="5 4"' : ""} fill="none" stroke="#71717a" stroke-width="1.5"/>${ends}${caption}`;
     })
     .join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${x} ${y} ${width} ${height}">

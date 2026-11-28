@@ -1,6 +1,7 @@
 import type {
   Diagram,
   ForeignKey,
+  Edge,
   Point,
   Port,
   Route,
@@ -19,6 +20,28 @@ export function childMaximum(table: Table, fk: ForeignKey): "one" | "many" {
   )
     ? "one"
     : "many";
+}
+
+export function relationshipEnds(edge: Edge, child: Table) {
+  if (edge.entityRelation) {
+    const end = (symbol: string) => ({
+      maximum: /[{}]/.test(symbol) ? ("many" as const) : ("one" as const),
+      minimum: symbol.includes("o") ? (0 as const) : (1 as const),
+    });
+    return {
+      from: end(edge.entityRelation.from),
+      to: end(edge.entityRelation.to),
+    };
+  }
+  const fk = child.foreignKeys.find((f) => f.id === edge.foreignKeyId);
+  if (fk)
+    return {
+      from: { maximum: "one" as const, minimum: fk.cardinality?.parentMinimum },
+      to: {
+        maximum: childMaximum(child, fk),
+        minimum: fk.cardinality?.childMinimum,
+      },
+    };
 }
 
 export function cardinalityMarker(
@@ -97,12 +120,16 @@ export function relationshipLabels(
   )) {
     const child = diagram.tables.find((t) => t.id === edge.to.table)!;
     const fk = child.foreignKeys?.find((f) => f.id === edge.foreignKeyId);
-    if (!fk?.label || seen.has(fk.id)) continue;
-    seen.add(fk.id);
-    const lines = labelLines(fk.label);
-    const width = relationshipLabelWidth(fk.label);
+    const label = edge.entityRelation?.label ?? fk?.label;
+    const id = fk?.id ?? edge.id;
+    if (!label || seen.has(id)) continue;
+    seen.add(id);
+    const lines = labelLines(label);
+    const width = relationshipLabelWidth(label);
     const h = lines.length * 16 + 4;
-    const groupEdges = diagram.edges.filter((e) => e.foreignKeyId === fk.id);
+    const groupEdges = fk
+      ? diagram.edges.filter((e) => e.foreignKeyId === fk.id)
+      : [edge];
     const candidates: (RelationshipLabel & { score: number })[] = [];
     for (const groupEdge of groupEdges) {
       const ps = routes.get(groupEdge.id)!.points;

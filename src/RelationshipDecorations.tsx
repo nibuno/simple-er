@@ -1,5 +1,5 @@
-import type { ForeignKey, Point, Port, Table } from "./types.ts";
-import { cardinalityMarker, childMaximum } from "./relationships.ts";
+import type { Edge, Point, Port, Table } from "./types.ts";
+import { cardinalityMarker, relationshipEnds } from "./relationships.ts";
 
 function EndMarker({
   point,
@@ -29,33 +29,25 @@ function EndMarker({
 
 export function RelationshipDecorations({
   child,
-  fk,
+  edge,
   from,
   to,
   fromSide,
   toSide,
 }: {
   child: Table;
-  fk: ForeignKey;
+  edge: Edge;
   from: Point;
   to: Point;
   fromSide: Port["side"];
   toSide: Port["side"];
 }) {
+  const ends = relationshipEnds(edge, child);
+  if (!ends) return null;
   return (
     <>
-      <EndMarker
-        point={from}
-        side={fromSide}
-        maximum="one"
-        minimum={fk.cardinality?.parentMinimum}
-      />
-      <EndMarker
-        point={to}
-        side={toSide}
-        maximum={childMaximum(child, fk)}
-        minimum={fk.cardinality?.childMinimum}
-      />
+      <EndMarker point={from} side={fromSide} {...ends.from} />
+      <EndMarker point={to} side={toSide} {...ends.to} />
     </>
   );
 }

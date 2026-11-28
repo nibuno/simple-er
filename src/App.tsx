@@ -7,7 +7,8 @@ import { TextField } from "../shared/TextField.tsx";
 import { library, emptyDocument, namedDocument, untitled } from "./library.ts";
 import { downloadFile, downloadPng } from "../shared/export.ts";
 import { diagramSvg, exportFilename, titleFromFile } from "./export.ts";
-import { DdlImportDialog } from "./DdlImportDialog.tsx";
+import { SchemaImportDialog } from "./SchemaImportDialog.tsx";
+import { diagramMermaid } from "./mermaid.ts";
 import { diagramDDL } from "./ddl.ts";
 import { messageOf, overlaps } from "./utils.ts";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -160,7 +161,9 @@ function Editor({
     string | undefined
   >();
   const [infer, setInfer] = useState(false);
-  const [ddlImport, setDdlImport] = useState(false);
+  const [importFormat, setImportFormat] = useState<"DDL" | "Mermaid" | null>(
+    null,
+  );
   const [help, setHelp] = useState(false);
   const [sampleList, setSampleList] = useState(false);
   const [exportingPng, setExportingPng] = useState(false);
@@ -371,7 +374,7 @@ function Editor({
         draft ||
         infer ||
         help ||
-        ddlImport ||
+        importFormat ||
         sampleList ||
         listOpen ||
         (e.target instanceof Element &&
@@ -406,7 +409,10 @@ function Editor({
         !e.metaKey &&
         !e.altKey
       ) {
-        if (edge?.foreignKeyId) {
+        if (edge?.entityRelation) {
+          e.preventDefault();
+          removeEntityEdge(edge.id);
+        } else if (edge?.foreignKeyId) {
           e.preventDefault();
           replace(
             removeForeignKey(state, edge.foreignKeyId),
@@ -543,13 +549,15 @@ function Editor({
       setHint(messageOf(error));
     }
   }
-  async function download(format: "json" | "svg" | "png" | "sql") {
+  async function download(format: "json" | "svg" | "png" | "sql" | "mmd") {
     flushTitle();
     const doc = currentDoc.current;
     const diagram = doc === history.present ? state : projectDocument(doc);
     const name = exportFilename(doc.title) + "." + format;
     try {
       if (format === "json") downloadFile(encodeDocument(doc), name);
+      else if (format === "mmd")
+        downloadFile(diagramMermaid(diagram), name, "text/plain;charset=utf-8");
       else if (format === "sql")
         downloadFile(
           diagramDDL(diagram),
@@ -579,13 +587,19 @@ function Editor({
       if (format === "png") setExportingPng(false);
     }
   }
-  async function copyDDL() {
+  async function copySchema(format: "DDL" | "Mermaid") {
     try {
-      await navigator.clipboard.writeText(diagramDDL(state));
-      setHint("全テーブルの DDL をコピーしました。");
+      await navigator.clipboard.writeText(
+        format === "Mermaid" ? diagramMermaid(state) : diagramDDL(state),
+      );
+      setHint(
+        format === "Mermaid"
+          ? "Mermaid をコピーしました。"
+          : "全テーブルの DDL をコピーしました。",
+      );
     } catch {
       setHint(
-        "コピーできませんでした。ファイルメニューから DDL を保存できます。",
+        `コピーできませんでした。ファイルメニューから ${format} を保存できます。`,
       );
     }
   }
@@ -681,6 +695,12 @@ function Editor({
   const pendingColumn = pending
     ? pendingTable?.columns[pending.row]
     : undefined;
+  function removeEntityEdge(id: string) {
+    replace(
+      { ...state, edges: state.edges.filter((e) => e.id !== id) },
+      "リレーションを削除しました。",
+    );
+  }
   function selectTable(id: string) {
     setSelected(null);
     setAdjustingLine(false);
@@ -702,7 +722,9 @@ function Editor({
             return `${displayTable(selectedTable)}.${displayColumn(selectedTable.columns.find((c) => c.id === id)!)} → ${displayTable(parent)}.${displayColumn(parent.columns.find((c) => c.id === selectedFk.target!.columnIds[i])!)}`;
           })
           .join(" / ")}`
-      : "";
+      : edge?.entityRelation
+        ? edge.entityRelation.label || "テーブル間のリレーション"
+        : "";
   return (
     <>
       <header className="editor-header">
@@ -760,7 +782,12 @@ function Editor({
               <button onClick={() => file.current?.click()}>
                 ファイルを開く
               </button>
-              <button onClick={() => setDdlImport(true)}>DDL を読み込む</button>
+              <button onClick={() => setImportFormat("DDL")}>
+                DDL を読み込む
+              </button>
+              <button onClick={() => setImportFormat("Mermaid")}>
+                Mermaid を読み込む
+              </button>
               <button onClick={() => download("json")}>ファイルに保存</button>
               <hr />
               <button
@@ -775,7 +802,10 @@ function Editor({
               >
                 {exportingPng ? "PNG に変換中…" : "PNG で保存"}
               </button>
-              <button disabled={!state.tables.length} onClick={copyDDL}>
+              <button
+                disabled={!state.tables.length}
+                onClick={() => copySchema("DDL")}
+              >
                 全テーブルの DDL をコピー
               </button>
               <button
@@ -783,6 +813,18 @@ function Editor({
                 onClick={() => download("sql")}
               >
                 全テーブルの DDL を保存
+              </button>
+              <button
+                disabled={!state.tables.length}
+                onClick={() => copySchema("Mermaid")}
+              >
+                Mermaid をコピー
+              </button>
+              <button
+                disabled={!state.tables.length}
+                onClick={() => download("mmd")}
+              >
+                Mermaid を保存
               </button>
               <hr />
               <button onClick={() => setSampleList(true)}>
@@ -1055,7 +1097,7 @@ function Editor({
             <Sidebar
               state={state}
               selectedTable={focusedTable}
-              selectedForeignKey={edge?.foreignKeyId}
+              selectedRelation={edge?.foreignKeyId ?? edge?.id}
               displayTable={displayTable}
               displayColumn={displayColumn}
               onAdd={() => open()}
@@ -1132,8 +1174,11 @@ function Editor({
                   <button onClick={() => file.current?.click()}>
                     ファイルを開く
                   </button>
-                  <button onClick={() => setDdlImport(true)}>
+                  <button onClick={() => setImportFormat("DDL")}>
                     DDL を読み込む
+                  </button>
+                  <button onClick={() => setImportFormat("Mermaid")}>
+                    Mermaid を読み込む
                   </button>
                   <button onClick={() => setSampleList(true)}>
                     サンプルを開く
@@ -1165,7 +1210,10 @@ function Editor({
                   if (!edge) return;
                   const next = structuredClone(state);
                   for (const e of next.edges.filter(
-                    (e) => e.foreignKeyId === edge.foreignKeyId,
+                    (e) =>
+                      e.id === edge.id ||
+                      (edge.foreignKeyId &&
+                        e.foreignKeyId === edge.foreignKeyId),
                   )) {
                     e.trunk = null;
                     e.manual = false;
@@ -1176,23 +1224,31 @@ function Editor({
               >
                 線を自動に戻す
               </button>
-              <button
-                onClick={() =>
-                  edge && open(edge.to.table, true, edge.foreignKeyId)
-                }
-              >
-                外部キーを編集
-              </button>
+              {!edge?.entityRelation && (
+                <button
+                  onClick={() =>
+                    edge && open(edge.to.table, true, edge.foreignKeyId)
+                  }
+                >
+                  外部キーを編集
+                </button>
+              )}
               <button
                 id="remove"
                 data-shortcut="⌫"
-                title="外部キーを削除 (Delete)"
+                title={
+                  edge?.entityRelation
+                    ? "リレーションを削除 (Delete)"
+                    : "外部キーを削除 (Delete)"
+                }
                 onClick={() =>
-                  edge?.foreignKeyId &&
-                  replace(removeForeignKey(state, edge.foreignKeyId))
+                  edge?.entityRelation
+                    ? removeEntityEdge(edge.id)
+                    : edge?.foreignKeyId &&
+                      replace(removeForeignKey(state, edge.foreignKeyId))
                 }
               >
-                外部キーを削除
+                {edge?.entityRelation ? "リレーションを削除" : "外部キーを削除"}
               </button>
             </div>
           </DiagramCanvas>
@@ -1217,14 +1273,15 @@ function Editor({
           }}
         />
       )}
-      {ddlImport && (
-        <DdlImportDialog
+      {importFormat && (
+        <SchemaImportDialog
+          format={importFormat}
           state={state}
-          onClose={() => setDdlImport(false)}
+          onClose={() => setImportFormat(null)}
           onApply={(diagram, separate, title, count) => {
             const message = count
               ? `${count}個のテーブルを読み込みました。`
-              : "DDL を読み込みました。";
+              : `${importFormat} を読み込みました。`;
             if (separate) {
               const doc = namedDocument(documentFromDiagram(diagram), title);
               createDiagram(doc, message, {

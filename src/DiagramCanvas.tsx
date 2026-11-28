@@ -521,12 +521,11 @@ export function DiagramCanvas(p: Props) {
             const r = routes.get(edge.id)!,
               d = rounded(r.points),
               child = p.state.tables.find((t) => t.id === edge.to.table)!,
-              fk = child.foreignKeys?.find((f) => f.id === edge.foreignKeyId),
               label = labels.get(edge.id);
             return (
               <g
                 key={edge.id}
-                className={`edge${p.state.edges.find((e) => e.id === p.selected)?.foreignKeyId === edge.foreignKeyId ? " selected" : ""}${focused && (edge.from.table === focused || edge.to.table === focused) ? " related" : ""}`}
+                className={`edge${p.selected === edge.id || (edge.foreignKeyId && p.state.edges.find((e) => e.id === p.selected)?.foreignKeyId === edge.foreignKeyId) ? " selected" : ""}${focused && (edge.from.table === focused || edge.to.table === focused) ? " related" : ""}`}
                 tabIndex={0}
                 role="button"
                 aria-label={`${p.displayTable(p.state.tables.find((t) => t.id === edge.from.table)!)}から${p.displayTable(p.state.tables.find((t) => t.id === edge.to.table)!)}への接続線`}
@@ -542,17 +541,23 @@ export function DiagramCanvas(p: Props) {
                 }}
               >
                 <path d={d} className="edge-hit" />
-                <path d={d} className="edge-path" />
-                {fk && (
-                  <RelationshipDecorations
-                    child={child}
-                    fk={fk}
-                    from={r.points[0]}
-                    to={r.points.at(-1)!}
-                    fromSide={r.fromSide ?? edge.from.side}
-                    toSide={r.toSide ?? edge.to.side}
-                  />
-                )}
+                <path
+                  d={d}
+                  className="edge-path"
+                  strokeDasharray={
+                    edge.entityRelation?.identifying === false
+                      ? "5 4"
+                      : undefined
+                  }
+                />
+                <RelationshipDecorations
+                  child={child}
+                  edge={edge}
+                  from={r.points[0]}
+                  to={r.points.at(-1)!}
+                  fromSide={r.fromSide ?? edge.from.side}
+                  toSide={r.toSide ?? edge.to.side}
+                />
                 {label && (
                   <g
                     className="relationship-label"
