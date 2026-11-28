@@ -131,9 +131,15 @@ function readLink(text: string, i: number) {
     /^(<--|<==|<-\.)\s+(.+?)\s+(?:--|==|\.-)(?![-=>])/.exec(tail);
   const link =
     spaced ??
-    /^(?:<--|<==|<-\.-|-{2,}>|={2,}>|-\.+->|-{3,}|={3,}|-\.+-)/.exec(tail);
+    /^(?:<?(?:-{2,}>|={2,}>|-\.+->)|<--|<==|<-\.-|-{3,}|={3,}|-\.+-)/.exec(
+      tail,
+    );
   if (!link) return null;
   const head = link[0];
+  const startArrow = head.startsWith("<"),
+    endArrow = head.endsWith(">");
+  const arrowheads: CanvasEdge["arrowheads"] =
+    startArrow && endArrow ? "both" : startArrow || endArrow ? "end" : "none";
   let label = spaced?.[2] ?? "";
   i += head.length;
   if (!spaced && text[i] === "|") {
@@ -145,7 +151,8 @@ function readLink(text: string, i: number) {
   return {
     label: label.trim().slice(0, 200),
     dashed: (spaced?.[1] ?? head).includes("."),
-    reversed: head.startsWith("<"),
+    arrowheads,
+    reversed: startArrow && !endArrow,
     next: i,
   };
 }
@@ -247,6 +254,7 @@ export function parseFlowchart(text: string): CanvasDocument {
               to: link.reversed ? a.id : b.id,
               label: link.label,
               dashed: link.dashed,
+              arrowheads: link.arrowheads,
             });
         left = right.refs;
         next = right.next;

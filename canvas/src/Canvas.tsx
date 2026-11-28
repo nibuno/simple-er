@@ -1213,6 +1213,16 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           ))}
           {p.doc.edges.map((edge) => {
             const route = routes.get(edge.id)!;
+            const from =
+              p.doc.nodes.find((n) => n.id === edge.from)?.title || "メモ";
+            const to =
+              p.doc.nodes.find((n) => n.id === edge.to)?.title || "メモ";
+            const label =
+              edge.arrowheads === "both"
+                ? `${from}と${to}の双方向の接続線`
+                : edge.arrowheads === "none"
+                  ? `${from}と${to}の接続線（矢印なし）`
+                  : `${from}から${to}への接続線`;
             return (
               <g
                 key={edge.id}
@@ -1223,13 +1233,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                 role="button"
                 style={{ "--edge-stroke": edge.strokeColor } as CSSProperties}
                 tabIndex={0}
-                aria-label={
-                  (p.doc.nodes.find((n) => n.id === edge.from)?.title ||
-                    "メモ") +
-                  "から" +
-                  (p.doc.nodes.find((n) => n.id === edge.to)?.title || "メモ") +
-                  "への接続線"
-                }
+                aria-label={label}
                 onPointerDown={(e) => e.stopPropagation()}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
@@ -1255,7 +1259,16 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                   className="edge-visible"
                   d={route.path}
                   strokeDasharray={edge.dashed ? "7 5" : undefined}
-                  markerEnd="url(#canvas-arrow)"
+                  markerStart={
+                    edge.arrowheads === "both"
+                      ? "url(#canvas-arrow)"
+                      : undefined
+                  }
+                  markerEnd={
+                    edge.arrowheads !== "none"
+                      ? "url(#canvas-arrow)"
+                      : undefined
+                  }
                 />
                 {edge.label && (
                   <text

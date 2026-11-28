@@ -69,6 +69,28 @@ test("線のラベルと点線、向きの反転", () => {
   valid(doc);
 });
 
+test("線の両端の矢印と破線を別々に読み取る", () => {
+  const doc = parseFlowchart("a---b<-->|同期|c\nc-.->d-.-e<-.->f\nf <-- g");
+  assert.deepEqual(
+    valid(doc).edges.map((e) => [
+      e.from,
+      e.to,
+      e.arrowheads,
+      e.dashed,
+      e.label,
+    ]),
+    [
+      ["a", "b", "none", false, ""],
+      ["b", "c", "both", false, "同期"],
+      ["c", "d", "end", true, ""],
+      ["d", "e", "none", true, ""],
+      ["e", "f", "both", true, ""],
+      ["g", "f", "end", false, ""],
+    ],
+  );
+  assert.ok(looksLikeFlowchart("a <--> b"));
+  assert.ok(looksLikeFlowchart("a --- b"));
+});
 test("2行目以降の文字は説明になる", () => {
   const doc = parseFlowchart("a[API<br/>注文を受け付ける] --> b[DB]");
   assert.equal(box(doc, "a").title, "API");

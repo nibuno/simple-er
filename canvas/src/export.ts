@@ -198,7 +198,9 @@ export function toSvg(doc: CanvasDocument) {
       return (
         '<path d="' +
         r.path +
-        `" fill="none" stroke="${color}" stroke-width="1.7" marker-end="url(#arrow-${i})"` +
+        `" fill="none" stroke="${color}" stroke-width="1.7"` +
+        (e.arrowheads === "both" ? ` marker-start="url(#arrow-${i})"` : "") +
+        (e.arrowheads !== "none" ? ` marker-end="url(#arrow-${i})"` : "") +
         (e.dashed ? ' stroke-dasharray="7 5"' : "") +
         "/>" +
         label

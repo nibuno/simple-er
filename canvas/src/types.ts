@@ -34,12 +34,19 @@ export interface CanvasNode extends Point {
   groupId?: string;
   attachedTo?: string;
 }
+export const arrowheadLabels = {
+  end: "片方向",
+  both: "双方向",
+  none: "矢印なし",
+} as const;
 export interface CanvasEdge {
   id: string;
   from: string;
   to: string;
   label: string;
   dashed: boolean;
+  // An omitted value keeps the original arrow pointing from 'from' to 'to'.
+  arrowheads?: keyof typeof arrowheadLabels;
   strokeColor?: string;
 }
 export interface CanvasDocument {

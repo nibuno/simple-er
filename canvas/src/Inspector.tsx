@@ -7,7 +7,7 @@ import type {
   CanvasEdge,
   MemoStatus,
 } from "./types";
-import { memoStatusLabels } from "./types";
+import { arrowheadLabels, memoStatusLabels } from "./types";
 import { MAX_TEXT, noteContent } from "./model";
 import { Icon, NODE_ICONS, NodeIcon } from "./Icons";
 import { minimumWidth, SHAPES, shapeIcons, shapeLabels } from "./shapes";
@@ -158,6 +158,23 @@ export function SelectionBar({
         {colorButton}
         {edge && (
           <>
+            <select
+              className="bar-arrowheads"
+              aria-label="矢印の種類"
+              title="矢印の種類"
+              value={edge.arrowheads ?? "end"}
+              onChange={(e) =>
+                onEdge(edge.id, {
+                  arrowheads: e.target.value as keyof typeof arrowheadLabels,
+                })
+              }
+            >
+              {Object.entries(arrowheadLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
             <button
               className="bar-button"
               aria-label="破線"
@@ -170,6 +187,9 @@ export function SelectionBar({
             <button
               className="bar-button"
               aria-label="向きを反転"
+              disabled={
+                edge.arrowheads === "both" || edge.arrowheads === "none"
+              }
               data-tip="向きを反転"
               onClick={() => onEdge(edge.id, { from: edge.to, to: edge.from })}
             >
