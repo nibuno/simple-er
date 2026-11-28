@@ -33,14 +33,14 @@ export function checkTokens(sql: string) {
   return body;
 }
 
-export function enumPath(name: string) {
+export function identifierPath(name: string) {
   const [items] = statements(name);
   const t = new Tokens(items ?? []);
   const parts = t.qualifiedName();
   t.end();
   // Only accept a name, including quoted identifiers, never extra statements or comments.
   if (parts.length > 2 || items.map((item) => item.raw).join("") !== name)
-    throw new Error("ENUM の型名を確認してください。");
+    throw new Error("スキーマ名と名前を確認してください。");
   return parts;
 }
 
@@ -61,7 +61,7 @@ export function readEnum(value: EnumType): EnumType {
     value.name.length > 40
   )
     throw new Error("ENUM の型名は1〜40文字で指定してください。");
-  const parts = enumPath(value.name);
+  const parts = identifierPath(value.name);
   if (
     parts.length === 1 &&
     /^(?:bool(?:ean)?|tinyint|smallint|int(?:eger|[248])?|mediumint|bigint|(?:big|small)?serial|float[48]?|real|double|decimal|numeric|money|text|varchar|char|date|datetime|time(?:stamp)?(?:tz)?|interval|jsonb?|uuid|bytea|blob|enum)$/i.test(

@@ -42,6 +42,7 @@ import {
   encodeDocument,
   makeEdge,
   title,
+  qualifiedTitle,
   uid,
 } from "./model.ts";
 import { EdgeRouteCache, routeEdges, tableWidth } from "./geometry.ts";
@@ -231,8 +232,9 @@ function Editor({
   const options = useRef<HTMLDetailsElement>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
-  const displayTable = (t: Table) =>
+  const tableHeading = (t: Table) =>
     logical && t.logicalName ? t.logicalName : title(t);
+  const displayTable = (t: Table) => qualifiedTitle(t, tableHeading(t));
   const displayColumn = (c: Column) =>
     logical && c.logicalName ? c.logicalName : c.name;
   function pause(raw: string | null) {
@@ -508,7 +510,7 @@ function Editor({
           const { next, incoming } = removeTable(state, focused.id);
           replace(
             next,
-            `${focused.name || focused.id}を削除しました。${incoming ? `外部キー${incoming}件は参照先未設定として「要確認」に残しています。` : ""}「元に戻す」で復元できます。`,
+            `${qualifiedTitle(focused)}を削除しました。${incoming ? `外部キー${incoming}件は参照先未設定として「要確認」に残しています。` : ""}「元に戻す」で復元できます。`,
           );
         }
         return;
@@ -534,7 +536,12 @@ function Editor({
       return;
     }
     let index = 1;
-    while (state.tables.some((t) => title(t) === `table_${index}`)) index++;
+    while (
+      state.tables.some(
+        (t) => !t.schemaName && title(t).toLowerCase() === `table_${index}`,
+      )
+    )
+      index++;
     const table: Table = {
       id: uid(),
       name: `table_${index}`,
@@ -662,7 +669,7 @@ function Editor({
       else {
         const svg = diagramSvg(
           diagram,
-          displayTable,
+          tableHeading,
           displayColumn,
           diagram === visible
             ? routes
@@ -1298,6 +1305,7 @@ function Editor({
             adjustingLine={adjustingLine}
             onAdjustable={setAdjustable}
             pending={pending}
+            tableHeading={tableHeading}
             displayTable={displayTable}
             displayColumn={displayColumn}
             onEdit={open}

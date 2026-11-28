@@ -2218,3 +2218,75 @@ test("a table removed by undo is not preselected in a new group", async () => {
   await submit();
   assert.deepEqual(saved().groups[0].tableIds, ["users"]);
 });
+
+test("a diagram opened from SimpleCanvas keeps schema-specific search, related tables and FK choices", async (t) => {
+  const { importDDL } = await import("../src/ddl-import.ts");
+  const { linkedUrl, storageScope } =
+    await import("../shared/diagram-links.ts");
+  const { diagram } = importDDL(`
+    CREATE TABLE auth.users(id int PRIMARY KEY);
+    CREATE TABLE public.users(id int PRIMARY KEY);
+    CREATE TABLE orders(buyer int REFERENCES public.users(id));
+  `);
+  const [auth, pub, orders] = diagram.tables;
+  await act(() => root.unmount());
+  localStorage.setItem(storageKey, encode(diagram));
+  const link = { key: storageKey, id: storageKey, store: storageScope(true) };
+  window.history.replaceState(null, "", linkedUrl("er", link));
+  t.after(() => window.history.replaceState(null, "", "/"));
+  await mount();
+  await click(byLabel("テーブル一覧"));
+  await type(byLabel("図の中を検索"), "PUBLIC.USERS");
+  const results = document.querySelectorAll(".sidebar-item");
+  assert.equal(results.length, 1);
+  await click(results[0]);
+  assert.ok(document.querySelector(`[data-table="${pub.id}"].selected`));
+  await click(byText("関連だけ表示"));
+  assert.deepEqual(
+    [...document.querySelectorAll("g.table")].map((el) =>
+      el.getAttribute("data-table"),
+    ),
+    [pub.id, orders.id],
+  );
+  await click(byLabel("ordersを編集"));
+  await click(byLabel("buyerの参照先 public.users.idを編集"));
+  const select = byLabel("外部キー1の参照先テーブル");
+  assert.equal(select.value, pub.id);
+  assert.deepEqual(
+    [...select.options].slice(1, 3).map((o) => [o.value, o.textContent]),
+    [
+      [auth.id, "auth.users"],
+      [pub.id, "public.users"],
+    ],
+  );
+  await act(() => {
+    select.value = auth.id;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await click(byText("完了"));
+  await submit();
+  assert.equal(saved().tables[2].foreignKeys[0].target.tableId, auth.id);
+});
+
+test("changing a table's schema preserves incoming FKs and rejects a duplicate in the same schema", async () => {
+  await click(byLabel("usersを編集"));
+  const name = document.querySelector('input[placeholder="例: users"]');
+  const schemaInput = () =>
+    [...document.querySelectorAll("label")]
+      .find((label) => label.textContent.trim() === "スキーマ名")
+      .querySelector("input");
+  await type(name, "orders");
+  await type(schemaInput(), "auth");
+  await submit();
+  const [parent, child] = saved().tables;
+  assert.deepEqual([parent.schemaName, parent.name], ["auth", "orders"]);
+  assert.equal(child.foreignKeys[0].target.tableId, parent.id);
+  await click(byLabel("auth.ordersを編集"));
+  await type(schemaInput(), "");
+  await submit();
+  assert.match(
+    document.querySelector('[role="alert"]').textContent,
+    /orders.*重複/,
+  );
+  assert.equal(saved().tables[0].schemaName, "auth");
+});

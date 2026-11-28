@@ -6,7 +6,7 @@ import { ddlDialects } from "../src/types.ts";
 import { initialDocument } from "../src/initial.ts";
 import { importDDL } from "../src/ddl-import.ts";
 import { diagramDDL } from "../src/ddl.ts";
-import { decode, encode } from "../src/model.ts";
+import { decode, encode, removeForeignKey } from "../src/model.ts";
 import { overlaps } from "../src/utils.ts";
 
 test("comments and defaults can contain escaped quotes, semicolons and SQL keywords", () => {
@@ -70,7 +70,7 @@ function schemaByName(diagram) {
       return {
         ...fk,
         columns: names(table, columnIds),
-        parent: parent.name,
+        parent: [parent.schemaName, parent.name],
         targets: names(parent, target.columnIds),
       };
     }),
@@ -469,4 +469,102 @@ test("SQLite's explicit MAIN and the default database can reference each other",
   } finally {
     db.close();
   }
+});
+
+test("schema-qualified duplicates keep distinct IDs, comments, indexes and FK targets", () => {
+  const { diagram, issues } = importDDL(`
+    CREATE TABLE auth.users (id integer PRIMARY KEY);
+    CREATE TABLE public.users (id integer PRIMARY KEY, manager integer REFERENCES users(id));
+    CREATE TABLE users (id integer PRIMARY KEY);
+    ALTER TABLE public.users ADD FOREIGN KEY(id) REFERENCES auth.users(id);
+    COMMENT ON TABLE public.users IS '公開用';
+    CREATE INDEX by_manager ON public.users(manager);
+  `);
+  assert.deepEqual(issues, []);
+  const [auth, pub, bare] = diagram.tables;
+  assert.deepEqual(
+    diagram.tables.map((t) => t.schemaName),
+    ["auth", "public", undefined],
+  );
+  assert.equal(new Set([auth.id, pub.id, bare.id]).size, 3);
+  assert.deepEqual(
+    pub.foreignKeys.map((f) => f.target.tableId),
+    [pub.id, auth.id],
+  );
+  assert.equal(pub.note, "公開用");
+  assert.equal(pub.keys[1].name, "by_manager");
+  assert.deepEqual(decode(encode(diagram)).tables, diagram.tables);
+  for (const dialect of ["PostgreSQL", "MySQL"]) {
+    const restored = importDDL(diagramDDL(diagram, dialect));
+    assert.deepEqual(restored.issues, []);
+    assert.deepEqual(schemaByName(restored.diagram), schemaByName(diagram));
+  }
+  assert.throws(() => diagramDDL(diagram, "SQLite"), /別のデータベース/);
+  const localOnly = removeForeignKey(diagram, pub.foreignKeys[1].id);
+  const sqlite = diagramDDL(localOnly, "SQLite");
+  const restored = importDDL(sqlite);
+  assert.deepEqual(restored.issues, []);
+  assert.deepEqual(schemaByName(restored.diagram), schemaByName(localOnly));
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec("ATTACH ':memory:' AS auth; ATTACH ':memory:' AS public;");
+    db.exec(sqlite);
+    assert.equal(
+      db.prepare("PRAGMA public.foreign_key_list(users)").get().table,
+      "users",
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test("adding a dump skips only the existing schema and reports ambiguous bare names", () => {
+  const base = importDDL(
+    "CREATE TABLE auth.users(id int PRIMARY KEY);",
+  ).diagram;
+  const { diagram, issues } = importDDL(
+    `
+    CREATE TABLE auth.users(id int PRIMARY KEY);
+    CREATE TABLE public.users(id int PRIMARY KEY);
+    COMMENT ON TABLE auth.users IS '上書き';
+    COMMENT ON TABLE public.users IS '公開';
+    COMMENT ON TABLE users IS '不明';
+  `,
+    base,
+  );
+  assert.deepEqual(
+    issues.map((i) => i.line),
+    [2, 4, 6],
+  );
+  assert.match(issues[2].message, /スキーマ名/);
+  assert.deepEqual(diagram.tables[0], base.tables[0]);
+  assert.equal(diagram.tables[1].note, "公開");
+});
+
+test("DDL refuses targets that would resolve to another same-named table", () => {
+  const { diagram } = importDDL(`
+    CREATE TABLE users(id int PRIMARY KEY);
+    CREATE TABLE auth.users(id int PRIMARY KEY);
+    CREATE TABLE auth.child(p int REFERENCES users(id));
+  `);
+  const [bare, scoped, child] = diagram.tables;
+  child.foreignKeys[0].target = {
+    tableId: bare.id,
+    columnIds: [bare.columns[0].id],
+  };
+  for (const dialect of ["PostgreSQL", "MySQL"])
+    assert.throws(() => diagramDDL(diagram, dialect), /スキーマ名を付けて/);
+  scoped.schemaName = "MAIN";
+  assert.throws(() => diagramDDL(diagram, "SQLite"), /同じテーブル/);
+});
+
+test("an unqualified SQLite child restores its explicitly named main parent among attached databases", () => {
+  const { diagram } = importDDL(
+    "CREATE TABLE auth.users(id int PRIMARY KEY); CREATE TABLE main.users(id int PRIMARY KEY); CREATE TABLE child(p int REFERENCES main.users(id));",
+  );
+  const { diagram: restored, issues } = importDDL(
+    diagramDDL(diagram, "SQLite"),
+  );
+  assert.deepEqual(issues, []);
+  assert.deepEqual(schemaByName(restored), schemaByName(diagram));
 });

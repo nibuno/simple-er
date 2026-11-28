@@ -197,3 +197,30 @@ test("invalid Mermaid detail metadata leaves the other attributes intact", () =>
   assert.equal(diagram.tables[0].note, undefined);
   assert.equal(diagram.tables[0].columns[0].notNull, undefined);
 });
+
+test("qualified Mermaid entities round-trip separately from literal dotted names", async () => {
+  const { importDDL } = await import("../src/ddl-import.ts");
+  const { diagram: original } = importDDL(`
+    CREATE TABLE auth.users(id int PRIMARY KEY);
+    CREATE TABLE public.users(id int PRIMARY KEY REFERENCES auth.users(id));
+    CREATE TABLE "auth.users"(id int PRIMARY KEY REFERENCES public.users(id));
+  `);
+  const text = diagramMermaid(original);
+  assert.match(text, /"auth\.users" .* "public\.users" :/);
+  const { diagram, issues } = importMermaid(text);
+  assert.deepEqual(issues, []);
+  assert.equal(diagramDDL(diagram), diagramDDL(original));
+  const plain = importMermaid(
+    'erDiagram\n"auth.users" { int id }\nusers { int id }',
+    { tables: [original.tables[0]], edges: [] },
+  );
+  assert.deepEqual(plain.issues, []);
+  assert.deepEqual(
+    plain.diagram.tables.map((t) => [t.schemaName, t.name]),
+    [
+      ["auth", "users"],
+      [undefined, "auth.users"],
+      [undefined, "users"],
+    ],
+  );
+});

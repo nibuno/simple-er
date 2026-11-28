@@ -8,7 +8,14 @@ import { ddlType, readDetails } from "./ddl-dialect.ts";
 import { serialBase } from "./column-attributes.ts";
 import { expression, SqlError, statements, Tokens } from "./ddl-tokens.ts";
 import { layoutImportedTables } from "./import-layout.ts";
-import { MAX_COLUMNS, MAX_TABLES, MAX_CONNECTIONS, uid } from "./model.ts";
+import {
+  MAX_COLUMNS,
+  MAX_TABLES,
+  MAX_CONNECTIONS,
+  qualifiedTitle,
+  tableKey,
+  uid,
+} from "./model.ts";
 import { ddlDialects, referenceActions } from "./types.ts";
 import type {
   Diagram,
@@ -67,14 +74,17 @@ function reference(
     tokens.index += action.split(" ").length;
     actions[deleting ? "onDelete" : "onUpdate"] = action;
   }
-  const { label, cardinality } = readDetails(
+  const { label, cardinality, referenceSchema } = readDetails(
     tokens.items[tokens.index - 1]?.details,
   );
   return {
     kind: "foreign",
     columns,
     name,
-    parent,
+    parent:
+      parent.length === 1 && referenceSchema
+        ? [referenceSchema, ...parent]
+        : parent,
     targets,
     ...actions,
     label,
@@ -337,10 +347,17 @@ export function importDDL(
     const name = path.at(-1)!;
     if (path.length > 2)
       t.fail("テーブル名はスキーマと名前で指定してください。");
-    if (next.tables.some((table) => same(table.name, name))) {
-      if (base.tables.some((table) => same(table.name, name)))
-        skipped.add(name.toLowerCase());
-      throw new SqlError(line, `${name} はすでにあります。`);
+    const key = tableKey(name, path.at(-2));
+    const existing = next.tables.find(
+      (t) => tableKey(t.name, t.schemaName) === key,
+    );
+    if (existing) {
+      if (base.tables.some((t) => t.id === existing.id))
+        skipped.add(existing.id);
+      throw new SqlError(
+        line,
+        `${qualifiedTitle(existing)} はすでにあります。`,
+      );
     }
     if (next.tables.length >= MAX_TABLES)
       t.fail(`テーブルは${MAX_TABLES}個までです。`);
@@ -468,13 +485,21 @@ export function importDDL(
   }
   function findTable(path: Name, line: number, schema?: string) {
     const name = path.at(-1)!;
-    const table = next.tables.find(
-      (t) =>
-        same(t.name, name) &&
-        (path.length === 1
-          ? !schema || !t.schemaName || same(t.schemaName, schema)
-          : path.length === 2 && same(t.schemaName ?? "", path[0])),
+    const candidates = next.tables.filter((t) => same(t.name, name));
+    const expected = path.length === 2 ? path[0] : schema;
+    const local = candidates.find((t) =>
+      same(t.schemaName ?? "", expected ?? ""),
     );
+    let table = path.length <= 2 ? local : undefined;
+    if (!table && path.length === 1) {
+      if (schema) table = candidates.find((t) => !t.schemaName);
+      else if (candidates.length === 1) table = candidates[0];
+      else if (candidates.length > 1)
+        throw new SqlError(
+          line,
+          `${name} が複数あります。スキーマ名を付けてください。`,
+        );
+    }
     if (!table)
       throw new SqlError(line, `テーブル ${path.join(".")} が見つかりません。`);
     return table;
@@ -485,7 +510,7 @@ export function importDDL(
       if (!column)
         throw new SqlError(
           line,
-          `${table.name} にカラム ${name} がありません。`,
+          `${qualifiedTitle(table)} にカラム ${name} がありません。`,
         );
       return column.id;
     });
@@ -524,10 +549,10 @@ export function importDDL(
       const table = findTable(op.table, op.line);
       // A duplicate CREATE from a full dump must not attach its later comments,
       // indexes or ALTER statements to a table already in the user's drawing.
-      if (skipped.has(table.name.toLowerCase()))
+      if (skipped.has(table.id))
         throw new SqlError(
           op.line,
-          `既存の ${table.name} への変更は省きました。`,
+          `既存の ${qualifiedTitle(table)} への変更は省きました。`,
         );
       if (op.kind === "comment") {
         if (!op.column) table.note = op.text;
@@ -566,7 +591,7 @@ export function importDDL(
           )
             throw new SqlError(
               op.line,
-              `${parent.name} の主キーまたは一意制約を参照してください。`,
+              `${qualifiedTitle(parent)} の主キーまたは一意制約を参照してください。`,
             );
           if (connections + ids.length > MAX_CONNECTIONS)
             throw new SqlError(op.line, `接続は${MAX_CONNECTIONS}本までです。`);
@@ -588,7 +613,7 @@ export function importDDL(
           )
             throw new SqlError(
               op.line,
-              `${table.name} の主キーが重複しています。`,
+              `${qualifiedTitle(table)} の主キーが重複しています。`,
             );
           table.keys.push({
             id: uid(),
