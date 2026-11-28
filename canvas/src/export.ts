@@ -51,6 +51,7 @@ export function toSvg(
   doc: CanvasDocument,
   selection: string[] = [],
   computed = sceneRoutes(doc),
+  wrapNode?: (node: CanvasNode, svg: string) => string,
 ) {
   const routes = selection.length ? new Map(computed.routes) : computed.routes,
     memos = selection.length ? new Map(computed.memos) : computed.memos;
@@ -230,7 +231,10 @@ export function toSvg(
     .join("");
   const content = nodes
     .filter((n) => n.kind !== "group")
-    .map(nodeSvg)
+    .map((node) => {
+      const svg = nodeSvg(node);
+      return wrapNode ? wrapNode(node, svg) : svg;
+    })
     .join("");
   const markers = edges
     .map(
