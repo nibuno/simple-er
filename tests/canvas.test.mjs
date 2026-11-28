@@ -679,3 +679,54 @@ test("text is exactly as tall as its words, and a placed memo avoids other eleme
     if (n.id !== memo.id && n.kind !== "group")
       assert.ok(!hit(memo, n), "overlaps " + (n.title || n.id));
 });
+
+test("折り返しは句読点・閉じ括弧と直前の文字、開き括弧と次の文字を離さない", async () => {
+  const { wrapText } = await import("../canvas/src/text.ts");
+  for (const mark of ["。", "、", "・", "）", "」"]) {
+    assert.deepEqual(wrapText("受け付け" + mark + "次", 40, 10), [
+      "受け付",
+      "け" + mark + "次",
+    ]);
+  }
+  assert.deepEqual(wrapText("受け付け。』）次", 40, 10), [
+    "受け付",
+    "け。』）",
+    "次",
+  ]);
+  assert.deepEqual(wrapText("開始（「次」）へ", 30, 10), [
+    "開始",
+    "（「次」）",
+    "へ",
+  ]);
+  assert.deepEqual(wrapText("前\n\n。後\n", 30, 10), ["前", "", "。後", ""]);
+  assert.deepEqual(wrapText("A注文。B", 27, 10), ["A注", "文。B"]);
+  assert.deepEqual(wrapText("本文。", 1, 10), ["本", "文。"]);
+});
+
+test("人を拡大しても頭と肩の比率を保ち、名前と説明はその下に収まる", async () => {
+  const { personLayout } = await import("../canvas/src/shapes.ts");
+  let previousSize = 0;
+  for (const w of [80, 120, 208]) {
+    const node = {
+      ...makeNode("box", { x: 0, y: 0 }, "person"),
+      w,
+      h: 50,
+      title: "担当者",
+      description: "申請を確認し、承認する。",
+      fillColor: "#222222",
+    };
+    const doc = growNodes({ ...emptyDocument(), nodes: [node] });
+    const { size, top, shoulderY } = personLayout(node);
+    assert.ok(size > previousSize);
+    previousSize = size;
+    assert.ok(shoulderY > top && shoulderY < top + size);
+    assert.equal(boxTextArea(node).y, top + size + 6);
+    const svg = new JSDOM(toSvg(doc), { contentType: "image/svg+xml" }).window
+      .document;
+    const lines = [...svg.querySelectorAll("text")];
+    assert.equal(Number(lines[0].getAttribute("x")), w / 2);
+    assert.ok(Number(lines[0].getAttribute("y")) > top + size);
+    assert.ok(Number(lines.at(-1).getAttribute("y")) < node.h);
+    assert.equal(nodeAppearance(node, doc).customBackground, false);
+  }
+});

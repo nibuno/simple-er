@@ -1,26 +1,44 @@
+const charWidth = (char: string, size: number) =>
+  char.codePointAt(0)! > 255 ? size : size * 0.61;
+
 export function textWidth(text: string, size: number) {
-  return Array.from(text).reduce(
-    (sum, char) => sum + (char.codePointAt(0)! > 255 ? size : size * 0.61),
-    0,
-  );
+  let width = 0;
+  for (const char of text) width += charWidth(char, size);
+  return width;
 }
-// Use the same wrapping estimate for sizes, routing labels and portable text.
+
+// Opening brackets stay with what follows. Closing punctuation and small
+// kana stay with what precedes them, even in a run such as 「えっ！」.
+const noLineEnd = new Set("（〔［｛〈《「『【〖〘〚([{｟｢“‘");
+const noLineStart = new Set(
+  "、。，．・：；？！ー々〻ゝゞヽヾ゛゜）〕］｝〉》」』】〗〙〛｠､｡･｣,.!?;:)]}”’" +
+    "ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶㇰㇱㇲㇳㇴㇵㇶㇷㇸㇹㇺㇻㇼㇽㇾㇿｧｨｩｪｫｯｬｭｮｰﾞﾟ",
+);
+
 export function wrapText(text: string, width: number, size: number): string[] {
   return text.split("\n").flatMap((line) => {
+    const chars = Array.from(line);
     const rows: string[] = [];
-    let current = "",
-      length = 0;
-    for (const char of Array.from(line)) {
-      const step = char.codePointAt(0)! > 255 ? size : size * 0.61;
-      if (length + step > width && current) {
-        rows.push(current);
-        current = "";
-        length = 0;
+    let rowStart = 0,
+      rowWidth = 0;
+    for (let i = 0; i < chars.length;) {
+      const start = i;
+      let unitWidth = 0;
+      // Keep a unit intact even when the column is narrower than the unit.
+      do {
+        unitWidth += charWidth(chars[i++], size);
+      } while (
+        i < chars.length &&
+        (noLineEnd.has(chars[i - 1]) || noLineStart.has(chars[i]))
+      );
+      if (start > rowStart && rowWidth + unitWidth > width) {
+        rows.push(chars.slice(rowStart, start).join(""));
+        rowStart = start;
+        rowWidth = 0;
       }
-      current += char;
-      length += step;
+      rowWidth += unitWidth;
     }
-    rows.push(current);
+    rows.push(chars.slice(rowStart).join(""));
     return rows;
   });
 }

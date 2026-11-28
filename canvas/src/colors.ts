@@ -69,9 +69,11 @@ export function nodeAppearance(node: CanvasNode, doc: CanvasDocument) {
         : "transparent",
   );
   const group = doc.nodes.find((n) => n.id === node.groupId);
+  // A person's caption sits below the portrait, directly on the canvas.
+  const textFill = node.shape === "person" ? "transparent" : fill;
   const background =
-    fill !== "transparent"
-      ? fill.slice(0, 7)
+    textFill !== "transparent"
+      ? textFill.slice(0, 7)
       : group?.fillColor && group.fillColor !== "transparent"
         ? safeColor(group.fillColor, DEFAULT_COLORS.background)
         : DEFAULT_COLORS.background;
@@ -85,10 +87,14 @@ export function nodeAppearance(node: CanvasNode, doc: CanvasDocument) {
     fill,
     // Text sits on a color the user chose, rather than the theme's surface.
     customBackground:
-      validColor(node.fillColor) && node.fillColor !== "transparent"
+      validColor(node.fillColor) && textFill !== "transparent"
         ? true
-        : fill === "transparent" && background !== DEFAULT_COLORS.background,
-    stroke: safeColor(node.strokeColor, DEFAULT_COLORS.stroke),
+        : textFill === "transparent" &&
+          background !== DEFAULT_COLORS.background,
+    stroke: safeColor(
+      node.strokeColor,
+      node.shape === "person" ? DEFAULT_COLORS.line : DEFAULT_COLORS.stroke,
+    ),
     text,
     muted:
       contrastRatio(DEFAULT_COLORS.muted, background) >= 4.5

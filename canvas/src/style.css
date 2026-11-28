@@ -623,6 +623,10 @@ kbd {
   color: var(--node-text, var(--text));
   box-shadow: 0 0 0 1px var(--accent);
 }
+.canvas-node,
+.memo-list {
+  line-break: strict;
+}
 .node-title {
   color: var(--node-text, var(--text));
   font-size: 16px;
@@ -657,6 +661,11 @@ kbd {
   stroke: var(--node-stroke, var(--shape-line));
   stroke-width: 1;
 }
+[data-node-shape="person"] .shape-outline {
+  stroke: var(--node-stroke, var(--line));
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
 .shape-fill {
   fill: var(--node-fill, var(--surface));
 }
@@ -684,6 +693,9 @@ kbd {
   justify-content: center;
   align-items: center;
   text-align: center;
+}
+[data-node-shape="person"] .box-text {
+  justify-content: flex-start;
 }
 .box-text > span {
   width: 100%;
@@ -1527,13 +1539,29 @@ kbd {
 .paste-dialog > .primary {
   float: right;
 }
+.help-steps {
+  padding-left: 1.7em;
+  margin: 18px 0;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.help-steps li + li {
+  margin-top: 8px;
+}
+.help-steps strong {
+  display: block;
+}
+.help-keys summary {
+  font-size: 13px;
+  cursor: pointer;
+}
 .help-dialog dl {
   font-size: 12px;
   margin: 20px 0;
 }
 .help-dialog dl > div {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(9em, 1fr) 2.6fr;
   gap: 16px;
   padding: 10px 0;
   border-bottom: 1px solid var(--border);

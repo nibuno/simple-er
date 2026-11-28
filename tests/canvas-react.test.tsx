@@ -2004,3 +2004,30 @@ test("無関係な線の上に図形をドラッグすると、確定時に迂�
   await click(label("やり直す"));
   assert.equal(path(), detour);
 });
+
+test("使い方は初めの3手から始まり、メニューと ? から開ける", async () => {
+  await key(window, "?");
+  const help = document.querySelector("dialog.help-dialog[open]");
+  assert.ok(help);
+  assert.deepEqual(
+    [...help.querySelectorAll("ol li strong")].map((el) => el.textContent),
+    ["図形を置く", "書く", "つなぐ"],
+  );
+  assert.ok(help.querySelector("ol").nextElementSibling.matches("dl"));
+  for (const term of [
+    "図の一覧",
+    "案を比べる",
+    "メモの一覧",
+    "双方向",
+    "Mermaid",
+    "⌘ Shift C",
+    "PNG",
+    "SVG",
+    "閲覧用HTML",
+    "Markdown",
+  ])
+    assert.ok(help.querySelector("dl").textContent.includes(term), term);
+  await click(label("使い方を閉じる"));
+  await click(button("使い方 ?"));
+  assert.ok(help.open);
+});

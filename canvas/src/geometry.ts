@@ -1,7 +1,7 @@
 import type { CanvasDocument, CanvasEdge, CanvasNode, Point } from "./types";
 import { bounds, connectionAxis, overlapArea } from "./spatial";
 import { textWidth, wrapText } from "./text";
-import { PERSON_ARM_Y } from "./shapes";
+import { personLayout } from "./shapes";
 import {
   crossesRect,
   ObstacleIndex,
@@ -52,10 +52,10 @@ export function rounded(points: Point[], radius = 10) {
 }
 type Side = "left" | "right" | "top" | "bottom";
 function port(node: CanvasNode, side: Side) {
-  // A person's side lines meet the figure at arm height, above the name.
+  // A person's side lines meet the figure at shoulder height, above the name.
   const c =
     node.shape === "person" && (side === "left" || side === "right")
-      ? { ...center(node), y: node.y + PERSON_ARM_Y }
+      ? { ...center(node), y: node.y + personLayout(node).shoulderY }
       : center(node);
   if (side === "left")
     return { p: { x: node.x, y: c.y }, out: { x: node.x - 24, y: c.y } };

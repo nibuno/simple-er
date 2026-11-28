@@ -142,6 +142,7 @@ const n=`<!doctype html>
         padding: 12px 8px;
         text-align: left;
         overflow-wrap: anywhere;
+        line-break: strict;
       }
       li [aria-current="true"] {
         background: var(--selected);

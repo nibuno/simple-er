@@ -59,7 +59,7 @@ export function ShapeTextEditor({
       (floatingTitle || floatingDescription ? 0 : 7);
     onSize(
       Math.max(
-        minimumBoxHeight(node.shape, writtenHeight),
+        minimumBoxHeight(node, writtenHeight),
         minimumHeight({ ...node, title, description }, doc),
       ),
     );

@@ -49,6 +49,7 @@ import { viewerHtml } from "./html";
 import { Canvas } from "./Canvas";
 import { DiagramList } from "../../shared/DiagramList.tsx";
 import { TextField } from "../../shared/TextField.tsx";
+import { HelpDialog } from "./HelpDialog";
 import { MemoList } from "./MemoList";
 import { VariantComparison, type VariantPair } from "./VariantComparison";
 import {
@@ -1585,63 +1586,7 @@ function Editor({
           貼り付け
         </button>
       </dialog>
-      <dialog
-        ref={help}
-        className="help-dialog"
-        onClick={(e) => {
-          if (e.target === e.currentTarget) help.current?.close();
-        }}
-      >
-        <div className="dialog-heading">
-          <h2>使い方</h2>
-          <button
-            className="icon-button"
-            aria-label="使い方を閉じる"
-            onClick={() => help.current?.close()}
-          >
-            <Icon name="close" />
-          </button>
-        </div>
-        <p>
-          左のツール列から図形を置き、矢印で次の図形につなげます。図の横には理由をテキストで書き添えられます。
-        </p>
-        <p>
-          変更はこのブラウザに自動保存されます。メニューの「図の一覧」からほかの図を開けます。ほかの端末で使うときは「ファイルに保存」してください。
-        </p>
-        <dl>
-          {[
-            ["図形 / テキストを追加", "B / N（カーソルの位置に出ます）"],
-            ["ツールバーから追加", "置きたい場所をクリック"],
-            ["文字を編集", "ダブルクリック / Enter"],
-            ["編集を確定", "Esc / ⌘ Enter"],
-            ["線のラベル", "線をダブルクリック"],
-            ["接続", "C / 矢印をドラッグ"],
-            ["つながった図形を追加", "矢印をクリック"],
-            ["複数選択", "Shift＋クリック / 余白をドラッグ"],
-            ["囲む", "⌘ G"],
-            ["選択中のものを移動", "矢印キー（Shiftで大きく）"],
-            ["複製 / コピー / 貼り付け", "⌘ D / ⌘ C / ⌘ V"],
-            ["画像をコピー", "⌘ Shift C"],
-            ["Mermaid を図にする", "⌘ V"],
-            ["キャンバスを移動", "2本指スクロール / Space＋ドラッグ"],
-            ["拡大・縮小", "ピンチ / Ctrl＋ホイール"],
-            ["全体を表示", "1"],
-            ["元に戻す / やり直す", "⌘ Z / ⌘ Shift Z"],
-            ["ファイルに保存", "⌘ S"],
-          ].map(([label, value]) => (
-            <div key={label}>
-              <dt>{label}</dt>
-              <dd>{value}</dd>
-            </div>
-          ))}
-        </dl>
-        <p className="field-help">
-          Windowsでは⌘をCtrlに読み替えてください。囲みを解除しても中身は残ります。図形を削除するとつながった線も消えます。
-        </p>
-        <button className="primary" onClick={() => help.current?.close()}>
-          閉じる
-        </button>
-      </dialog>
+      <HelpDialog dialog={help} />
     </div>
   );
 }
