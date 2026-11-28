@@ -1025,6 +1025,50 @@ test("another tab's write pauses autosave until the user explicitly resolves it"
   assert.equal(document.querySelector(".save-status"), null);
 });
 
+for (const resume of [true, false]) {
+  test(
+    "the paused list keeps the local title and can " +
+      (resume ? "resume saving" : "save a separate drawing"),
+    async () => {
+      const original = saved();
+      const remote = encode({ ...original, title: "別のタブ" });
+      localStorage.setItem(STORAGE_KEY, remote);
+      await act(() =>
+        window.dispatchEvent(
+          new StorageEvent("storage", { key: STORAGE_KEY, newValue: remote }),
+        ),
+      );
+      await type(label("キャンバス名"), "こちらの作業");
+      await blur(label("キャンバス名"));
+      await click(button("図の一覧"));
+      const dialog = document.querySelector(".diagram-list");
+      assert.match(
+        dialog.querySelector(".list-recovery").textContent,
+        /表示中の「こちらの作業」/,
+      );
+      assert.equal(dialog.querySelector("[aria-current]"), null);
+      const action = resume ? "この画面の内容で保存を再開" : "別の図として保存";
+      await click(
+        [...dialog.querySelectorAll("button")].find(
+          (b) => b.textContent === action,
+        ),
+      );
+      assert.equal(document.querySelector(".save-status"), null);
+      assert.equal(saved().title, "こちらの作業");
+      if (resume) {
+        assert.match(
+          dialog.querySelector("[aria-current]").textContent,
+          /こちらの作業/,
+        );
+        assert.equal(listDiagrams().length, 1);
+      } else {
+        assert.equal(localStorage.getItem(STORAGE_KEY), remote);
+        assert.notEqual(saved().id, original.id);
+      }
+    },
+  );
+}
+
 test("a change to a different drawing refreshes the list and prevents a stale deletion", async () => {
   const original = saved();
   await click(button("新しいキャンバス"));

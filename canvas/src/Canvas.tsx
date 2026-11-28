@@ -207,11 +207,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     const b = bounds(rects),
       top = b.y * view.zoom + view.y,
       bottom = (b.y + b.h) * view.zoom + view.y,
-      width = el.clientWidth || 800,
-      x = Math.max(
-        180,
-        Math.min(width - 180, (b.x + b.w / 2) * view.zoom + view.x),
-      ),
+      x = (b.x + b.w / 2) * view.zoom + view.x,
       below = top < 120;
     // Clear of the connection ports, which sit 18px outside the figure.
     const y = below ? bottom + 44 : top - 44;
@@ -1337,7 +1333,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
           data-memo-below={barAnchor.memoBelow}
           style={
             {
-              left: barAnchor.x,
+              "--selection-x": barAnchor.x + "px",
               top: barAnchor.y,
               "--memo-room": barAnchor.memoRoom + "px",
             } as CSSProperties

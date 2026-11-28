@@ -1737,7 +1737,7 @@ select:focus {
   border-radius: 8px;
   box-shadow: var(--shadow-md);
 }
-@media (max-width: 360px) {
+@media (max-width: 480px) {
   .file-options-panel {
     right: 0;
     left: auto;

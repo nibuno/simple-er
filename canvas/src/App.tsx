@@ -576,6 +576,24 @@ function Editor({
       throw e;
     }
   }
+  function resumeSave() {
+    if (recovery !== null)
+      downloadFile(recovery, "simplecanvas-recovery.txt", "text/plain");
+    persist(true);
+    pausedRef.current = false;
+    setPaused(false);
+    setRecovery(null);
+    setRemote(null);
+    setError("");
+  }
+  function saveCopy() {
+    flushInput();
+    const doc = { ...docRef.current, id: uid() };
+    onOpen(
+      writeDiagram(newDiagramKey(), doc, null),
+      "別の図として保存しました",
+    );
+  }
   function retrySave() {
     try {
       persist();
@@ -608,7 +626,7 @@ function Editor({
   }
   function showList() {
     flushInput();
-    retrySave();
+    if (!pausedRef.current) retrySave();
     setListOpen("diagrams");
   }
   function closeList() {
@@ -873,6 +891,7 @@ function Editor({
   const shapeButton = (option: NodeShape) => (
     <button
       key={option}
+      data-rail-shortcut={RAIL_SHAPES.includes(option) || undefined}
       className="icon-button rail-button"
       aria-label={shapeLabels[option] + "を追加"}
       aria-pressed={placing?.kind === "box" && placing.shape === option}
@@ -1137,8 +1156,8 @@ function Editor({
                 role="group"
                 aria-label="その他の図形"
               >
-                {SHAPES.filter((option) => !RAIL_SHAPES.includes(option)).map(
-                  (option) => shapeButton(option),
+                {SHAPES.filter((option) => option !== RAIL_SHAPES[0]).map(
+                  shapeButton,
                 )}
               </div>
             )}
@@ -1220,7 +1239,12 @@ function Editor({
         </div>
         {(error || saveProblem) && (
           <div className="notice" role="alert">
-            <span>{saveProblem || error}</span>
+            <span>
+              {saveProblem || error}
+              {paused &&
+                remote !== null &&
+                " 最新の内容を開くと、この画面の編集と履歴が消えます。"}
+            </span>
             {(saveProblem || paused) && (
               <>
                 <button onClick={save}>ファイルに保存</button>
@@ -1240,11 +1264,6 @@ function Editor({
               >
                 元のデータを保存
               </button>
-            )}
-            {paused && remote !== null && (
-              <span>
-                開く前にこの画面の内容をファイルに保存できます。開くと編集履歴はリセットされます。
-              </span>
             )}
             {paused && remote !== null && (
               <button
@@ -1269,23 +1288,7 @@ function Editor({
               </button>
             )}
             {paused && (
-              <button
-                onClick={() =>
-                  runMenu(() => {
-                    if (recovery !== null)
-                      downloadFile(
-                        recovery,
-                        "simplecanvas-recovery.txt",
-                        "text/plain",
-                      );
-                    persist(true);
-                    setRecovery(null);
-                    setRemote(null);
-                    setPaused(false);
-                    setError("");
-                  })
-                }
-              >
+              <button onClick={() => runMenu(resumeSave)}>
                 この画面の内容で保存を再開
               </button>
             )}
@@ -1351,6 +1354,15 @@ function Editor({
           Icon={Icon}
           emptyName="空のキャンバス"
           activeKey={initial.key}
+          paused={
+            paused && !initial.error
+              ? {
+                  title: doc.title || "無題のキャンバス",
+                  saveCopy,
+                  resume: resumeSave,
+                }
+              : undefined
+          }
           onClose={closeList}
           onCreate={newCanvas}
           onOpen={(entry) => {

@@ -5,8 +5,32 @@ import { memoStatusLabels } from "./types";
 import type { CanvasDocument } from "./types";
 
 // Names and memos are plain text in the editor. Keep them literal in Markdown.
-const literal = (text: string) => text.replace(/([!-/:-@\[-`{-~])/g, "\\$1");
-const heading = (text: string) => literal(text.replace(/\s+/g, " ").trim());
+function literal(text: string) {
+  const word = /[\p{L}\p{N}]/u;
+  return (
+    text
+      .replace(
+        /[\\*`[\]<~|]|_+|&(?=(?:#\d+|#x[\da-f]+|[a-z]\w*);)/gi,
+        (mark, at) => {
+          if (
+            mark.startsWith("_") &&
+            word.test(text[at - 1] ?? "") &&
+            word.test(text[at + mark.length] ?? "")
+          )
+            return mark;
+          return Array.from(mark, (c) => "\\" + c).join("");
+        },
+      )
+      // A list, quote, heading or horizontal rule needs escaping only at line start.
+      .replace(
+        /^([ \t]*)(#{1,6}(?=\s|$)|>|[-+](?=\s|$)|-(?=[- \t]*$)|=(?==*\s*$))/,
+        "$1\\$2",
+      )
+      .replace(/^([ \t]*\d{1,9})([.)])(?=\s|$)/, "$1\\$2")
+  );
+}
+const heading = (text: string) =>
+  literal(text.replace(/\s+/g, " ").trim()).replace(/(\s)(#+)$/, "$1\\$2");
 
 export function markdownArchive(doc: CanvasDocument) {
   const sections = [

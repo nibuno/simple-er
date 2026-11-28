@@ -141,7 +141,7 @@ test("the Markdown archive links its SVG and includes each figure's complete mem
   const md = strFromU8(files["README.md"]);
   assert.ok(md.includes("# 通知処理の設計\n\n![図](./diagram.svg)"));
   assert.ok(
-    md.includes("## 箱（未設定）\n\n先に保存する。  \n\\# 理由  \n\\<受付\\>"),
+    md.includes("## 箱（未設定）\n\n先に保存する。  \n\\# 理由  \n\\<受付>"),
   );
   assert.ok(md.includes("## Worker（決定）"));
   assert.ok(md.includes(worker.body.split("\n").at(-1)));
@@ -157,6 +157,34 @@ test("the Markdown archive links its SVG and includes each figure's complete mem
   );
   assert.match(strFromU8(empty["README.md"]), /メモはありません。/);
 });
+test("Markdown keeps identifiers and punctuation readable and quotes Markdown syntax", async () => {
+  const doc = sampleDocument();
+  doc.title = "user_id (v2): API!";
+  const memo = doc.nodes.find((n) => n.id === "worker");
+  memo.body =
+    "user_id = a/b (v2). foo__bar!\n1. _強調_ [リンク](url)\n---\n> **通知**";
+  const files = unzipSync(
+    new Uint8Array(await markdownArchive(doc).arrayBuffer()),
+  );
+  const readme = strFromU8(files["README.md"]);
+  assert.ok(readme.startsWith("# user_id (v2): API!\n"));
+  assert.ok(
+    readme.includes(
+      "user_id = a/b (v2). foo__bar!  \n1\\. \\_強調\\_ \\[リンク\\](url)  \n\\---  \n\\> \\*\\*通知\\*\\*",
+    ),
+  );
+});
+
+test("oversized diagrams report the node and line limits", () => {
+  for (const [key, count] of [
+    ["nodes", 151],
+    ["edges", 401],
+  ]) {
+    const doc = { ...emptyDocument(), [key]: Array(count).fill({}) };
+    assert.throws(() => decode(JSON.stringify(doc)), /要素は150個、線は400本/);
+  }
+});
+
 test("all figure shapes retain their outline and safe text area through save, copy and SVG export", () => {
   const doc = emptyDocument();
   doc.nodes = SHAPES.map((shape, i) => ({
