@@ -7,6 +7,7 @@ import { TextField } from "../shared/TextField.tsx";
 import { library, emptyDocument, namedDocument, untitled } from "./library.ts";
 import { downloadFile, downloadPng } from "../shared/export.ts";
 import { diagramSvg, exportFilename, titleFromFile } from "./export.ts";
+import { tableDefinition } from "./table-definition.ts";
 import { SchemaImportDialog } from "./SchemaImportDialog.tsx";
 import { diagramMermaid } from "./mermaid.ts";
 import { diagramDDL } from "./ddl.ts";
@@ -580,13 +581,23 @@ function Editor({
       setHint(messageOf(error));
     }
   }
-  async function download(format: "json" | "svg" | "png" | "sql" | "mmd") {
+  async function download(
+    format: "json" | "svg" | "png" | "sql" | "mmd" | "md" | "csv",
+  ) {
     flushTitle();
     const doc = currentDoc.current;
     const diagram = doc === history.present ? state : projectDocument(doc);
     const name = exportFilename(doc.title) + "." + format;
     try {
       if (format === "json") downloadFile(encodeDocument(doc), name);
+      else if (format === "md" || format === "csv")
+        downloadFile(
+          tableDefinition(doc, format, logical),
+          name,
+          format === "md"
+            ? "text/markdown;charset=utf-8"
+            : "text/csv;charset=utf-8",
+        );
       else if (format === "mmd")
         downloadFile(diagramMermaid(diagram), name, "text/plain;charset=utf-8");
       else if (format === "sql")
@@ -857,6 +868,18 @@ function Editor({
                 onClick={() => download("mmd")}
               >
                 Mermaid を保存
+              </button>
+              <button
+                disabled={!state.tables.length}
+                onClick={() => download("md")}
+              >
+                定義書を保存（Markdown）
+              </button>
+              <button
+                disabled={!state.tables.length}
+                onClick={() => download("csv")}
+              >
+                定義書を保存（CSV）
               </button>
               <hr />
               <button onClick={() => setSampleList(true)}>

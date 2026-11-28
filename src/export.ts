@@ -17,13 +17,14 @@ import {
 } from "./relationships.ts";
 import type { Column, Diagram, Point, Port, Table } from "./types.ts";
 
-export function exportFilename(title?: string, date = new Date()) {
+export function localDate(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
-  return filename(
-    title ?? "",
-    `simple-er-${date.getFullYear()}-${month}-${day}`,
-  );
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+export function exportFilename(title?: string, date = new Date()) {
+  return filename(title ?? "", `simple-er-${localDate(date)}`);
 }
 
 export function titleFromFile(name: string) {
