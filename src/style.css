@@ -2959,3 +2959,51 @@ dialog::backdrop {
 .group-fields small {
   color: var(--muted);
 }
+
+@media (pointer: coarse) {
+  button,
+  .file-options > summary,
+  input:not([type="checkbox"], [type="radio"], [type="color"]),
+  select,
+  .name-segments span {
+    min-height: 40px;
+  }
+  .name-segments span {
+    display: inline-flex;
+    align-items: center;
+  }
+  .icon-button,
+  .history-button,
+  .zoom button,
+  #table-editor .reorder-handle,
+  #table-editor .row-actions button {
+    min-width: 40px;
+  }
+  #table-editor .column-check {
+    min-height: 40px;
+  }
+  .table.selected .port {
+    opacity: 1;
+  }
+  .table.selected .port-hit {
+    r: max(10px, calc(12 * var(--screen-px)));
+  }
+  .edit-table rect {
+    --hit: max(28px, calc(40 * var(--screen-px)));
+    x: calc(-0.5 * var(--hit));
+    y: calc(-0.5 * var(--hit));
+    width: var(--hit);
+    height: var(--hit);
+  }
+}
+@media (pointer: coarse) and (min-width: 761px) {
+  #table-editor {
+    --column-grid: 40px minmax(70px, 1fr) minmax(70px, 1fr) minmax(85px, 0.85fr)
+      40px 40px 40px minmax(70px, 1fr) 86px;
+  }
+}
+@media (pointer: coarse) and (max-width: 760px) {
+  #table-editor {
+    --column-grid: 40px minmax(0, 1fr) minmax(90px, 0.8fr) 40px;
+  }
+}

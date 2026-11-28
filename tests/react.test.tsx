@@ -837,7 +837,7 @@ test("file menu copies and saves the same DDL and Mermaid text and disables expo
     assert.equal(byText(label).disabled, true);
 });
 
-async function pointer(element, type, x, y) {
+async function pointer(element, type, x, y, id = 1, pointerType = "mouse") {
   await act(() => {
     const event = new MouseEvent(type, {
       bubbles: true,
@@ -845,7 +845,7 @@ async function pointer(element, type, x, y) {
       clientY: y,
       button: 0,
     });
-    Object.defineProperty(event, "pointerId", { value: 1 });
+    Object.assign(event, { pointerId: id, pointerType });
     element.dispatchEvent(event);
   });
 }
@@ -1016,6 +1016,33 @@ async function gesture(type, scale) {
   await act(() => document.querySelector("#diagram").dispatchEvent(event));
   assert.equal(event.defaultPrevented, true);
 }
+test("a second finger cancels a title drag and pans and zooms about the moving midpoint", async () => {
+  const svg = document.querySelector("#diagram");
+  const title = document.querySelector(".table-title");
+  const before = saved();
+  const [x, y, w, h] = currentView();
+  await pointer(title, "pointerdown", 100, 100, 1, "touch");
+  await pointer(svg, "pointermove", 120, 100, 1, "touch");
+  await pointer(svg, "pointerdown", 220, 100, 2, "touch");
+  await gesture("gesturestart", 1);
+  await pointer(svg, "pointermove", 320, 140, 2, "touch");
+  await pointer(svg, "pointermove", 120, 140, 1, "touch");
+  await gesture("gesturechange", 2);
+  await wheel(svg, { deltaY: -30, ctrlKey: true });
+  assert.deepEqual(currentView(), [x + 60, y + 30, w / 2, h / 2]);
+  await pointer(svg, "pointerup", 320, 140, 2, "touch");
+  await pointer(svg, "pointercancel", 120, 140, 1, "touch");
+  await gesture("gesturechange", 3);
+  await gesture("gestureend", 3);
+  assert.deepEqual(currentView(), [x + 60, y + 30, w / 2, h / 2]);
+  assert.deepEqual(saved(), before);
+  assert.equal(byLabel("元に戻す").disabled, true);
+
+  await pointer(title, "pointerdown", 100, 100, 3, "touch");
+  await pointer(svg, "pointermove", 140, 120, 3, "touch");
+  await pointer(svg, "pointerup", 140, 120, 3, "touch");
+  assert.equal(saved().tables[0].x, before.tables[0].x + 20);
+});
 test("WebKit pinch uses cumulative scale without double applying wheel events and resumes panning", async () => {
   const [x, y, w, h] = currentView();
   await gesture("gesturestart", 1);

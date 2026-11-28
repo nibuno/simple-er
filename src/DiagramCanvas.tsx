@@ -1,3 +1,4 @@
+import { useTouchNavigation } from "../shared/useTouchNavigation.ts";
 import { tableColors, type TableGroup } from "./types.ts";
 import { columnMarks, serialBase } from "./column-attributes.ts";
 import { isImeKey } from "../shared/ime.ts";
@@ -224,6 +225,23 @@ export function DiagramCanvas(p: Props) {
       h: Math.max(1, svg.current?.clientHeight ?? 720),
     };
   }
+  useTouchNavigation(svg, "foreignObject", (start) => {
+    end(true);
+    const initial = p.viewRef.current;
+    const size = viewport();
+    return (center, scale) => {
+      const zoom = Math.max(25, Math.min(400, initial.zoom * scale));
+      const w = (size.w * 100) / zoom,
+        h = (size.h * 100) / zoom;
+      setView({
+        x: initial.x + (start.x * initial.w - center.x * w) / size.w,
+        y: initial.y + (start.y * initial.h - center.y * h) / size.h,
+        w,
+        h,
+        zoom,
+      });
+    };
+  });
   function zoom(
     percent: number,
     cx = view.x + view.w / 2,
@@ -426,11 +444,16 @@ export function DiagramCanvas(p: Props) {
     e.preventDefault();
     e.stopPropagation();
     drag.current = d;
-    svg.current!.setPointerCapture(e.pointerId);
+    // Touch implicitly captures the title. Keep it as the tap/double-tap target.
+    if (
+      e.pointerType !== "touch" ||
+      !(e.target as Element).closest(".table-title")
+    )
+      svg.current!.setPointerCapture(e.pointerId);
   }
   function move(e: PointerEvent<SVGSVGElement>) {
     const d = drag.current;
-    if (!d) return;
+    if (!d || d.pointer !== e.pointerId) return;
     if (d.kind === "pan") {
       const size = viewport();
       setView({
@@ -542,12 +565,23 @@ export function DiagramCanvas(p: Props) {
       <svg
         ref={svg}
         id="diagram"
+        style={{ "--screen-px": `${100 / view.zoom}px` } as React.CSSProperties}
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         aria-label="ER図の編集キャンバス"
         onPointerMove={move}
-        onPointerUp={() => end()}
-        onPointerCancel={() => end(true)}
-        onLostPointerCapture={() => end(true)}
+        onPointerUp={(e) => {
+          if (drag.current?.pointer === e.pointerId) end();
+        }}
+        onPointerCancel={(e) => {
+          if (drag.current?.pointer === e.pointerId) end(true);
+        }}
+        onLostPointerCapture={(e) => {
+          if (
+            drag.current?.pointer === e.pointerId &&
+            !svg.current?.hasPointerCapture(e.pointerId)
+          )
+            end(true);
+        }}
       >
         <defs>
           <pattern
@@ -794,7 +828,9 @@ export function DiagramCanvas(p: Props) {
                     x={16}
                     y={t.schemaName ? 38 : 31}
                     className="table-title"
-                    onPointerDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => {
+                      if (e.pointerType !== "touch") e.stopPropagation();
+                    }}
                     onClick={(e) => {
                       e.stopPropagation();
                       p.onSelectTable?.(t.id);
@@ -808,6 +844,7 @@ export function DiagramCanvas(p: Props) {
                   tabIndex={0}
                   aria-label={`${p.displayTable(t)}を編集`}
                   className="edit-table"
+                  transform={`translate(${width - 26} 26)`}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => p.onEdit(t.id)}
                   onKeyDown={(e) => {
@@ -818,12 +855,12 @@ export function DiagramCanvas(p: Props) {
                   }}
                 >
                   <title>テーブルを編集</title>
-                  <rect x={width - 40} y={12} width={28} height={28} rx={6} />
+                  <rect x={-14} y={-14} width={28} height={28} rx={6} />
                   {[-5, 0, 5].map((dx) => (
                     <circle
                       key={dx}
-                      cx={width - 26 + dx}
-                      cy={26}
+                      cx={dx}
+                      cy={0}
                       r={1.4}
                       className="edit-dot"
                     />
@@ -934,6 +971,10 @@ export function DiagramCanvas(p: Props) {
                             className="port-hit"
                             onClick={(e) => e.stopPropagation()}
                             onPointerDown={(e) => {
+                              if (e.pointerType === "touch" && !selected) {
+                                p.onSelectTable?.(t.id);
+                                return;
+                              }
                               const origin = {
                                 x: t.x + (side === "left" ? 0 : width),
                                 y: t.y + y + ROW / 2,

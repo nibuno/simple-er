@@ -190,9 +190,13 @@ function Editor({
   const canvas = useRef<CanvasHandle>(null),
     file = useRef<HTMLInputElement>(null),
     menu = useRef<HTMLDetailsElement>(null),
+    pasteDialog = useRef<HTMLDialogElement>(null),
     help = useRef<HTMLDialogElement>(null);
+  const [pasteInput, setPasteInput] = useState("");
+  const [pasteError, setPasteError] = useState("");
   const lastSaved = useRef(initial),
     actions = useRef({
+      pasteText: (_text: string): boolean => false,
       undo: () => {},
       redo: () => {},
       addAtPointer: (_kind: "box" | "note") => {},
@@ -438,6 +442,55 @@ function Editor({
     edit(null);
     clearPending();
     notify("削除しました");
+  }
+  function pasteText(text: string) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {}
+    const isCanvas =
+      parsed &&
+      typeof parsed === "object" &&
+      "format" in parsed &&
+      parsed.format === "simple-canvas";
+    if (
+      !isCanvas &&
+      text.length > MAX_TEXT &&
+      !/^\s*(?:flowchart|graph)\b/i.test(text)
+    )
+      throw new Error(`テキストは${MAX_TEXT}文字までです`);
+    if (!isCanvas && text.length > 2_000_000)
+      throw new Error("Mermaidの上限は200万文字です");
+    if (isCanvas || looksLikeFlowchart(text)) {
+      const fragment = isCanvas ? decode(text) : parseFlowchart(text);
+      const area = bounds(fragment.nodes);
+      const center = canvas.current?.center() || { x: 0, y: 0 };
+      const target = {
+        ...area,
+        x: center.x - area.w / 2 + 24,
+        y: center.y - area.h / 2 + 24,
+      };
+      if (!isCanvas) placeInFreeSpace(target, docRef.current);
+      const result = pasteDocument(docRef.current, fragment, {
+        x: target.x - area.x,
+        y: target.y - area.y,
+      });
+      if (!commit(result.doc)) return false;
+      select(result.ids);
+      if (!isCanvas) canvas.current?.centerOn(target);
+      notify(isCanvas ? "貼り付けました" : "図にしました");
+    } else {
+      if (docRef.current.nodes.length >= MAX_NODES)
+        throw new Error("追加できるのは150個までです");
+      const next = clone(docRef.current),
+        node = makeNode("note", canvas.current?.center() || { x: 100, y: 100 });
+      node.body = text;
+      next.nodes.push(node);
+      if (!commit(next)) return false;
+      select([node.id]);
+      notify("テキストとして貼り付けました");
+    }
+    return true;
   }
   function duplicate() {
     flushInput();
@@ -703,6 +756,7 @@ function Editor({
     notify("接続元を選択");
   }
   actions.current = {
+    pasteText,
     undo,
     redo,
     addAtPointer(kind) {
@@ -839,55 +893,7 @@ function Editor({
       if (!text) return;
       e.preventDefault();
       try {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(text);
-        } catch {}
-        const isCanvas =
-          parsed &&
-          typeof parsed === "object" &&
-          "format" in parsed &&
-          parsed.format === "simple-canvas";
-        if (
-          !isCanvas &&
-          text.length > MAX_TEXT &&
-          !/^\s*(?:flowchart|graph)\b/i.test(text)
-        )
-          throw new Error(`テキストは${MAX_TEXT}文字までです`);
-        if (!isCanvas && text.length > 2_000_000)
-          throw new Error("Mermaidの上限は200万文字です");
-        if (isCanvas || looksLikeFlowchart(text)) {
-          const fragment = isCanvas ? decode(text) : parseFlowchart(text);
-          const area = bounds(fragment.nodes);
-          const center = canvas.current?.center() || { x: 0, y: 0 };
-          const target = {
-            ...area,
-            x: center.x - area.w / 2 + 24,
-            y: center.y - area.h / 2 + 24,
-          };
-          if (!isCanvas) placeInFreeSpace(target, docRef.current);
-          const result = pasteDocument(docRef.current, fragment, {
-            x: target.x - area.x,
-            y: target.y - area.y,
-          });
-          if (!commit(result.doc)) return;
-          select(result.ids);
-          if (!isCanvas) canvas.current?.centerOn(target);
-          notify(isCanvas ? "貼り付けました" : "図にしました");
-        } else {
-          if (docRef.current.nodes.length >= MAX_NODES)
-            throw new Error("追加できるのは150個までです");
-          const next = clone(docRef.current),
-            node = makeNode(
-              "note",
-              canvas.current?.center() || { x: 100, y: 100 },
-            );
-          node.body = text;
-          next.nodes.push(node);
-          commit(next);
-          select([node.id]);
-          notify("テキストとして貼り付けました");
-        }
+        actions.current.pasteText(text);
       } catch (error) {
         setError(errorMessage(error));
       }
@@ -1055,6 +1061,16 @@ function Editor({
               </button>
               <button onClick={() => file.current?.click()}>
                 ファイルを開く…
+              </button>
+              <button
+                onClick={() => {
+                  setPasteInput("");
+                  setPasteError("");
+                  pasteDialog.current?.showModal();
+                  pasteDialog.current?.querySelector("textarea")?.focus();
+                }}
+              >
+                テキストを貼り付け…
               </button>
               <button onClick={save}>
                 ファイルに保存 <kbd>⌘ S</kbd>
@@ -1459,6 +1475,49 @@ function Editor({
           onDelete={deleteDiagram}
         />
       )}
+      <dialog
+        ref={pasteDialog}
+        className="help-dialog paste-dialog"
+        aria-labelledby="paste-heading"
+        onClose={() => menu.current?.querySelector("summary")?.focus()}
+      >
+        <div className="dialog-heading">
+          <h2 id="paste-heading">テキストを貼り付け</h2>
+          <button
+            className="icon-button"
+            aria-label="閉じる"
+            onClick={() => pasteDialog.current?.close()}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+        <label>
+          テキストまたは Mermaid
+          <textarea
+            rows={6}
+            value={pasteInput}
+            onChange={(e) => {
+              setPasteInput(e.target.value);
+              setPasteError("");
+            }}
+          />
+        </label>
+        {pasteError && <p role="alert">{pasteError}</p>}
+        <button
+          className="primary"
+          disabled={!pasteInput.trim()}
+          onClick={() => {
+            try {
+              if (pasteText(pasteInput)) pasteDialog.current?.close();
+              else setPasteError("貼り付けられませんでした");
+            } catch (error) {
+              setPasteError(errorMessage(error));
+            }
+          }}
+        >
+          貼り付け
+        </button>
+      </dialog>
       <dialog
         ref={help}
         className="help-dialog"

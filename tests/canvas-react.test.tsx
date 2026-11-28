@@ -132,7 +132,7 @@ async function dblclick(el) {
     el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, detail: 2 })),
   );
 }
-async function pointer(el, event, x, y) {
+async function pointer(el, event, x, y, id = 1, pointerType = "mouse") {
   await act(() => {
     const e = new MouseEvent(event, {
       bubbles: true,
@@ -141,7 +141,7 @@ async function pointer(el, event, x, y) {
       clientY: y,
       button: 0,
     });
-    Object.defineProperty(e, "pointerId", { value: 1 });
+    Object.assign(e, { pointerId: id, pointerType });
     el.dispatchEvent(e);
   });
 }
@@ -991,6 +991,32 @@ test("variants keep the original, compare either pair in sync, and remember the 
   assert.deepEqual(saved(), original);
 });
 
+test("pinching either comparison pane moves and scales both views together", async () => {
+  await click(button("案を作る"));
+  await click(button("図の一覧"));
+  await click(button("案を比べる"));
+  const panes = [...document.querySelectorAll(".variant-paper")];
+  // jsdom does not lay out SVGs.
+  panes.forEach((pane) => {
+    pane.getScreenCTM = () => ({ a: 1 });
+  });
+  const views = () =>
+    panes.map((el) => el.getAttribute("viewBox").split(" ").map(Number));
+  for (const pane of panes) {
+    const [before] = views();
+    await pointer(pane, "pointerdown", 40, 50, 1, "touch");
+    await pointer(pane, "pointerdown", 80, 50, 2, "touch");
+    await pointer(pane, "pointermove", 120, 60, 2, "touch");
+    await pointer(pane, "pointermove", 40, 60, 1, "touch");
+    await pointer(pane, "pointerup", 120, 60, 2, "touch");
+    await pointer(pane, "pointerup", 40, 60, 1, "touch");
+    const [left, right] = views();
+    assert.deepEqual(left, right);
+    assert.equal(left[2], before[2] / 2);
+    assert.notEqual(left[1], before[1]);
+  }
+});
+
 test("deleting the original keeps the remaining variants together and rejects a stale choice", async () => {
   const { groupVariants, createVariant, chooseVariant } =
     await import("../canvas/src/variants.ts");
@@ -1637,6 +1663,66 @@ test("a circle stays round when resized from a side or a corner", async () => {
     assert.equal(circle().w, circle().h, dir);
   }
   assert.ok(circle().w > 120);
+});
+
+test("touch pans blank space and a pinch cancels an in-progress shape drag", async () => {
+  const stage = label("設計キャンバス");
+  const before = saved();
+  const pos = () =>
+    document
+      .querySelector(".canvas-dots")
+      .style.backgroundPosition.split(" ")
+      .map(parseFloat);
+  const [x, y] = pos();
+  await pointer(stage, "pointerdown", 100, 100, 1, "touch");
+  await pointer(stage, "pointermove", 140, 120, 1, "touch");
+  await pointer(stage, "pointerup", 140, 120, 1, "touch");
+  assert.deepEqual(pos(), [x + 40, y + 20]);
+  const size = () =>
+    parseFloat(document.querySelector(".canvas-dots").style.backgroundSize);
+  const startSize = size();
+  await pointer(label("Workerを選択"), "pointerdown", 200, 200, 2, "touch");
+  await pointer(stage, "pointermove", 220, 200, 2, "touch");
+  await pointer(stage, "pointerdown", 320, 200, 3, "touch");
+  const gesture = (type, scale) =>
+    act(() =>
+      stage.dispatchEvent(
+        Object.assign(new Event(type, { bubbles: true, cancelable: true }), {
+          scale,
+        }),
+      ),
+    );
+  await gesture("gesturestart", 1);
+  await pointer(stage, "pointermove", 420, 200, 3, "touch");
+  await gesture("gesturechange", 2);
+  await pointer(stage, "pointerup", 420, 200, 3, "touch");
+  await pointer(stage, "pointercancel", 220, 200, 2, "touch");
+  await gesture("gesturechange", 3);
+  await gesture("gestureend", 3);
+  assert.equal(size(), startSize * 2);
+  assert.deepEqual(saved(), before);
+  assert.equal(label("元に戻す").disabled, true);
+});
+
+test("the paste dialog keeps invalid input and imports a corrected Mermaid graph in one undo step", async () => {
+  const before = saved();
+  await click(button("テキストを貼り付け…"));
+  const dialog = document.querySelector(".paste-dialog");
+  const input = dialog.querySelector("textarea");
+  assert.ok(dialog.open);
+  assert.ok(button("貼り付け").disabled);
+  await type(input, "flowchart LR\na -->");
+  await click(button("貼り付け"));
+  assert.ok(dialog.open);
+  assert.ok(dialog.querySelector('[role="alert"]').textContent);
+  assert.equal(input.value, "flowchart LR\na -->");
+  await type(input, "flowchart LR\na --> b");
+  await click(button("貼り付け"));
+  assert.equal(dialog.open, false);
+  assert.equal(saved().nodes.length, before.nodes.length + 2);
+  assert.equal(saved().edges.length, before.edges.length + 1);
+  await click(label("元に戻す"));
+  assert.deepEqual(saved(), before);
 });
 
 async function paste(text, target = label("設計キャンバス")) {

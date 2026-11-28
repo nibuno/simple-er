@@ -1509,6 +1509,24 @@ kbd {
   font-size: 13px;
   line-height: 1.9;
 }
+.paste-dialog label {
+  display: grid;
+  gap: 6px;
+  margin: 18px 0 14px;
+  font-size: 13px;
+}
+.paste-dialog textarea {
+  width: 100%;
+  padding: 10px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 16px;
+}
+.paste-dialog > .primary {
+  float: right;
+}
 .help-dialog dl {
   font-size: 12px;
   margin: 20px 0;
