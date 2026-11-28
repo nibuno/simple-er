@@ -947,6 +947,84 @@ test("the list creates, copies, renames and deletes drawings, including the last
     ["無題のキャンバス"],
   );
 });
+test("variants keep the original, compare either pair in sync, and remember the chosen drawing", async () => {
+  const original = saved();
+  await click(button("案を作る"));
+  const first = restoreDiagram();
+  assert.notEqual(first.doc.id, original.id);
+  assert.deepEqual(first.doc.nodes, original.nodes);
+  await click(button("案を作る"));
+  const second = restoreDiagram();
+  assert.equal(second.doc.title, "案2");
+  await addFigure("箱を追加");
+  await type(label("名前を直接編集"), "通知先");
+  await click(button("図の一覧"));
+  assert.equal(document.querySelectorAll(".variant-row").length, 2);
+  await click(button("案を比べる"));
+  await choose(label("左の案"), first.key);
+  const dialog = document.querySelector(".variant-comparison");
+  assert.match(dialog.textContent, /追加 1/);
+  assert.match(dialog.textContent, /通知先/);
+  const paper = () => [...dialog.querySelectorAll(".variant-paper")].map(el => el.getAttribute("viewBox"));
+  const [fit] = paper();
+  await click(dialog.querySelector('[aria-label="拡大"]'));
+  assert.equal(paper()[0], paper()[1]);
+  assert.notEqual(paper()[0], fit);
+  const [zoomed] = paper();
+  await key(dialog.querySelector(".variant-paper"), "ArrowRight");
+  assert.equal(paper()[0], paper()[1]);
+  assert.notEqual(paper()[0], zoomed);
+  const image = dialog.querySelectorAll("image")[1];
+  const colored = image.getAttribute("href");
+  await click(dialog.querySelector("input[type=checkbox]"));
+  assert.notEqual(image.getAttribute("href"), colored);
+  await choose(label("左の案"), second.key);
+  assert.equal(label("右の案").value, first.key);
+  await click(label("案2を元の図にする"));
+  assert.equal(saved().id, second.doc.id);
+  await act(() => root.unmount());
+  await mount();
+  await click(button("図の一覧"));
+  assert.equal(document.querySelector(".diagram-link strong").textContent, "案2");
+  assert.match(label(original.title + "を開く").textContent, /案 ·/);
+  await click(label(original.title + "を開く"));
+  assert.deepEqual(saved(), original);
+});
+
+test("deleting the original keeps the remaining variants together and rejects a stale choice", async () => {
+  const { groupVariants, createVariant, chooseVariant } =
+    await import("../canvas/src/variants.ts");
+  const { removeDiagram, writeDiagram, newDiagramKey } =
+    await import("../canvas/src/library.ts");
+  const [original] = listDiagrams();
+  createVariant(original, "A");
+  const a = listDiagrams().find((e) => e.title === "A");
+  createVariant(a, "B");
+  const b = listDiagrams().find((e) => e.title === "B");
+  writeDiagram(newDiagramKey(), saved(), null);
+  assert.deepEqual(
+    groupVariants(listDiagrams())
+      .map((g) => g.length)
+      .sort(),
+    [1, 3],
+  );
+  chooseVariant(original, b);
+  assert.throws(() => chooseVariant(original, a), /元の図が変わりました/);
+  writeDiagram(a.key, { ...saved(), title: "編集中の案" }, a.raw);
+  assert.throws(() => chooseVariant(b, a), /別のタブ/);
+  removeDiagram(original);
+  assert.equal(
+    groupVariants(listDiagrams()).find((g) => g.length === 2)[0].key,
+    b.key,
+  );
+  await click(button("図の一覧"));
+  await click(label("Bの操作"));
+  await click(button("削除"));
+  await click(button("削除する"));
+  assert.ok(label("編集中の案を開く"));
+  assert.equal(groupVariants(listDiagrams()).length, 2);
+});
+
 test("quota errors keep saved drawings and pending edits until another drawing is removed", async () => {
   const original = saved();
   await click(button("新しいキャンバス"));
