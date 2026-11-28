@@ -168,7 +168,7 @@ export function minimumHeight(node: CanvasNode, doc: CanvasDocument) {
           ? wrapText(node.description, area.w, 13).length * 21
           : 0) +
         (node.title && node.description ? 7 : 0);
-    return minimumBoxHeight(node.shape, textHeight);
+    return minimumBoxHeight(node, textHeight);
   }
   const text = noteContent(node, doc);
   // 50 is the smallest height a saved file accepts.

@@ -131,3 +131,41 @@ test("閲覧用HTMLで図形・点線メモ・一覧を選ぶと双方が連動�
   assert.equal(row.getAttribute("aria-current"), "true");
   window.close();
 });
+
+test("画像と閲覧用HTMLの図では名前・説明・線・テキスト・メモを禁則に従って折り返す", async () => {
+  const { makeNode, growNodes, attachNote } =
+    await import("../canvas/src/model.ts");
+  const { toSvg } = await import("../canvas/src/export.ts");
+  const doc = emptyDocument();
+  const sentence =
+    "入力する。（確認してから「次へ」を押す）、保存・終了。".repeat(3);
+  const box = {
+    ...makeNode("box", { x: 0, y: 0 }),
+    title: sentence,
+    description: sentence,
+    body: sentence,
+  };
+  const text = { ...makeNode("note", { x: 240, y: 0 }), body: sentence };
+  doc.nodes.push(box, text);
+  doc.edges.push({
+    id: "edge",
+    from: box.id,
+    to: text.id,
+    label: sentence,
+    dashed: false,
+  });
+  const withMemo = attachNote(growNodes(doc), box.id).doc;
+  const svg = new JSDOM(toSvg(withMemo), { contentType: "image/svg+xml" })
+    .window.document;
+  const viewer = new JSDOM(render(withMemo)).window.document;
+  const lines = (root) =>
+    [...root.querySelectorAll("svg text")].map((el) => el.textContent);
+  const imageLines = lines(svg);
+  assert.deepEqual(lines(viewer), imageLines);
+  for (const line of imageLines) {
+    assert.doesNotMatch(line, /^[。、・）」]|[（「]$/);
+  }
+  // The title also appears in the attached memo's heading.
+  assert.equal(imageLines.join("").split(sentence).length - 1, 6);
+  assert.equal(viewer.querySelector(".memo-body").textContent, sentence);
+});

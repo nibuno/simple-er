@@ -126,7 +126,7 @@ export function toSvg(
         gap = n.title && n.description ? 7 : 0,
         textY =
           area.y +
-          (area.centered
+          (area.centered && n.shape !== "person"
             ? (area.h - titleHeight - descriptionHeight - gap) / 2
             : 0),
         textX = n.x + area.x + (area.centered ? area.w / 2 : 0),
@@ -148,7 +148,7 @@ export function toSvg(
           ? `<text x="${marker.x - (marker.centered ? 0 : 4)}" y="${marker.y + 4}" font-size="10" fill="${colors.muted}" text-anchor="${marker.centered ? "middle" : "end"}">${memoStatusLabels[n.memoStatus]}</text>`
           : "";
       return (
-        `<g data-node-shape="${n.shape}" transform="translate(${n.x} ${n.y})"><path d="${paths.outline}" fill="${colors.fill}" stroke="${colors.stroke}"/>` +
+        `<g data-node-shape="${n.shape}"${n.shape === "person" ? ' stroke-width="1.5" stroke-linejoin="round"' : ""} transform="translate(${n.x} ${n.y})"><path d="${paths.outline}" fill="${colors.fill}" stroke="${colors.stroke}"/>` +
         (paths.detail
           ? `<path d="${paths.detail}" fill="none" stroke="${colors.stroke}"/>`
           : "") +
