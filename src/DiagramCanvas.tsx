@@ -1,4 +1,6 @@
+import { isImeKey } from "../shared/ime.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { PointerEvent, ReactNode, RefObject } from "react";
 import type { Column, Diagram, Endpoint, Point, Table, View } from "./types.ts";
 import {
@@ -18,6 +20,8 @@ import { Icon } from "./icons.tsx";
 
 type NameTarget =
   { kind: "table" } | { kind: "column"; id: string } | { kind: "add" };
+
+type NameAction = "enter" | "tab" | "blur";
 
 interface Props {
   logical?: boolean;
@@ -123,21 +127,41 @@ export function DiagramCanvas(p: Props) {
   useEffect(() => {
     // Blank SVG areas do not consistently move focus in browsers.
     // Release the old diagram control before the clicked control takes focus.
-    const releaseFocus = (event: globalThis.PointerEvent) => {
+    const releaseFocus = (event: MouseEvent) => {
       const active = document.activeElement;
       if (
-        event.button === 0 &&
-        active instanceof SVGElement &&
-        svg.current?.contains(active) &&
-        event.target instanceof Node &&
-        !active.contains(event.target)
+        event.button !== 0 ||
+        !(event.target instanceof Node) ||
+        !active ||
+        active.contains(event.target) ||
+        !svg.current?.contains(active)
+      )
+        return;
+      if (
+        active instanceof HTMLInputElement &&
+        active.closest(".inline-name")
       ) {
+        // A canvas press can clear selection or start a drag before native blur.
+        // Finish the edit first, so the drag also sees the updated document.
+        flushSync(() => active.blur());
+        if (
+          active.isConnected &&
+          active.getAttribute("aria-invalid") === "true"
+        ) {
+          active.focus();
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      } else if (active instanceof SVGElement && event.type === "pointerdown") {
         active.blur();
       }
     };
     document.addEventListener("pointerdown", releaseFocus, true);
-    return () =>
+    document.addEventListener("click", releaseFocus, true);
+    return () => {
       document.removeEventListener("pointerdown", releaseFocus, true);
+      document.removeEventListener("click", releaseFocus, true);
+    };
   }, []);
   const [view, setView] = useState<View>({
     x: 0,
@@ -548,6 +572,9 @@ export function DiagramCanvas(p: Props) {
                 : undefined;
             const rowEnd = HEADER + t.columns.length * ROW;
             const adding = target?.kind === "add";
+            const initialName = adding
+              ? ""
+              : (column ?? t)[p.logical ? "logicalName" : "name"];
             const full = t.columns.length >= MAX_COLUMNS;
             return (
               <g
@@ -814,16 +841,29 @@ export function DiagramCanvas(p: Props) {
                       }
                       target={target}
                       logical={!!p.logical}
-                      initialValue={
-                        adding
-                          ? ""
-                          : (column ?? t)[p.logical ? "logicalName" : "name"]
-                      }
-                      onSave={(value) => {
-                        p.onSaveName(t, target, value);
+                      initialValue={initialName}
+                      onSave={(value, action) => {
+                        if (adding || value !== initialName)
+                          p.onSaveName(t, target, value);
+                        if (
+                          action === "blur" ||
+                          (action === "enter" && target.kind === "table")
+                        ) {
+                          setEditing(null);
+                          return;
+                        }
+                        if (action === "tab" && !adding) {
+                          const next =
+                            t.columns[
+                              column ? t.columns.indexOf(column) + 1 : 0
+                            ];
+                          if (next) {
+                            beginRename(t, next);
+                            return;
+                          }
+                        }
                         const count = t.columns.length + (adding ? 1 : 0);
-                        if (target.kind !== "table" && count < MAX_COLUMNS)
-                          beginAdd(t, count);
+                        if (count < MAX_COLUMNS) beginAdd(t, count);
                         else setEditing(null);
                       }}
                       onClose={() => setEditing(null)}
@@ -936,7 +976,7 @@ function InlineNameEditor({
   target: NameTarget;
   logical: boolean;
   initialValue: string;
-  onSave: (value: string) => void;
+  onSave: (value: string, action: NameAction) => void;
   onClose: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -946,6 +986,24 @@ function InlineNameEditor({
   const typed = useRef(false);
   const adding = target.kind === "add";
   const field = logical ? "論理名" : "物理名";
+  const finished = useRef(false);
+  function save(input: HTMLInputElement, action: NameAction) {
+    if (finished.current) return;
+    const name = input.value.trim();
+    if (!name && action !== "enter") {
+      finished.current = true;
+      onClose();
+      return;
+    }
+    if ((adding && !name) || !input.reportValidity()) return;
+    finished.current = true;
+    try {
+      onSave(name, action);
+    } catch (err) {
+      finished.current = false;
+      setError(messageOf(err));
+    }
+  }
   return (
     <div className={`inline-name${adding ? " adding-column" : ""}`}>
       <label>
@@ -967,21 +1025,16 @@ function InlineNameEditor({
             setValue(e.target.value);
             setError("");
           }}
-          onBlur={onClose}
+          onBlur={(e) => save(e.currentTarget, "blur")}
           onKeyDown={(e) => {
             e.stopPropagation();
-            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-            if (e.key === "Enter") {
+            if (isImeKey(e.nativeEvent)) return;
+            if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
               e.preventDefault();
-              if (adding && !value.trim()) return;
-              if (!e.currentTarget.reportValidity()) return;
-              try {
-                onSave(value.trim());
-              } catch (err) {
-                setError(messageOf(err));
-              }
+              save(e.currentTarget, e.key === "Enter" ? "enter" : "tab");
             } else if (e.key === "Escape") {
               e.preventDefault();
+              finished.current = true;
               onClose();
             } else if (
               adding &&

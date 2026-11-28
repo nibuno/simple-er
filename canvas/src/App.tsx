@@ -1,3 +1,4 @@
+import { isImeKey } from "../../shared/ime.ts";
 import { watchStorage } from "../../shared/storage.ts";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type {
@@ -146,7 +147,7 @@ function Editor({
     const close = (e: PointerEvent | KeyboardEvent) => {
       if (
         e instanceof KeyboardEvent
-          ? e.key === "Escape"
+          ? !isImeKey(e) && e.key === "Escape"
           : !(e.target as Element).closest?.(".rail-more")
       )
         setMoreShapes(false);
@@ -705,7 +706,7 @@ function Editor({
   useEffect(() => {
     const dialogOpen = () => !!document.querySelector("dialog[open]");
     const key = (e: KeyboardEvent) => {
-      if (e.isComposing || dialogOpen()) return;
+      if (isImeKey(e) || dialogOpen()) return;
       const command = e.metaKey || e.ctrlKey;
       if (command && e.key.toLowerCase() === "s") {
         e.preventDefault();
@@ -952,6 +953,7 @@ function Editor({
           onCommit={commit}
           selectionBar={
             <SelectionBar
+              flushInput={flushInput}
               doc={doc}
               node={node}
               edge={edge}
@@ -1080,6 +1082,7 @@ function Editor({
           <TextField
             className="document-title"
             label="キャンバス名"
+            cancelOnEscape
             emptyValue="無題のキャンバス"
             value={doc.title}
             onCommit={(title) =>

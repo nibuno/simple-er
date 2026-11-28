@@ -1,3 +1,4 @@
+import { isImeKey } from "../shared/ime.ts";
 import { KeyList, DefinitionEditor } from "./ConstraintsEditor.tsx";
 import type { DefinitionSelection } from "./ConstraintsEditor.tsx";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -361,13 +362,7 @@ export function TableEditor({
   }
   // Enter in a column name moves down a row instead of submitting the form.
   function nextColumn(e: React.KeyboardEvent<HTMLInputElement>, i: number) {
-    if (
-      e.key !== "Enter" ||
-      e.metaKey ||
-      e.ctrlKey ||
-      e.nativeEvent.isComposing ||
-      e.keyCode === 229
-    )
+    if (e.key !== "Enter" || e.metaKey || e.ctrlKey || isImeKey(e.nativeEvent))
       return;
     e.preventDefault();
     if (i < draft.columns.length - 1) {
@@ -430,7 +425,7 @@ export function TableEditor({
           if (
             e.key === "Enter" &&
             (e.metaKey || e.ctrlKey) &&
-            !e.nativeEvent.isComposing
+            !isImeKey(e.nativeEvent)
           ) {
             e.preventDefault();
             e.currentTarget.requestSubmit();

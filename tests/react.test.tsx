@@ -1,3 +1,4 @@
+import { imeKey } from "./ime-events.mjs";
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
@@ -1696,4 +1697,93 @@ test("Delete or Backspace removes the selected foreign key or table with undo", 
   );
   await click(byLabel("元に戻す"));
   assert.equal(saved().tables.length, 3);
+});
+
+for (const engine of ["Chrome", "Safari"]) {
+  test(`${engine} composition keeps ER fields focused and Escape restores the saved diagram name`, async () => {
+    const title = byLabel("図の名前"),
+      original = title.value;
+    await act(() => title.focus());
+    await type(title, "注文の流れ");
+    await imeKey(title, "Enter", engine);
+    await imeKey(title, "Escape", engine);
+    assert.equal(document.activeElement, title);
+    assert.equal(title.value, "注文の流れ");
+    await key(title, "Escape");
+    assert.equal(title.value, original);
+    assert.equal(byLabel("元に戻す").disabled, true);
+
+    await click(byText("DDL を読み込む"));
+    const ddl = document.querySelector("#ddl-source");
+    await act(() => ddl.focus());
+    await type(ddl, "CREATE TABLE 受注(id int);");
+    await imeKey(ddl, "Escape", engine);
+    await imeKey(ddl, "Enter", engine);
+    assert.equal(document.activeElement, ddl);
+    assert.match(ddl.value, /受注/);
+    await click(byText("キャンセル"));
+
+    await click(byLabel("usersを編集"));
+    const column = byLabel("カラム1の論理名");
+    await act(() => column.focus());
+    await type(column, "識別子");
+    await imeKey(column, "Enter", engine, { metaKey: true });
+    assert.equal(document.activeElement, column);
+    assert.equal(saved().tables[0].columns[0].logicalName, "");
+  });
+}
+
+test("Tab renames successive columns, and blur saves the final draft only once", async () => {
+  const originalLast = saved().tables[0].columns.at(-1).name;
+  await key(byLabel("usersを移動。矢印キーで移動できます。"), "Enter");
+  const name = () => byLabel("図上で物理名を編集");
+  await type(name(), "members");
+  await key(name(), "Tab");
+  assert.equal(saved().tables[0].name, "members");
+  assert.equal(document.activeElement.value, "id");
+  await type(name(), "member_id");
+  await key(name(), "Tab");
+  assert.equal(document.activeElement.value, "name");
+  await type(name(), "display_name");
+  const grid = document.querySelector('rect[fill="url(#grid)"]');
+  await pointer(grid, "pointerdown", 10, 10);
+  assert.equal(document.querySelector(".inline-name"), null);
+  assert.deepEqual(
+    saved()
+      .tables[0].columns.slice(0, 2)
+      .map((c) => c.name),
+    ["member_id", "display_name"],
+  );
+
+  await click(byLabel("members.member_id を接続"));
+  await click(byLabel("membersにカラムを追加"));
+  const add = () => byLabel("追加するカラムの物理名");
+  await type(add(), "memo_text");
+  await key(add(), "Tab");
+  assert.equal(document.activeElement, add());
+  assert.equal(add().value, "");
+  await type(add(), "   ");
+  await act(() => add().blur());
+  assert.equal(document.querySelector(".inline-name"), null);
+  assert.equal(
+    saved().tables[0].columns.filter((c) => c.name === "memo_text").length,
+    1,
+  );
+  await click(byLabel("元に戻す"));
+  assert.equal(saved().tables[0].columns.at(-1).name, originalLast);
+});
+
+test("an invalid name stays editable when leaving through Tab or the grid", async () => {
+  await key(byLabel("users.id を接続"), "F2");
+  const input = byLabel("図上で物理名を編集");
+  await type(input, "email");
+  await key(input, "Tab");
+  const grid = document.querySelector('rect[fill="url(#grid)"]');
+  await pointer(grid, "pointerdown", 10, 10);
+  await click(grid);
+  assert.equal(document.activeElement, input);
+  assert.equal(input.value, "email");
+  assert.equal(input.getAttribute("aria-invalid"), "true");
+  await key(input, "Escape");
+  assert.equal(saved().tables[0].columns[0].name, "id");
 });

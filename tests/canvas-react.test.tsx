@@ -1,3 +1,4 @@
+import { imeKey } from "./ime-events.mjs";
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
@@ -1684,3 +1685,73 @@ test("an import that exceeds the open diagram's edge limit adds nothing", async 
   assert.deepEqual(saved(), before);
   assert.ok(label("元に戻す").disabled);
 });
+
+for (const engine of ["Chrome", "Safari"]) {
+  test(`${engine} composition keeps canvas drafts and closing the panel saves them`, async () => {
+    const title = label("キャンバス名"),
+      original = title.value;
+    await type(title, "通知の設計");
+    await imeKey(title, "Enter", engine);
+    assert.equal(document.activeElement, title);
+    await key(title, "Escape");
+    assert.equal(title.value, original);
+    assert.equal(saved().title, original);
+
+    await click(label("Workerを選択"));
+    await panel("メモを開く");
+    const memo = label("メモ");
+    const worker = () => saved().nodes.find((n) => n.id === "worker");
+    await type(memo, "通知先を確認");
+    await imeKey(memo, "Escape", engine);
+    assert.equal(document.activeElement, memo);
+    assert.equal(memo.value, "通知先を確認");
+    assert.notEqual(worker().body, memo.value);
+    await click(label("色"));
+    assert.equal(worker().body, "通知先を確認");
+
+    await click(label("塗りの色を選ぶ"));
+    const code = label("塗りの色コード");
+    await type(code, "#123abc");
+    await imeKey(code, "Enter", engine);
+    await imeKey(code, "Escape", engine);
+    assert.equal(document.activeElement, code);
+    assert.notEqual(worker().fillColor, code.value);
+    await key(code, "Escape");
+    assert.equal(worker().fillColor, "#123abc");
+
+    await dblclick(document.querySelector(".edge-control"));
+    const line = label("線のラベル");
+    await type(line, "通知を送る");
+    await imeKey(line, "Enter", engine);
+    await imeKey(line, "Escape", engine);
+    assert.equal(document.activeElement, line);
+    await key(line, "Escape");
+    assert.ok(saved().edges.some((e) => e.label === "通知を送る"));
+    await panel("色");
+    const arrows = label("矢印の種類");
+    await act(() => arrows.focus());
+    await imeKey(arrows, "Escape", engine);
+    assert.equal(label("色").getAttribute("aria-expanded"), "true");
+  });
+
+  test(`${engine} confirmation stays in shape names and group headings`, async () => {
+    await dblclick(label("Workerを選択"));
+    const title = label("名前を直接編集");
+    await type(title, "通知処理");
+    await imeKey(title, "Enter", engine);
+    assert.equal(document.activeElement, title);
+    await key(title, "Enter");
+    assert.equal(document.activeElement, label("説明を直接編集"));
+    await key(document.activeElement, "Escape");
+    await click(label("囲む"));
+    await key(label("設計キャンバス"), "Enter");
+    const heading = label("見出しを直接編集");
+    await type(heading, "非同期処理");
+    await imeKey(heading, "Enter", engine);
+    assert.equal(document.activeElement, heading);
+    await key(heading, "Enter");
+    assert.ok(
+      saved().nodes.some((n) => n.kind === "group" && n.title === "非同期処理"),
+    );
+  });
+}

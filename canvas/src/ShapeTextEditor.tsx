@@ -1,3 +1,4 @@
+import { isImeKey } from "../../shared/ime.ts";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { CanvasDocument, CanvasNode } from "./types";
 import { minimumHeight } from "./model";
@@ -137,7 +138,7 @@ export function ShapeTextEditor({
       }}
       onKeyDown={(e) => {
         e.stopPropagation();
-        if (composing.current || e.nativeEvent.isComposing) return;
+        if (composing.current || isImeKey(e.nativeEvent)) return;
         // Esc confirms, as on other canvases: written words never vanish.
         // Undo takes them back.
         if (
