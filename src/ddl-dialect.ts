@@ -7,7 +7,6 @@ export function ddlType(type: string, dialect: DdlDialect, indexed: boolean) {
     if (/^datetime(\(\d\))?$/.test(t))
       return t.replace("datetime", "timestamp");
     if (/^(tiny|medium|long)?blob$/.test(t)) return "bytea";
-    if (t === "tinyint(1)") return "boolean";
     if (t === "double") return "double precision";
     const integer =
       /^(tinyint|smallint|mediumint|int|integer|bigint)(?:\(\d+\))?( unsigned)?$/.exec(
