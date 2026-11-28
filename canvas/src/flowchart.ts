@@ -57,11 +57,25 @@ function escapeLabel(value: string) {
 }
 
 function decodeLabel(value: string) {
-  return value.replace(/#(\d{1,7}|quot);/g, (entity, code) => {
-    if (code === "quot") return '"';
-    const point = Number(code);
-    return point <= 0x10ffff ? String.fromCodePoint(point) : entity;
-  });
+  const named: Record<string, string> = {
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+  };
+  // Decode once so an exported literal "&amp;" stays literal on re-import.
+  return value.replace(
+    /&(amp|lt|gt|quot|apos);|&?#(\d{1,7}|x[0-9a-fA-F]{1,6}|quot);/g,
+    (entity, name, code) => {
+      if (name) return named[name];
+      if (code === "quot") return '"';
+      const point = code.startsWith("x")
+        ? parseInt(code.slice(1), 16)
+        : Number(code);
+      return point <= 0x10ffff ? String.fromCodePoint(point) : entity;
+    },
+  );
 }
 
 export function toFlowchart(doc: CanvasDocument) {

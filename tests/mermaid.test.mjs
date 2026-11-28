@@ -90,6 +90,8 @@ erDiagram
   }`);
   assert.deepEqual(issues, []);
   const [parent, child] = diagram.tables;
+  assert.equal(diagram.title, "Example");
+  assert.equal(importMermaid(diagramMermaid(diagram)).diagram.title, "Example");
   assert.equal(parent.logicalName, "番組");
   assert.equal(child.columns[0].key, "PK,FK");
   assert.equal(child.columns[2].name, "score #1");

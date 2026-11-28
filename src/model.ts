@@ -68,8 +68,8 @@ const logicalName = (value: unknown) => {
     fail("論理名は80文字以内にしてください。");
   return value.trim();
 };
-export function readNote(value: unknown) {
-  if (value === undefined || value === "") return {};
+export function readNote(value: unknown, label?: string) {
+  if (value === undefined || value === "" || value === label) return {};
   if (typeof value !== "string" || value.length > 2_000_000)
     fail("説明は200万文字以内にしてください。");
   return { note: value };
@@ -83,7 +83,7 @@ export function columnAttributes(
     | "identity"
     | "identityOptions"
     | "note"
-  >,
+  > & { logicalName?: string },
 ) {
   if (c.notNull !== undefined && typeof c.notNull !== "boolean")
     fail("NOT NULL の指定が不正です。");
@@ -99,7 +99,7 @@ export function columnAttributes(
   if (c.identity && (c.defaultValue || serialBase(c.type)))
     fail("IDENTITY と既定値や SERIAL は同時に指定できません。");
   return {
-    ...readNote(c.note),
+    ...readNote(c.note, c.logicalName),
     ...(c.notNull && { notNull: true }),
     ...(c.defaultValue && { defaultValue: c.defaultValue }),
     ...(c.identity && { identity: c.identity }),
@@ -194,7 +194,7 @@ export function validateDiagram(input: unknown): Diagram {
       name: title(t).trim(),
       ...(t.schemaName && { schemaName: t.schemaName.trim() }),
       logicalName: logicalName(t.logicalName),
-      ...readNote(t.note),
+      ...readNote(t.note, t.logicalName),
       ...(t.color && { color: t.color }),
       x: t.x,
       y: t.y,
@@ -292,7 +292,7 @@ export function migrateLegacyDiagram(input: unknown): Diagram {
     ...value,
     tables: value.tables.map((table) => ({
       ...table,
-      note: table?.logicalName ?? undefined,
+      note: undefined,
       columns: Array.isArray(table?.columns)
         ? table.columns.map((column) => {
             if (!Array.isArray(column)) fail("旧形式のカラムが不正です。");
@@ -302,7 +302,6 @@ export function migrateLegacyDiagram(input: unknown): Diagram {
               key: column[2],
               id: column[3],
               logicalName: column[4],
-              note: column[4] ?? undefined,
             };
           })
         : table?.columns,
@@ -399,7 +398,7 @@ export function projectDocument(
       name: t.name,
       schemaName: t.schemaName,
       logicalName: t.logicalName,
-      note: document.version === 2 ? (t.logicalName ?? undefined) : t.note,
+      note: document.version === 3 ? t.note : undefined,
       checks: t.checks,
       keys: t.keys,
       foreignKeys: t.foreignKeys,
@@ -411,7 +410,7 @@ export function projectDocument(
           fail("カラムIDが不正です。");
         return {
           ...c,
-          note: document.version === 2 ? (c.logicalName ?? undefined) : c.note,
+          note: document.version === 3 ? c.note : undefined,
           key: "",
         };
       }),

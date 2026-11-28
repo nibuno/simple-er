@@ -335,3 +335,12 @@ test("複数の囲みが同じ段にあっても枠が重ならない", () => {
     g2 = box(doc, "g2");
   assert.ok(g1.y + g1.h < g2.y);
 });
+
+test("Mermaid と HTML の参照は一度だけ戻す", () => {
+  const graph = parseFlowchart(
+    'flowchart LR\n a["A &amp; B &lt;C&gt; &amp;amp;"] -->|"&#x3042; #quot;"| b["#38;amp;"]',
+  );
+  assert.equal(graph.nodes[0].title, "A & B <C> &amp;");
+  assert.equal(graph.nodes[1].title, "&amp;");
+  assert.equal(graph.edges[0].label, 'あ "');
+});

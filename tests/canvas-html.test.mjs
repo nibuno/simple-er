@@ -169,3 +169,13 @@ test("画像と閲覧用HTMLの図では名前・説明・線・テキスト・�
   assert.equal(imageLines.join("").split(sentence).length - 1, 6);
   assert.equal(viewer.querySelector(".memo-body").textContent, sentence);
 });
+
+test("閲覧用の図だけがテーマに従い、指定した図形の色を保つ", () => {
+  const doc = sampleDocument();
+  doc.nodes.find((n) => n.kind === "box").fillColor = "#ffffff";
+  const html = render(doc);
+  assert.match(html, /prefers-color-scheme:\s*dark/);
+  assert.match(html, /fill="var\(--figure-fill, #ffffff\)"/);
+  assert.match(html, /fill="#ffffff"/);
+  assert.doesNotMatch(toSvg(doc), /--figure-fill/);
+});

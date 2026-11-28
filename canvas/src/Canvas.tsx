@@ -57,6 +57,7 @@ export interface CanvasHandle {
 }
 interface Props {
   doc: CanvasDocument;
+  arrowBase?: CanvasDocument;
   viewKey: string;
   selection: string[];
   tool: Tool;
@@ -211,9 +212,11 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     (gesture.kind === "move" || gesture.kind === "resize") &&
     gesture.moved
       ? gesture.before
-      : displayedDoc !== p.doc && !p.addedId
-        ? p.doc
-        : undefined;
+      : p.arrowBase
+        ? p.arrowBase
+        : displayedDoc !== p.doc && !p.addedId
+          ? p.doc
+          : undefined;
   const computed = useMemo(() => {
     const base = before ?? routingDoc;
     let result = committed.get(base);

@@ -271,8 +271,16 @@ test("undo and redo stay within the open diagram", async () => {
   assert.deepEqual(saved(), before);
   assert.equal(byLabel("やり直す").disabled, false);
   await click(byLabel("usersを移動。矢印キーで移動できます。"));
-  await key(byLabel("usersを移動。矢印キーで移動できます。"), "ArrowLeft");
-  assert.equal(saved().tables[0].x, before.tables[0].x - 8);
+  const heading = byLabel("usersを移動。矢印キーで移動できます。");
+  await key(heading, "ArrowLeft");
+  await key(heading, "ArrowLeft", { repeat: true });
+  assert.deepEqual(saved(), before);
+  await act(() =>
+    heading.dispatchEvent(
+      new KeyboardEvent("keyup", { key: "ArrowLeft", bubbles: true }),
+    ),
+  );
+  assert.equal(saved().tables[0].x, before.tables[0].x - 16);
   assert.equal(byLabel("やり直す").disabled, true);
   const original = localStorage.getItem(storageKey);
   await click(byText("新しい図"));
@@ -880,7 +888,7 @@ test("file menu copies and saves the same DDL and Mermaid text and disables expo
     assert.equal(await blob.text(), copied);
   }
   await click(byText("Mermaid をコピー"));
-  assert.match(copied, /^erDiagram\n/);
+  assert.match(copied, /^---\ntitle: "注文\/管理"\n---\nerDiagram\n/);
   await click(byText("Mermaid を保存"));
   assert.equal(await blob.text(), copied);
   assert.equal(filename, "注文_管理.mmd");
@@ -1921,6 +1929,9 @@ test("related view keeps both ends editable and saves and exports the whole diag
   assert.equal(document.querySelectorAll("g.edge").length, 1);
   await click(byLabel("orders.user_id を接続"));
   await key(byLabel("ordersを移動。矢印キーで移動できます。"), "ArrowDown");
+  await act(() =>
+    window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowDown" })),
+  );
   assert.deepEqual(tables(), ["users", "orders"]);
   assert.equal(saved().tables[1].y, before.tables[1].y + 8);
   assert.deepEqual(saved().tables[2], before.tables[2]);

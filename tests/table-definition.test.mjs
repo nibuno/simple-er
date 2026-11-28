@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { decodeDocument } from "../src/model.ts";
+import { importTableDefinition } from "../src/table-definition-import.ts";
 import { tableDefinition } from "../src/table-definition.ts";
 
 const examples = new URL("../examples/", import.meta.url);
@@ -82,7 +83,7 @@ test("Markdown lists names in display order and documents composite keys, attrib
     "| orders_account_fk | tenant_id, account_id | sales.accounts.tenant_id, sales.accounts.id | CASCADE | RESTRICT |",
     "| インデックス | orders_lookup | account_id, created_at |",
     "| 一意制約 | accounts_email_unique | tenant_id, email |",
-    "| bigserial | ○ |  |  | SERIAL |",
+    "| bigserial | ○ | 主キー |  | SERIAL |",
     "| IDENTITY ALWAYS (START WITH 10) |",
     "| IDENTITY BY DEFAULT |",
     "| categories_parent_fk | parent_id | categories.id |",
@@ -113,7 +114,7 @@ test("CSV quotes multiline fields and aligns references, actions and index membe
   );
   assert.ok(
     csv.includes(
-      `sales.accounts,,'=SUM(1),tenant_id,,uuid,○,,,,,,,,,,"accounts_email_unique (tenant_id, email)","accounts_pk (tenant_id, id)",\r\n`,
+      `sales.accounts,,'=SUM(1),tenant_id,,uuid,○,主キー,,,,,,,,,"accounts_email_unique (tenant_id, email)","accounts_pk (tenant_id, id)",\r\n`,
     ),
   );
 });
@@ -136,4 +137,23 @@ test("Markdown and CSV restore references between tables with the same physical 
       columnIds: [auth.columns[0].id],
     });
   }
+});
+
+test("Markdown shows ordinary ENUM values as a list and keeps punctuation unambiguous", () => {
+  const doc = orders();
+  doc.schema.enums = [
+    { name: "status", values: ["draft", "paid", "発送済み"] },
+    { name: "labels", values: ["a, b", "c"] },
+  ];
+  const md = tableDefinition(doc, "md");
+  assert.match(md, /draft, paid, 発送済み/);
+  const restored = importTableDefinition(md);
+  assert.deepEqual(restored.schema.enums, doc.schema.enums);
+  const old = md.replace(
+    "draft, paid, 発送済み",
+    '&#91;"draft","paid","発送済み"&#93;',
+  );
+  assert.deepEqual(importTableDefinition(old).schema.enums, doc.schema.enums);
+  doc.ddlDialect = "SQLite";
+  assert.doesNotMatch(tableDefinition(doc, "md"), /uuid \| ○ \| 主キー/);
 });

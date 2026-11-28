@@ -50,7 +50,7 @@
   display: block;
   width: 100%;
   height: clamp(160px, min(54dvh, 40vw), 580px);
-  background-color: #f8faf9;
+  background-color: var(--bg);
   touch-action: none;
   cursor: grab;
 }

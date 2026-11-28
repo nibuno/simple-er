@@ -57,15 +57,35 @@ export function chooseVariant(primary: DiagramEntry, selected: DiagramEntry) {
   if (!current || current[0].key !== primary.key)
     throw new Error("元の図が変わりました。図の一覧から開き直してください。");
   const chosen = readVariant(selected);
-  checkDiagram(primary.key, primary.raw);
+  const previous = readVariant(primary);
+  if (selected.key === primary.key) return previous;
+  const renamed: { key: string; before: string; after: string }[] = [];
+  const rename = (entry: DiagramEntry, doc: CanvasDocument, title: string) => {
+    const saved = writeDiagram(
+      entry.key,
+      decode(encode({ ...doc, title })),
+      entry.raw,
+    );
+    renamed.push({ key: entry.key, before: entry.raw, after: saved.raw! });
+    return saved;
+  };
   try {
+    rename(primary, previous.doc, chosen.doc.title);
+    const result = rename(selected, chosen.doc, previous.doc.title);
     localStorage.setItem(choicePrefix + familyKey(selected.key), selected.key);
-  } catch {
+    return result;
+  } catch (error) {
+    // Restore only our writes if a later slot or the preference could not be saved.
+    for (const entry of renamed.reverse()) {
+      if (localStorage.getItem(entry.key) === entry.after)
+        localStorage.setItem(entry.key, entry.before);
+    }
+    if (error instanceof Error && error.name !== "QuotaExceededError")
+      throw error;
     throw new Error(
       "元の図を変更できませんでした。ブラウザの空き容量を確認してください。",
     );
   }
-  return chosen;
 }
 
 export function clearVariantChoice(key: string) {

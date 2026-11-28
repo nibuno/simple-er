@@ -149,7 +149,7 @@ test("Mermaid retains shared and unused ENUMs, named CHECKs and composite key or
   const parsed = importMermaid(mmd);
   assert.deepEqual(parsed.issues, []);
   assertSchema(parsed.diagram, original);
-  assert.match(diagramSvg(original), />UK<\/text>/);
+  assert.match(diagramSvg(original), />UK1<\/text>/);
   assert.match(diagramSvg(original), />CHECK 2<\/text>/);
 });
 for (const format of ["md", "csv"])

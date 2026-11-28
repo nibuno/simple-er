@@ -6,6 +6,10 @@ const n=`<!doctype html>
     <title>{{title}}</title>
     <style>
       :root {
+        color-scheme: light dark;
+        --surface: white;
+        --paper: #f8faf9;
+        --danger: #a34343;
         --text: #22302b;
         --muted: #65736c;
         --border: #d6ddd9;
@@ -19,7 +23,7 @@ const n=`<!doctype html>
           "Noto Sans JP",
           sans-serif;
         color: var(--text);
-        background: white;
+        background: var(--surface);
       }
       * {
         box-sizing: border-box;
@@ -90,7 +94,7 @@ const n=`<!doctype html>
         flex: 1;
         min-width: 0;
         min-height: 0;
-        background-color: #f8faf9;
+        background-color: var(--paper);
         background-image:
           linear-gradient(var(--grid) 1px, transparent 1px),
           linear-gradient(90deg, var(--grid) 1px, transparent 1px);
@@ -163,7 +167,7 @@ const n=`<!doctype html>
         color: var(--accent);
       }
       [data-status="concern"] {
-        color: #a34343;
+        color: var(--danger);
       }
       .memo-body {
         display: block;
@@ -171,6 +175,19 @@ const n=`<!doctype html>
         margin-top: 6px;
         line-height: 1.65;
         font-size: 13px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --surface: #1b2320;
+          --paper: #131917;
+          --text: #e2eae6;
+          --muted: #9aa9a2;
+          --border: #35433d;
+          --grid: #212a26;
+          --accent: #7cc4ae;
+          --selected: #22382f;
+          --danger: #ef8f8f;
+        }
       }
       @media (max-width: 820px) {
         main {

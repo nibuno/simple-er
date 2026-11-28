@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { initial } from "../src/initial.ts";
+import { importDDL } from "../src/ddl-import.ts";
 import { diagramDDL } from "../src/ddl.ts";
 import { diagramMermaid } from "../src/mermaid.ts";
 import { diagramSvg } from "../src/export.ts";
 import { groupFrames, height, tableWidth } from "../src/geometry.ts";
-import { tidyDiagram } from "../src/layout.ts";
+import { clearGroupFrame, tidyDiagram } from "../src/layout.ts";
 import {
   decode,
   encode,
@@ -120,4 +121,88 @@ test("tidy moves a table out of the space between two grouped members", () => {
       outside.y + height(outside) <= frame.y,
   );
   assert.deepEqual(arranged.groups, diagram.groups);
+});
+
+test("saving a group clears an outsider without moving its members or unrelated tables", () => {
+  const diagram = grouped();
+  diagram.groups[0].tableIds = ["users", "order_items"];
+  const original = structuredClone(diagram);
+  const next = clearGroupFrame(diagram, "sales");
+  const [frame] = groupFrames(next);
+  const [first, outside, last] = next.tables;
+  assert.deepEqual([first, last], [diagram.tables[0], diagram.tables[2]]);
+  assert.ok(
+    outside.x >= frame.x + frame.width ||
+      outside.x + tableWidth(outside) <= frame.x ||
+      outside.y >= frame.y + frame.height ||
+      outside.y + height(outside) <= frame.y,
+  );
+  assert.equal(clearGroupFrame(next, "sales"), next);
+  assert.deepEqual(diagram, original);
+});
+
+test("an overlapping group moves intact, carrying its manual route", () => {
+  const diagram = grouped();
+  const [first, second, third] = diagram.tables;
+  const outer = { ...third, id: "last", name: "last", x: third.x + 600 };
+  diagram.tables = [...diagram.tables, outer];
+  diagram.groups.push({
+    id: "outside",
+    name: "両端",
+    tableIds: [first.id, outer.id],
+  });
+  Object.assign(diagram.edges[1], { manual: true, trunk: 800 });
+  const next = clearGroupFrame(diagram, "outside");
+  const [a, b] = groupFrames(next);
+  assert.ok(
+    a.x + a.width <= b.x ||
+      b.x + b.width <= a.x ||
+      a.y + a.height <= b.y ||
+      b.y + b.height <= a.y,
+  );
+  const dx = next.tables[1].x - second.x;
+  assert.equal(next.tables[2].x - third.x, dx);
+  assert.equal(next.tables[2].y - third.y, next.tables[1].y - second.y);
+  assert.equal(next.edges[1].trunk, 800 + dx);
+});
+
+test("migration, group placement and DDL keep same-named tables in their own schemas", () => {
+  const { diagram, issues } = importDDL(`
+    CREATE TABLE auth.users (id integer PRIMARY KEY);
+    CREATE TABLE public.users (id integer PRIMARY KEY);
+    CREATE TABLE auth.logins (user_id integer REFERENCES auth.users(id));
+  `);
+  assert.deepEqual(issues, []);
+  const [auth, pub, logins] = diagram.tables;
+  for (const [i, t] of diagram.tables.entries())
+    Object.assign(t, { x: 80 + i * 400, y: 80 });
+  const doc = documentFromDiagram(diagram);
+  const [authRow, pubRow] = doc.schema.tables;
+  Object.assign(authRow, { logicalName: "認証用", note: "認証用" });
+  Object.assign(pubRow, { logicalName: "表示用", note: "画面に出す情報" });
+  doc.presentation.groups = [
+    { id: "auth", name: "認証", tableIds: [auth.id, logins.id] },
+  ];
+  for (const version of [2, 3]) {
+    const loaded = decode(JSON.stringify({ ...doc, version }));
+    const grouped = clearGroupFrame(loaded, "auth");
+    assert.deepEqual(grouped.groups[0].tableIds, [auth.id, logins.id]);
+    assert.deepEqual(grouped.tables[0], loaded.tables[0]);
+    assert.notDeepEqual(grouped.tables[1], loaded.tables[1]);
+    const note = version === 2 ? undefined : "画面に出す情報";
+    for (const dialect of ["PostgreSQL", "MySQL", "SQLite"]) {
+      const restored = importDDL(diagramDDL(grouped, dialect));
+      assert.deepEqual(restored.issues, []);
+      const [a, p, l] = restored.diagram.tables;
+      assert.deepEqual(
+        [a.schemaName, a.logicalName, a.note],
+        ["auth", "認証用", undefined],
+      );
+      assert.deepEqual(
+        [p.schemaName, p.logicalName, p.note],
+        ["public", "表示用", note],
+      );
+      assert.equal(l.foreignKeys[0].target.tableId, a.id);
+    }
+  }
 });

@@ -228,6 +228,11 @@ button svg {
   justify-content: space-between;
   min-height: 36px;
 }
+.mermaid-note {
+  padding: 0 8px 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
 .file-popover hr {
   margin: 5px 0;
   border: 0;
