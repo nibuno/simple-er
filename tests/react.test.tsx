@@ -2039,3 +2039,17 @@ test("Shift selection and Command+G group tables, search and filtered drag use f
   assert.equal(saved().groups, undefined);
   assert.equal(saved().tables.length, 3);
 });
+
+test("a table removed by undo is not preselected in a new group", async () => {
+  await click(byText("テーブルを追加"));
+  await submit();
+  const headings = [...document.querySelectorAll(".table-title")];
+  await click(headings.find((h) => h.textContent === "table_1"));
+  await click(byLabel("元に戻す"));
+  await key(document.body, "g", { ctrlKey: true });
+  await type(document.querySelector("#group-dialog .field input"), "注文");
+  assert.equal(document.querySelector("#group-dialog .primary").disabled, true);
+  await click(document.querySelector("#group-dialog input[type=checkbox]"));
+  await submit();
+  assert.deepEqual(saved().groups[0].tableIds, ["users"]);
+});

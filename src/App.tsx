@@ -149,16 +149,18 @@ function Editor({
   const [focusedTable, setFocusedTable] = useState<string | null>(null);
   const [multiSelection, setMultiSelection] = useState<string[]>([]);
   const [groupDraft, setGroupDraft] = useState<TableGroup | null>(null);
+  const focused = state.tables.find((t) => t.id === focusedTable);
+  const selectedTables = focused ? [focused.id] : multiSelection;
   function beginGroup() {
     if (!state.tables.length) return;
     setGroupDraft({
       id: uid(),
       name: "",
-      tableIds: focusedTable ? [focusedTable] : multiSelection,
+      tableIds: selectedTables,
     });
   }
   function toggleTable(id: string) {
-    const ids = new Set(focusedTable ? [focusedTable] : multiSelection);
+    const ids = new Set(selectedTables);
     if (ids.has(id)) ids.delete(id);
     else ids.add(id);
     clear();
@@ -769,7 +771,6 @@ function Editor({
       .map((fk) => ({ table, fk })),
   );
   const edge = state.edges.find((e) => e.id === selected);
-  const focused = state.tables.find((t) => t.id === focusedTable);
   const pendingTable = pending
     ? state.tables.find((t) => t.id === pending.table)
     : undefined;
