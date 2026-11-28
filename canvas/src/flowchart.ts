@@ -13,6 +13,7 @@ import {
   makeNode,
   uid,
 } from "./model";
+import { normalizeColor } from "./colors";
 import { SHAPES } from "./shapes";
 import { textWidth } from "./text";
 
@@ -20,7 +21,13 @@ import { textWidth } from "./text";
 // diagram: the writer names the shapes and the connections, and the positions
 // come from here.
 type Direction = "LR" | "RL" | "TB" | "BT";
-type Ref = { id: string; label: string; shape?: NodeShape; next: number };
+type Ref = {
+  id: string;
+  label: string;
+  shape?: NodeShape;
+  className?: string;
+  next: number;
+};
 
 const ID = /^[\p{L}\p{M}\p{N}_]+(?:-[\p{L}\p{M}\p{N}_]+)*/u;
 // Longer openers come first: "[(" is a cylinder, "[" on its own is a box.
@@ -104,7 +111,12 @@ export function toFlowchart(doc: CanvasDocument) {
   const groups = doc.nodes.filter((n) => n.kind === "group");
   groups.forEach((group, i) => {
     const members = boxes.filter((n) => n.groupId === group.id);
-    if (!members.length) return;
+    if (
+      !members.length &&
+      !doc.edges.some((e) => e.from === group.id || e.to === group.id)
+    )
+      return;
+    ids.set(group.id, "g" + (i + 1));
     lines.push("  subgraph g" + (i + 1) + " [" + label(group) + "]");
     for (const n of members) lines.push("    " + box(n));
     lines.push("  end");
@@ -122,18 +134,17 @@ export function toFlowchart(doc: CanvasDocument) {
   }
   return lines.join("\n") + "\n";
 }
-const SKIP =
-  /^(classDef|class|style|linkStyle|click|direction|accTitle|accDescr)\b/i;
 const GAP = 120,
-  CROSS_GAP = 48,
-  // A group's frame reaches past its members, so grouped diagrams stand apart.
-  GROUP_GAP = 128;
+  CROSS_GAP = 48;
 
 export function looksLikeFlowchart(text: string) {
   const lines = text
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("%%"));
+    .filter(
+      (line) =>
+        line && !line.startsWith("%%") && !/^```(?:mermaid)?$/i.test(line),
+    );
   if (/^(flowchart|graph)\b/i.test(lines[0] ?? "")) return true;
   // Without a header, look for a connection directly after a node, so a
   // sentence containing an arrow still pastes as ordinary text.
@@ -181,15 +192,13 @@ function readRef(text: string, i: number): Ref | null {
     i = end + close.length;
     break;
   }
-  const named = /^:::(\w+)/.exec(text.slice(i));
+  const named = /^:::([\w-]+)/.exec(text.slice(i));
   if (named) {
-    if (!SHAPES.includes(named[1] as NodeShape))
-      throw new Error(`::: のあとは ${SHAPES.join(" / ")} のどれかです`);
-    shape = named[1] as NodeShape;
+    if (SHAPES.includes(named[1] as NodeShape)) shape = named[1] as NodeShape;
     i += named[0].length;
   }
   if (id.length > 120) throw new Error("図形のIDは120文字までです");
-  return { id, label, shape, next: i };
+  return { id, label, shape, className: named?.[1], next: i };
 }
 
 // "a & b" names two shapes at one end of a connection.
@@ -247,36 +256,76 @@ function readLink(text: string, i: number) {
   };
 }
 
-export function parseFlowchart(text: string): CanvasDocument {
-  const doc = emptyDocument(),
-    nodes = new Map<string, CanvasNode>();
-  let groupLine = 0;
-  let groupId: string | undefined;
+// Read a whole connection chain before applying it. A malformed line must not
+// introduce a stray box or consume the remaining connection allowance.
+function readChain(line: string) {
+  let { refs: left, next } = readRefs(line, 0);
+  if (!left.length) throw new Error("図形の名前が読み取れません");
+  const refs = [...left],
+    edges: CanvasEdge[] = [];
+  for (;;) {
+    const link = readLink(line, next);
+    if (!link) break;
+    const right = readRefs(line, link.next);
+    if (!right.refs.length) throw new Error("線のつなぎ先がありません");
+    if (edges.length + left.length * right.refs.length > MAX_EDGES)
+      throw new Error(`線は${MAX_EDGES}本までです`);
+    refs.push(...right.refs);
+    for (const a of left)
+      for (const b of right.refs)
+        edges.push({
+          id: uid(),
+          from: link.reversed ? b.id : a.id,
+          to: link.reversed ? a.id : b.id,
+          label: link.label,
+          dashed: link.dashed,
+          arrowheads: link.arrowheads,
+        });
+    left = right.refs;
+    next = right.next;
+  }
+  if (line.slice(next).trim()) throw new Error("読み取れない書き方です");
+  return { refs, edges };
+}
+
+type Paint = Pick<CanvasNode, "fillColor" | "strokeColor">;
+function readPaint(properties: string, warn: (message: string) => void) {
+  const paint: Paint = {};
+  const skipped: string[] = [];
+  for (const declaration of properties.split(",")) {
+    const [key, value] = declaration.trim().split(/\s*:\s*/);
+    const color =
+      value === "transparent" || value === "none"
+        ? "transparent"
+        : normalizeColor(value ?? "");
+    if (key === "fill" && color) paint.fillColor = color;
+    else if (key === "stroke" && color) paint.strokeColor = color;
+    else skipped.push(key);
+  }
+  if (skipped.length)
+    warn("反映できない色・書式があります（" + skipped.join("、") + "）");
+  return paint;
+}
+
+export function readFlowchart(text: string) {
+  const doc = emptyDocument();
+  const nodes = new Map<string, CanvasNode>();
+  const groups: { id: string; line: number }[] = [];
+  const groupRoot = new Map<string, string>();
+  const directions = new Map<string, Direction>();
+  const classes = new Map<string, Paint>();
+  const assignments: { id: string; name: string; line: number }[] = [];
+  const styles: { id: string; paint: Paint; line: number }[] = [];
+  const issues: { line: number; message: string }[] = [];
   let direction: Direction = "LR";
-  const place = (ref: Ref) => {
-    const node = nodes.get(ref.id);
-    if (!node) {
-      if (nodes.size >= MAX_NODES)
-        throw new Error(`要素は${MAX_NODES}個までです`);
-      const made = {
-        ...makeNode("box", { x: 0, y: 0 }, ref.shape),
-        id: ref.id,
-        ...labelText(ref.label || ref.id),
-        groupId,
-      };
-      nodes.set(ref.id, made);
-      doc.nodes.push(made);
-      return;
-    }
-    if (node.kind === "group")
-      throw new Error(`${ref.id} は囲みです。中の図形につないでください`);
-    if (ref.label) Object.assign(node, labelText(ref.label));
-    if (ref.shape && ref.shape !== node.shape) {
-      const sized = makeNode("box", node, ref.shape);
-      Object.assign(node, { shape: ref.shape, w: sized.w, h: sized.h });
-    }
-  };
+  function report(line: number, message: string) {
+    issues.push({ line, message });
+  }
+  function checkSize(size: number) {
+    if (size > MAX_NODES) throw new Error(`要素は${MAX_NODES}個までです`);
+  }
   text.split("\n").forEach((raw, index) => {
+    const lineNumber = index + 1;
     const line = raw
       .replace(/"[^"]*"|%%.*$/g, (token) =>
         token.startsWith("%%") ? "" : token,
@@ -284,97 +333,182 @@ export function parseFlowchart(text: string): CanvasDocument {
       .trim()
       .replace(/;$/, "")
       .trimEnd();
-    if (!line || SKIP.test(line)) return;
+    if (!line || /^```(?:mermaid)?$/i.test(line)) return;
+    const groupId = groups[0]?.id;
     try {
-      if (/^(?:flowchart|graph)\b/i.test(line)) {
-        const header = /^(?:flowchart|graph)(?:\s+(LR|RL|TB|TD|BT))?$/i.exec(
-          line,
-        );
-        if (!header)
+      if (/^(?:flowchart|graph|direction)\b/i.test(line)) {
+        const header =
+          /^(flowchart|graph|direction)(?:\s+(LR|RL|TB|TD|BT))?$/i.exec(line);
+        if (!header || (!header[2] && header[1].toLowerCase() === "direction"))
           throw new Error("向きは LR・RL・TB・TD・BT から選んでください");
-        const given = (header[1] ?? "LR").toUpperCase();
-        direction = given === "TD" ? "TB" : (given as Direction);
+        const value = (header[2] ?? "LR").toUpperCase();
+        const dir = value === "TD" ? "TB" : (value as Direction);
+        if (groupId) directions.set(groupId, dir);
+        else direction = dir;
         return;
       }
       if (/^end$/i.test(line)) {
-        if (!groupId) throw new Error("subgraph がありません");
-        groupId = undefined;
+        if (!groups.pop()) throw new Error("subgraph がありません");
         return;
       }
-      if (/^subgraph$/i.test(line)) throw new Error("囲みの名前がありません");
-      const sub = /^subgraph\s+(.+)$/i.exec(line);
-      if (sub) {
-        if (groupId) throw new Error("囲みの中に囲みは置けません");
-        const named = /^([^\s[\]]+)\s*\[([^\]]*)\]$/.exec(sub[1]);
-        if (!named && /[[\]]/.test(sub[1]))
+      if (/^subgraph\b/i.test(line)) {
+        const title = line.slice(8).trim();
+        const named = /^([^\s[\]]+)\s*\[(.*)\]$/.exec(title);
+        if (!title || (!named && /[[\]]/.test(title)))
           throw new Error("囲みの名前を確認してください");
-        const id = named ? named[1] : sub[1];
-        if (id.length > 120) throw new Error("囲みのIDは120文字までです");
-        if (nodes.size >= MAX_NODES)
-          throw new Error(`要素は${MAX_NODES}個までです`);
-        if (nodes.has(id))
-          throw new Error(`${id} は図形の名前と重なっています`);
-        const group = {
-          ...makeNode("group", { x: 0, y: 0 }),
-          id,
-          ...labelText(named ? named[2] : sub[1]),
-        };
-        nodes.set(id, group);
-        doc.nodes.push(group);
-        groupId = id;
-        groupLine = index + 1;
+        const id = named?.[1] ?? title;
+        if (id.length > 120 || groupRoot.has(id))
+          throw new Error("囲みのIDが長すぎるか、重複しています");
+        // A bare reference before this declaration may already be an endpoint.
+        const existing = nodes.get(id);
+        if (!groupId) checkSize(nodes.size + (existing ? 0 : 1));
+        groupRoot.set(id, groupId ?? id);
+        if (groupId) {
+          report(
+            lineNumber,
+            "入れ子の囲みは「" + nodes.get(groupId)!.title + "」にまとめました",
+          );
+          nodes.delete(id);
+        } else {
+          nodes.set(id, {
+            ...makeNode("group", { x: 0, y: 0 }),
+            id,
+            ...labelText(named?.[2] ?? title),
+          });
+        }
+        groups.push({ id, line: lineNumber });
         return;
       }
-      let { refs: left, next } = readRefs(line, 0);
-      if (!left.length) throw new Error("図形の名前が読み取れません");
-      left.forEach(place);
-      for (;;) {
-        const link = readLink(line, next);
-        if (!link) break;
-        const right = readRefs(line, link.next);
-        if (!right.refs.length) throw new Error("線のつなぎ先がありません");
-        right.refs.forEach(place);
-        if (doc.edges.length + left.length * right.refs.length > MAX_EDGES)
-          throw new Error(`線は${MAX_EDGES}本までです`);
-        for (const a of left)
-          for (const b of right.refs)
-            doc.edges.push({
-              id: uid(),
-              from: link.reversed ? b.id : a.id,
-              to: link.reversed ? a.id : b.id,
-              label: link.label,
-              dashed: link.dashed,
-              arrowheads: link.arrowheads,
-            });
-        left = right.refs;
-        next = right.next;
+      const paint = /^(classDef|style)\s+(\S+)\s+(.+)$/i.exec(line);
+      if (paint) {
+        const parsed = readPaint(paint[3], (message) =>
+          report(lineNumber, message),
+        );
+        for (const id of paint[2].split(",")) {
+          if (paint[1].toLowerCase() === "classdef") classes.set(id, parsed);
+          else styles.push({ id, paint: parsed, line: lineNumber });
+        }
+        return;
       }
-      if (line.slice(next).trim()) throw new Error("読み取れない書き方です");
+      const assign = /^class\s+(\S+)\s+(\S+)$/i.exec(line);
+      if (assign) {
+        for (const id of assign[1].split(","))
+          assignments.push({ id, name: assign[2], line: lineNumber });
+        return;
+      }
+      const parsed = readChain(line);
+      const added = new Set(
+        parsed.refs
+          .map((r) => r.id)
+          .filter((id) => !nodes.has(id) && !groupRoot.has(id)),
+      );
+      checkSize(nodes.size + added.size);
+      if (doc.edges.length + parsed.edges.length > MAX_EDGES)
+        throw new Error(`線は${MAX_EDGES}本までです`);
+      for (const ref of parsed.refs) {
+        if (ref.className)
+          assignments.push({
+            id: ref.id,
+            name: ref.className,
+            line: lineNumber,
+          });
+        if (groupRoot.has(ref.id)) continue;
+        let node = nodes.get(ref.id);
+        if (!node) {
+          node = {
+            ...makeNode("box", { x: 0, y: 0 }, ref.shape),
+            id: ref.id,
+            ...labelText(ref.label || ref.id),
+          };
+          nodes.set(ref.id, node);
+        } else {
+          if (ref.label) Object.assign(node, labelText(ref.label));
+          if (ref.shape && ref.shape !== node.shape) {
+            const { w, h } = makeNode("box", node, ref.shape);
+            Object.assign(node, { shape: ref.shape, w, h });
+          }
+        }
+        if (groupId) node.groupId = groupId;
+      }
+      doc.edges.push(...parsed.edges);
     } catch (error) {
-      throw new Error(
-        `${index + 1}行目: ${error instanceof Error ? error.message : "読み取れません"}`,
+      report(
+        lineNumber,
+        error instanceof Error ? error.message : "読み取れません",
       );
     }
   });
-  if (groupId)
-    throw new Error(`${groupLine}行目: subgraph が end で閉じていません`);
-  const boxes = doc.nodes.filter((n) => n.kind === "box");
-  if (!boxes.length) throw new Error("図形が読み取れませんでした");
-  // A group nobody was put into would only sit on top of the diagram.
-  doc.nodes = doc.nodes.filter(
-    (n) => n.kind !== "group" || boxes.some((m) => m.groupId === n.id),
+  for (const group of groups)
+    report(group.line, "subgraph が end で閉じていません");
+  const resolve = (id: string) => groupRoot.get(id) ?? id;
+  for (const edge of doc.edges) {
+    edge.from = resolve(edge.from);
+    edge.to = resolve(edge.to);
+  }
+  for (const node of nodes.values())
+    Object.assign(node, classes.get("default"));
+  for (const { id, name, line } of assignments) {
+    const node = nodes.get(resolve(id));
+    if (!node) report(line, "色を付ける図形がありません（" + id + "）");
+    else if (classes.has(name)) Object.assign(node, classes.get(name));
+    else if (!SHAPES.includes(name as NodeShape))
+      report(line, "クラスの定義がありません（" + name + "）");
+  }
+  for (const { id, paint, line } of styles) {
+    const node = nodes.get(resolve(id));
+    if (node) Object.assign(node, paint);
+    else report(line, "色を付ける図形がありません（" + id + "）");
+  }
+  const used = new Set([...nodes.values()].map((n) => n.groupId));
+  for (const edge of doc.edges) {
+    used.add(edge.from);
+    used.add(edge.to);
+  }
+  doc.nodes = [...nodes.values()].filter(
+    (n) => n.kind !== "group" || used.has(n.id),
   );
-  for (const node of boxes)
-    if (["rectangle", "screen", "document"].includes(node.shape))
+  for (const node of doc.nodes)
+    if (
+      node.kind === "box" &&
+      ["rectangle", "screen", "document"].includes(node.shape)
+    )
       node.w = Math.max(
         node.w,
         Math.min(360, Math.round(textWidth(node.title, 16)) + 56),
       );
   growNodes(doc);
-  arrangeFlow(boxes, doc.edges, direction);
-  doc.nodes
-    .filter((n) => n.kind === "group")
-    .forEach((n) => fitGroup(doc, n.id));
+  // Lay out the members first. Each frame then occupies one position in the
+  // outer graph, including when an external edge refers directly to its ID.
+  const frames = doc.nodes.filter((n) => n.kind === "group");
+  for (const frame of frames) {
+    const members = doc.nodes.filter((n) => n.groupId === frame.id);
+    arrangeFlow(members, doc.edges, directions.get(frame.id) ?? direction);
+    fitGroup(doc, frame.id);
+    for (const member of members) {
+      member.x -= frame.x;
+      member.y -= frame.y;
+    }
+  }
+  const outer = (id: string) => nodes.get(id)?.groupId ?? id;
+  arrangeFlow(
+    doc.nodes.filter((n) => !n.groupId),
+    doc.edges.map((e) => ({ ...e, from: outer(e.from), to: outer(e.to) })),
+    direction,
+  );
+  for (const node of doc.nodes)
+    if (node.groupId) {
+      const frame = nodes.get(node.groupId)!;
+      node.x += frame.x;
+      node.y += frame.y;
+    }
+  issues.sort((a, b) => a.line - b.line);
+  return { doc, warnings: issues.map((i) => `${i.line}行目: ${i.message}`) };
+}
+
+export function parseFlowchart(text: string) {
+  const { doc, warnings } = readFlowchart(text);
+  if (warnings.length) throw new Error(warnings[0]);
+  if (!doc.nodes.length) throw new Error("図形が読み取れませんでした");
   return doc;
 }
 
@@ -399,8 +533,7 @@ function levels(boxes: CanvasNode[], edges: CanvasEdge[]) {
   return level;
 }
 
-// Each group has its own band across the flow. Its frame can span several
-// levels without enclosing unrelated nodes in between.
+// Place the boxes in one frame, or the frames and ungrouped boxes in the outer graph.
 function arrangeFlow(
   boxes: CanvasNode[],
   edges: CanvasEdge[],
@@ -417,33 +550,16 @@ function arrangeFlow(
   let position = 0;
   for (const step of rows) {
     const row = boxes.filter((node) => level.get(node.id) === step);
-    for (const node of row) node[flow] = position;
+    const width = row.reduce(
+      (sum, node) => sum + node[crossSize] + CROSS_GAP,
+      -CROSS_GAP,
+    );
+    let offset = -width / 2;
+    for (const node of row) {
+      node[flow] = position;
+      node[cross] = offset;
+      offset += node[crossSize] + CROSS_GAP;
+    }
     position += Math.max(...row.map((node) => node[flowSize])) + GAP;
-  }
-  let bandStart = 0;
-  for (const group of new Set(boxes.map((node) => node.groupId))) {
-    const columns = new Map<number, CanvasNode[]>();
-    for (const node of boxes.filter((node) => node.groupId === group)) {
-      const step = level.get(node.id)!;
-      if (!columns.has(step)) columns.set(step, []);
-      columns.get(step)!.push(node);
-    }
-    let bandSize = 0;
-    for (const column of columns.values()) {
-      const width = column.reduce(
-        (sum, node) => sum + node[crossSize] + CROSS_GAP,
-        -CROSS_GAP,
-      );
-      bandSize = Math.max(bandSize, width);
-      let offset = -width / 2;
-      for (const node of column) {
-        node[cross] = offset;
-        offset += node[crossSize] + CROSS_GAP;
-      }
-    }
-    for (const column of columns.values()) {
-      for (const node of column) node[cross] += bandStart + bandSize / 2;
-    }
-    bandStart += bandSize + GROUP_GAP;
   }
 }

@@ -3,7 +3,11 @@ import { escapeXml as esc } from "../../shared/export";
 import { toSvg } from "./export";
 import type { SceneRoutes } from "./geometry";
 import { memoNodes, memoOwnerName } from "./model";
-import { memoStatusLabels, type CanvasDocument } from "./types";
+import {
+  decisionSummary,
+  memoStatusLabels,
+  type CanvasDocument,
+} from "./types";
 
 export function viewerHtml(
   doc: CanvasDocument,
@@ -26,20 +30,27 @@ export function viewerHtml(
   );
   const rows = memos.map((node, i) => {
     const status = node.memoStatus
-      ? memoStatusLabels[node.memoStatus]
-      : "未設定";
-    return `<li><button data-memo="${i}"><span class="row-heading"><strong>${esc(memoOwnerName(node))}</strong><span data-status="${node.memoStatus ?? ""}">${status}</span></span><span class="memo-body">${esc(node.body)}</span></button></li>`;
+      ? `<span data-status="${node.memoStatus}">${memoStatusLabels[node.memoStatus]}</span>`
+      : "";
+    return `<li><button data-memo="${i}"><span class="row-heading"><strong>${esc(memoOwnerName(node))}</strong>${status}</span><span class="memo-body">${esc(node.body)}</span></button></li>`;
   });
   const fields = {
-    title: esc(doc.title || "無題のキャンバス"),
+    title: esc(doc.title || "無題の図"),
     diagram,
+    decisions: doc.decisions?.length
+      ? "<section><h2>決定の記録</h2>" +
+        doc.decisions
+          .map((d) => "<p>" + esc(decisionSummary(d)) + "</p>")
+          .join("") +
+        "</section>"
+      : "",
     memos: rows.length
       ? `<ul>${rows.join("")}</ul>`
       : "<p>この図にはメモがありません。</p>",
   };
   // Substitute only the template's slots, even when a memo contains a slot name.
   return template.replace(
-    /{{(title|diagram|memos)}}/g,
+    /{{(title|diagram|memos|decisions)}}/g,
     (_, key: keyof typeof fields) => fields[key],
   );
 }

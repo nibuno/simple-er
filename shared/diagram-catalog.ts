@@ -33,7 +33,7 @@ export const canvasCatalog = createCatalog(
   canvasKey,
   canvasKey + ".",
   "simple-canvas",
-  () => "無題のキャンバス",
+  () => "無題の図",
 );
 
 function createCatalog(

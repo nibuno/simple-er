@@ -134,3 +134,29 @@
     padding: 4px;
   }
 }
+
+.variant-form {
+  max-width: min(420px, calc(100% - 24px));
+}
+.variant-form h2 {
+  margin-top: 0;
+  overflow-wrap: anywhere;
+}
+.variant-form p,
+.decision-records {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.decision-records {
+  padding: 6px 10px;
+}
+.decision-records p {
+  margin: 4px 0;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}

@@ -50,7 +50,18 @@ export function createVariant(entry: DiagramEntry, title: string) {
   return writeDiagram(key, copy, null);
 }
 
-export function chooseVariant(primary: DiagramEntry, selected: DiagramEntry) {
+export function previousVariantName(group: DiagramEntry[]) {
+  const names = new Set(group.map((entry) => entry.title));
+  let title = "以前の元の図";
+  for (let i = 2; names.has(title); i++) title = "以前の元の図 " + i;
+  return title;
+}
+
+export function chooseVariant(
+  primary: DiagramEntry,
+  selected: DiagramEntry,
+  reason = "",
+) {
   const current = groupVariants(listDiagrams()).find((group) =>
     group.some((e) => e.key === selected.key),
   );
@@ -70,8 +81,20 @@ export function chooseVariant(primary: DiagramEntry, selected: DiagramEntry) {
     return saved;
   };
   try {
-    rename(primary, previous.doc, chosen.doc.title);
-    const result = rename(selected, chosen.doc, previous.doc.title);
+    rename(primary, previous.doc, previousVariantName(current));
+    const decisions = [
+      {
+        at: new Date().toISOString(),
+        variant: chosen.doc.title,
+        reason: reason.trim(),
+      },
+      ...(previous.doc.decisions ?? []),
+    ];
+    const result = rename(
+      selected,
+      { ...chosen.doc, decisions },
+      previous.doc.title,
+    );
     localStorage.setItem(choicePrefix + familyKey(selected.key), selected.key);
     return result;
   } catch (error) {

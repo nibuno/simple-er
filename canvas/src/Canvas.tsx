@@ -49,6 +49,7 @@ import { nodeAppearance } from "./colors";
 export interface CanvasHandle {
   routesFor: (doc: CanvasDocument) => SceneRoutes | undefined;
   fit: () => void;
+  showImport: (nodes: CanvasNode[]) => void;
   centerOn: (area: ReturnType<typeof bounds>) => void;
   center: () => Point;
   focus: () => void;
@@ -56,6 +57,7 @@ export interface CanvasHandle {
   pointerPoint: () => Point | null;
 }
 interface Props {
+  imported?: boolean;
   doc: CanvasDocument;
   arrowBase?: CanvasDocument;
   viewKey: string;
@@ -319,6 +321,17 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       y: (h - b.h * zoom) / 2 - b.y * zoom,
     });
   }
+  function showImport(nodes: CanvasNode[]) {
+    const stageEl = stage.current;
+    if (!stageEl) return;
+    const area = bounds(nodes);
+    const first = nodes.find((n) => n.kind === "box") ?? nodes[0];
+    centerBounds(
+      first && fitZoom(area, stageEl.clientWidth, stageEl.clientHeight) < 0.8
+        ? first
+        : area,
+    );
+  }
   const fit = () => centerBounds(currentBounds());
   // The first layout can happen before the stage has a size (a hidden pane),
   // so the initial view is settled once it has one. A stored view is kept
@@ -345,10 +358,12 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       if (visible && v.zoom >= fitZoom(b, el.clientWidth, el.clientHeight) / 4)
         return;
     }
-    fit();
+    if (p.imported) showImport(doc.nodes);
+    else fit();
   }
   useImperativeHandle(ref, () => ({
     fit,
+    showImport,
     routesFor: (doc) => committed.get(doc),
     centerOn: (area) => centerBounds(area, viewRef.current.zoom),
     center: () =>
@@ -1168,7 +1183,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       className={"canvas-stage tool-" + p.tool + (panning ? " is-panning" : "")}
       ref={stage}
       tabIndex={0}
-      aria-label="設計キャンバス"
+      aria-label="作図エリア"
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         if (e.button !== 0 && e.button !== 1) return;
