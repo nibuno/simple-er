@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { diagramSvg, exportFilename, titleFromFile } from "../src/export.ts";
 import { decode } from "../src/model.ts";
+import { graph } from "./layout-fixtures.mjs";
 import { height, rounded, routeEdges, tableWidth } from "../src/geometry.ts";
 import { relationshipLabels } from "../src/relationships.ts";
 
@@ -67,6 +68,27 @@ test("SVG includes complete self references and labels outside the table with a 
     assert.ok(p.x >= x + 48 && p.x <= x + w - 48);
     assert.ok(p.y >= y + 48 && p.y <= y + h - 48);
   }
+});
+
+test("SVG uses the supplied visible paths, including a route held still during a drag", () => {
+  const d = graph([["parent"], ["child", ["parent"]], ["obstacle"]]);
+  d.tables[1].x = 1000;
+  d.tables[2].y = 500;
+  const visible = routeEdges(d.edges, d.tables);
+  d.tables[2].x = 500;
+  d.tables[2].y = 0;
+  const wire = (svg) =>
+    new JSDOM(svg, { contentType: "image/svg+xml" }).window.document
+      .querySelector("svg > g > path")
+      .getAttribute("d");
+  assert.equal(
+    wire(diagramSvg(d, undefined, undefined, visible)),
+    rounded(visible.get(d.edges[0].id).points),
+  );
+  assert.notEqual(
+    wire(diagramSvg(d)),
+    rounded(visible.get(d.edges[0].id).points),
+  );
 });
 
 test("filenames preserve diagram names and use the local date for unnamed diagrams", () => {

@@ -2,14 +2,21 @@ import { isImeKey } from "../shared/ime.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { PointerEvent, ReactNode, RefObject } from "react";
-import type { Column, Diagram, Endpoint, Point, Table, View } from "./types.ts";
+import type {
+  Column,
+  Diagram,
+  Endpoint,
+  Point,
+  Route,
+  Table,
+  View,
+} from "./types.ts";
 import {
   diagramBounds,
   height,
   HEADER,
   ROW,
   rounded,
-  routeEdges,
   tableWidth,
 } from "./geometry.ts";
 import { RelationshipDecorations } from "./RelationshipDecorations.tsx";
@@ -29,6 +36,7 @@ interface Props {
   onUndo: () => void;
   onRedo: () => void;
   state: Diagram;
+  routes: Map<string, Route>;
   selected: string | null;
   selectedTable?: string | null;
   onSelectTable?: (id: string) => void;
@@ -45,8 +53,8 @@ interface Props {
   onSelect: (id: string) => void;
   onClear: () => void;
   onHint: (hint: string) => void;
-  onCommit: (next: Diagram, before?: Diagram) => void;
-  onPreview: (next: Diagram) => void;
+  onCommit: (next: Diagram) => void;
+  onPreview: (next: Diagram | null, tableId?: string) => void;
   fitRequest: number;
   viewRef: RefObject<View>;
   children: ReactNode;
@@ -58,7 +66,7 @@ type Drag =
       start: Point;
       x: number;
       y: number;
-      before: Diagram;
+      next?: Diagram;
       pointer: number;
       moved?: boolean;
     }
@@ -67,7 +75,7 @@ type Drag =
       id: string;
       min: number;
       max: number;
-      before: Diagram;
+      next?: Diagram;
       pointer: number;
     }
   | { kind: "pan"; start: Point; view: View; pointer: number }
@@ -183,10 +191,7 @@ export function DiagramCanvas(p: Props) {
       return x === v.x && y === v.y ? v : { ...v, x, y };
     });
   }
-  const routes = useMemo(
-    () => routeEdges(p.state.edges, p.state.tables),
-    [p.state],
-  );
+  const routes = p.routes;
   const latestRoutes = useRef(routes);
   latestRoutes.current = routes;
   const labels = useMemo(
@@ -401,26 +406,33 @@ export function DiagramCanvas(p: Props) {
       });
       return;
     }
-    const next = structuredClone(p.state);
     if (d.kind === "table") {
-      const t = next.tables.find((t) => t.id === d.id)!;
+      const t = { ...p.state.tables.find((t) => t.id === d.id)! };
       t.x = d.x + pos.x - d.start.x;
       t.y = d.y + pos.y - d.start.y;
       if (Math.abs(t.x) > 50000 || Math.abs(t.y) > 50000) return;
       if (!d.moved && Math.hypot(pos.x - d.start.x, pos.y - d.start.y) < 3)
         return;
       d.moved = true;
-      if (overlaps(t, next.tables)) {
+      if (overlaps(t, p.state.tables)) {
         p.onHint("他のテーブルと重なる位置には移動できません。");
         return;
       }
       p.onHint("");
+      d.next = {
+        ...p.state,
+        tables: p.state.tables.map((table) => (table.id === d.id ? t : table)),
+      };
     } else {
-      const edge = next.edges.find((e) => e.id === d.id)!;
-      edge.trunk = Math.max(d.min, Math.min(d.max, pos.x));
-      edge.manual = true;
+      const trunk = Math.max(d.min, Math.min(d.max, pos.x));
+      d.next = {
+        ...p.state,
+        edges: p.state.edges.map((edge) =>
+          edge.id === d.id ? { ...edge, trunk, manual: true } : edge,
+        ),
+      };
     }
-    latest.current.onPreview(next);
+    p.onPreview(d.next, d.kind === "table" ? d.id : undefined);
   }
   function end(cancel = false) {
     const d = drag.current;
@@ -439,8 +451,8 @@ export function DiagramCanvas(p: Props) {
       return;
     }
     if (d.kind !== "pan") {
-      if (cancel) p.onPreview(d.before);
-      else p.onCommit(latest.current.state, d.before);
+      if (!cancel && d.next) p.onCommit(d.next);
+      else p.onPreview(null);
     }
   }
   const focused = p.selectedTable ?? null;
@@ -603,7 +615,6 @@ export function DiagramCanvas(p: Props) {
                       start: point(e),
                       x: t.x,
                       y: t.y,
-                      before: p.state,
                       pointer: e.pointerId,
                     })
                   }
@@ -911,7 +922,6 @@ export function DiagramCanvas(p: Props) {
                   capture(e, {
                     kind: "edge",
                     id: p.selected!,
-                    before: p.state,
                     pointer: e.pointerId,
                     min: h.min,
                     max: h.max,

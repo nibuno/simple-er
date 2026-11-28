@@ -76,8 +76,8 @@ export function diagramSvg(
   state: Diagram,
   tableName = title,
   columnName = (c: Column) => c.name,
+  routes = routeEdges(state.edges, state.tables),
 ) {
-  const routes = routeEdges(state.edges, state.tables);
   const labels = relationshipLabels(state, routes);
   const bounds = diagramBounds(state.tables, routes.values(), labels.values());
   const pad = 48,
