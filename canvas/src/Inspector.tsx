@@ -1,3 +1,4 @@
+import { isImeKey } from "../../shared/ime.ts";
 import { TextField } from "../../shared/TextField.tsx";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
@@ -18,6 +19,7 @@ export type Panel = "shape" | "icon" | "color" | "memo" | "label" | "more";
 // Actions for the selection sit in a bar just above it; anything with more
 // than a click behind it opens in a small panel under the bar.
 export function SelectionBar({
+  flushInput,
   doc,
   node,
   edge,
@@ -34,6 +36,7 @@ export function SelectionBar({
   onSelect,
   request,
 }: {
+  flushInput: () => void;
   doc: CanvasDocument;
   node?: CanvasNode;
   edge?: CanvasEdge;
@@ -83,7 +86,10 @@ export function SelectionBar({
   };
   const fill = sharedColor(nodes, "fillColor"),
     stroke = sharedColor(elements, "strokeColor");
-  const toggle = (panel: Panel) => setOpen(open === panel ? null : panel);
+  const toggle = (panel: Panel) => {
+    flushInput();
+    setOpen(open === panel ? null : panel);
+  };
   const panelButton = (panel: Panel, label: string, content: ReactNode) => (
     <button
       className={"bar-button" + (open === panel ? " open" : "")}
@@ -123,8 +129,9 @@ export function SelectionBar({
       aria-label="選択した要素の操作"
       onPointerDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
-        if (e.key === "Escape" && open) {
+        if (e.key === "Escape" && open && !isImeKey(e.nativeEvent)) {
           e.stopPropagation();
+          flushInput();
           setOpen(null);
         }
       }}
@@ -498,7 +505,7 @@ export function InlineEditor({
       }}
       onKeyDown={(e) => {
         e.stopPropagation();
-        if (composing.current || e.nativeEvent.isComposing) return;
+        if (composing.current || isImeKey(e.nativeEvent)) return;
         // Esc confirms, like Enter with ⌘; undo takes the words back.
         if (
           e.key === "Escape" ||

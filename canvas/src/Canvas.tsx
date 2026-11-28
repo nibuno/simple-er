@@ -1,3 +1,4 @@
+import { isImeKey } from "../../shared/ime.ts";
 import {
   forwardRef,
   useEffect,
@@ -523,7 +524,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   }, []);
   useEffect(() => {
     const escape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && drag.current) {
+      if (!isImeKey(e) && e.key === "Escape" && drag.current) {
         e.preventDefault();
         e.stopImmediatePropagation();
         cancel();
