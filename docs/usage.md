@@ -112,7 +112,9 @@ UUID は MySQL では `CHAR(36)`、SQLite では `TEXT` になります。MySQL 
 
 自動採番には PostgreSQL の SERIAL・IDENTITY、MySQL の AUTO_INCREMENT、SQLite の INTEGER PRIMARY KEY AUTOINCREMENT を使います。PostgreSQL の ALWAYS と採番オプションは、MySQL・SQLite の実行時には適用されません。SQLite の自動採番には単独の主キーが必要です。MySQL の外部キーに SET DEFAULT を指定した場合など、書き出せない定義があるときは画面に理由を表示します。
 
-読み込みでは MySQL の ENGINE・CHARSET、SQLite の STRICT・WITHOUT ROWID などのテーブルオプションを読み飛ばします。
+`pg_dump --schema-only`、`mysqldump --no-data`、SQLite の `.schema` の出力を読み込めます。PostgreSQL の通常の B-tree インデックスを取り込み、MySQL の `USE` で指定されたデータベース名をテーブルに付けます。ダンプ内の設定や所有者、データ行は図に含めません。部分インデックスなど、読み込めない定義がある場合は行番号を表示します。
+
+MySQL と SQLite では `DEFAULT now()` を `CURRENT_TIMESTAMP` に変換します。配列型や変換できない既定値があると、コピーや保存の前に対象のカラムを表示します。
 
 テーブル編集画面の「CHECK 制約」には SQL の条件式を入力します。「ENUM 型」で型名と値を登録すると、どのテーブルでもカラムの「型」から選べます。図ではテーブル見出しの CHECK 件数、型名の点線、一意制約の UK 印で確認できます。
 

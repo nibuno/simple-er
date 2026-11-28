@@ -27,6 +27,10 @@ export function ddlType(type: string, dialect: DdlDialect, indexed: boolean) {
   const base = serialBase(type) ?? type;
   const t = base.toLowerCase();
   if (dialect === "MySQL") {
+    if (t === "varchar" || t === "character varying")
+      return indexed ? "VARCHAR(255)" : "TEXT";
+    if (/^character varying\b/.test(t))
+      return t.replace("character varying", "VARCHAR");
     if (t === "uuid") return "CHAR(36)";
     if (t === "text" && indexed) return "VARCHAR(255)";
     if (t === "jsonb") return "JSON";
@@ -58,12 +62,15 @@ export function ddlType(type: string, dialect: DdlDialect, indexed: boolean) {
 
 // SQL has no SQLite COMMENT clause or portable spelling for the original type.
 // Keep only details lost in translation, adjacent to their column or table.
+type Translation = { source: string; sql: string };
 type Details = Partial<
   Pick<Column, "type" | "logicalName" | "note" | "identity" | "identityOptions">
 > &
   Pick<ForeignKey, "label" | "cardinality"> & {
     enumName?: string;
     referenceSchema?: string;
+    defaultValue?: Translation;
+    check?: Translation;
   };
 export const detailsPrefix = "/* simple-er ";
 export function detailsComment(details: Details) {
@@ -83,8 +90,12 @@ export function readDetails(raw?: string): Details {
     if (!d || typeof d !== "object") return {};
     const text = (v: unknown, length: number) =>
       typeof v === "string" && v.length <= length && v.trim().length > 0;
+    const translation = (v: Translation | undefined) =>
+      v && text(v.source, 2_000_000) && text(v.sql, 2_000_000);
     const cardinality = d.cardinality;
     return {
+      ...(translation(d.defaultValue) && { defaultValue: d.defaultValue }),
+      ...(translation(d.check) && { check: d.check }),
       ...(text(d.logicalName, 80) && { logicalName: d.logicalName }),
       ...(text(d.label, 80) && { label: d.label }),
       ...(cardinality &&

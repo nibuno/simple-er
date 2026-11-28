@@ -5,7 +5,7 @@ import {
   typeName,
 } from "./schema-constraints.ts";
 import { ddlType, readDetails } from "./ddl-dialect.ts";
-import { serialBase } from "./column-attributes.ts";
+import { serialBase, serialType } from "./column-attributes.ts";
 import { expression, SqlError, statements, Tokens } from "./ddl-tokens.ts";
 import { layoutImportedTables } from "./import-layout.ts";
 import {
@@ -35,7 +35,15 @@ type Constraint = { name: string; columns: string[] } & (
     >)
 );
 type Change = { table: Name; line: number } & (
-  Constraint | { kind: "comment"; column?: string; text: string }
+  | Constraint
+  | { kind: "comment"; column?: string; text: string }
+  | {
+      kind: "identity";
+      column: string;
+      identity: "always" | "byDefault";
+      options?: string;
+    }
+  | { kind: "default"; column: string; value: string }
 );
 export interface DdlIssue {
   line: number;
@@ -101,12 +109,21 @@ function checkConstraint(
   const body = tokens.until((word) => word === ")");
   if (!body.length) tokens.fail("CHECK の条件式がありません。");
   tokens.need(")");
+  const saved = readDetails(tokens.items[tokens.index - 1].details).check;
+  const last = body.at(-1)!;
+  const raw = sql.slice(body[0].offset, last.offset + last.raw.length);
   return {
     kind: "check",
     columns: [],
     name,
-    expression: expression(body, sql, "PostgreSQL"),
+    expression:
+      saved?.sql === raw ? saved.source : expression(body, sql, "PostgreSQL"),
   };
+}
+
+function indexMethod(tokens: Tokens) {
+  if (tokens.eat("USING") && !tokens.eat("BTREE"))
+    tokens.fail("このインデックスの方式は読み込めません。");
 }
 
 function tableConstraint(tokens: Tokens, sql: string): Constraint {
@@ -134,12 +151,36 @@ function tableConstraint(tokens: Tokens, sql: string): Constraint {
       if (!tokens.eat("INDEX")) tokens.need("KEY");
       kind = "index";
     }
-    if (tokens.keyword !== "(") {
+    if (tokens.keyword !== "(" && tokens.keyword !== "USING") {
       const indexName = tokens.name();
       name ||= indexName;
     }
   }
-  return { kind, name, columns: tokens.names() };
+  indexMethod(tokens);
+  const columns = tokens.names();
+  indexMethod(tokens);
+  return { kind, name, columns };
+}
+
+function readIdentity(tokens: Tokens, sql: string) {
+  const always = tokens.eat("ALWAYS");
+  if (!always) {
+    tokens.need("BY");
+    tokens.need("DEFAULT");
+  }
+  tokens.need("AS");
+  tokens.need("IDENTITY");
+  let options: string | undefined;
+  if (tokens.eat("(")) {
+    options =
+      expression(
+        tokens.until((word) => word === ")"),
+        sql,
+      ) || undefined;
+    tokens.need(")");
+  }
+  const identity = always ? ("always" as const) : ("byDefault" as const);
+  return { identity, ...(options && { identityOptions: options }) };
 }
 
 function parseColumn(tokens: Tokens, sql: string, issues: DdlIssue[]) {
@@ -197,22 +238,7 @@ function parseColumn(tokens: Tokens, sql: string, issues: DdlIssue[]) {
         if (!value) tokens.fail("既定値がありません。");
         column.defaultValue = value;
       } else if (tokens.eat("GENERATED")) {
-        const always = tokens.eat("ALWAYS");
-        if (!always) {
-          tokens.need("BY");
-          tokens.need("DEFAULT");
-        }
-        tokens.need("AS");
-        tokens.need("IDENTITY");
-        column.identity = always ? "always" : "byDefault";
-        if (tokens.eat("(")) {
-          column.identityOptions =
-            expression(
-              tokens.until((word) => word === ")"),
-              sql,
-            ) || undefined;
-          tokens.need(")");
-        }
+        Object.assign(column, readIdentity(tokens, sql));
       } else if (tokens.eat("AUTO_INCREMENT") || tokens.eat("AUTOINCREMENT")) {
         column.identity = "byDefault";
       } else if (tokens.eat("CHECK")) {
@@ -265,6 +291,8 @@ function parseColumn(tokens: Tokens, sql: string, issues: DdlIssue[]) {
     column.type = details.type;
     if (serialBase(column.type)) delete column.identity;
   }
+  if (details.defaultValue && details.defaultValue.sql === column.defaultValue)
+    column.defaultValue = details.defaultValue.source;
   if (column.identity) {
     if (details.identity) column.identity = details.identity;
     if (details.identityOptions)
@@ -330,12 +358,20 @@ export function importDDL(
   const changes: Change[] = [];
   const added: Table[] = [];
   const skipped = new Set<string>();
-  function attempt(line: number, action: () => void) {
+  let ignoredCount = 0;
+  let database: string | undefined;
+  const qualified = (path: Name) =>
+    database && path.length === 1 ? [database, ...path] : path;
+  const sequences = new Map<string, Name>();
+  function attempt(line: number, action: () => void, context?: string) {
     try {
       action();
     } catch (error) {
       if (!(error instanceof SqlError)) throw error;
-      issues.push({ line: error.line || line, message: error.message });
+      issues.push({
+        line: error.line || line,
+        message: context ? context + "：" + error.message : error.message,
+      });
     }
   }
   function readTable(t: Tokens, line: number) {
@@ -343,8 +379,12 @@ export function importDDL(
       t.need("NOT");
       t.need("EXISTS");
     }
-    const path = t.qualifiedName();
+    const path = qualified(t.qualifiedName());
     const name = path.at(-1)!;
+    if (/^sqlite_(?:sequence|stat[1-4])$/i.test(name)) {
+      ignoredCount++;
+      return;
+    }
     if (path.length > 2)
       t.fail("テーブル名はスキーマと名前で指定してください。");
     const key = tableKey(name, path.at(-2));
@@ -419,69 +459,161 @@ export function importDDL(
   for (const statement of statements(sql)) {
     const t = new Tokens(statement);
     const line = t.line;
-    attempt(line, () => {
-      if (t.eat("CREATE")) {
-        if (!t.eat("TEMPORARY")) t.eat("TEMP");
-        if (t.eat("TABLE")) {
-          readTable(t, line);
-        } else if (t.eat("TYPE")) {
-          const name = typeName(t.qualifiedName());
-          t.need("AS");
-          t.need("ENUM");
-          const values = readEnumValues(t);
+    attempt(
+      line,
+      () => {
+        // Dump settings, permissions and client commands do not describe the diagram.
+        const head = statement
+          .slice(0, 6)
+          .map((token) => token.raw.toUpperCase())
+          .join(" ");
+        if (
+          t.keyword.startsWith("/*!") ||
+          (t.keyword === "COPY" &&
+            statement.at(-1)?.raw.toUpperCase() === "STDIN") ||
+          t.keyword.startsWith("\\") ||
+          /^(?:INSERT INTO|SET|GRANT|REVOKE|PRAGMA|BEGIN|COMMIT|LOCK TABLES|UNLOCK TABLES|CREATE (?:SCHEMA|DATABASE|EXTENSION|SEQUENCE)|DROP TABLE IF EXISTS|SELECT (?:PG_CATALOG \. )?(?:SET_CONFIG|SETVAL))(?: |$)/.test(
+            head,
+          ) ||
+          /^COMMENT ON (?!TABLE |COLUMN )/.test(head) ||
+          (/^ALTER (?:SCHEMA|TYPE|SEQUENCE) /.test(head) &&
+            statement.some((token) => token.raw.toUpperCase() === "OWNER"))
+        ) {
+          ignoredCount++;
+          return;
+        }
+        if (t.eat("USE")) {
+          const name = t.name();
           t.end();
-          registerEnum(enums, { name, values });
-        } else {
-          const unique = t.eat("UNIQUE");
-          t.need("INDEX");
-          const index = t.qualifiedName();
-          const name = index.at(-1)!;
+          database = name;
+          return;
+        }
+        if (t.eat("CREATE")) {
+          if (!t.eat("TEMPORARY")) t.eat("TEMP");
+          if (t.eat("TABLE")) {
+            readTable(t, line);
+          } else if (t.eat("TYPE")) {
+            const name = typeName(t.qualifiedName());
+            t.need("AS");
+            t.need("ENUM");
+            const values = readEnumValues(t);
+            t.end();
+            registerEnum(enums, { name, values });
+          } else {
+            const unique = t.eat("UNIQUE");
+            if (!t.eat("INDEX"))
+              t.fail(`CREATE ${t.keyword} は読み込めません。`);
+            if (t.eat("IF")) {
+              t.need("NOT");
+              t.need("EXISTS");
+            }
+            const index = t.qualifiedName();
+            const name = index.at(-1)!;
+            indexMethod(t);
+            t.need("ON");
+            t.eat("ONLY");
+            const table = t.qualifiedName();
+            indexMethod(t);
+            const columns = t.names();
+            indexMethod(t);
+            t.end();
+            changes.push({
+              kind: unique ? "unique" : "index",
+              name,
+              table:
+                index.length === 2 && table.length === 1
+                  ? [index[0], ...table]
+                  : qualified(table),
+              columns,
+              line,
+            });
+          }
+        } else if (t.eat("ALTER")) {
+          if (t.eat("SEQUENCE")) {
+            const sequence = t.qualifiedName();
+            t.need("OWNED");
+            t.need("BY");
+            const owner = t.qualifiedName();
+            t.end();
+            sequences.set(JSON.stringify(sequence), owner);
+            ignoredCount++;
+            return;
+          }
+          t.need("TABLE");
+          t.eat("ONLY");
+          const table = qualified(t.qualifiedName());
+          if (t.eat("OWNER")) {
+            t.need("TO");
+            t.name();
+            t.end();
+            ignoredCount++;
+            return;
+          }
+          if (t.eat("ALTER")) {
+            t.eat("COLUMN");
+            const column = t.name();
+            if (t.eat("SET")) {
+              t.need("DEFAULT");
+              const value = expression(t.items.slice(t.index), sql);
+              if (!value) t.fail("既定値がありません。");
+              changes.push({ kind: "default", column, value, table, line });
+            } else {
+              t.need("ADD");
+              t.need("GENERATED");
+              const { identity, identityOptions } = readIdentity(t, sql);
+              t.end();
+              changes.push({
+                kind: "identity",
+                column,
+                identity,
+                options: identityOptions,
+                table,
+                line,
+              });
+            }
+            return;
+          }
+          do {
+            t.need("ADD");
+            const part = new Tokens(t.until((word) => word === ","));
+            const at = part.line;
+            attempt(at, () => {
+              const key = tableConstraint(part, sql);
+              part.end();
+              changes.push({ ...key, table, line: at });
+            });
+          } while (t.eat(","));
+          t.end();
+        } else if (t.eat("COMMENT")) {
           t.need("ON");
-          const table = t.qualifiedName(),
-            columns = t.names();
+          const hasColumn = t.eat("COLUMN");
+          if (!hasColumn) t.need("TABLE");
+          const table = t.qualifiedName();
+          const column = hasColumn ? table.pop() : undefined;
+          if (!table.length) t.fail("コメントの対象テーブルがありません。");
+          t.need("IS");
+          const text = t.eat("NULL") ? "" : t.string();
           t.end();
           changes.push({
-            kind: unique ? "unique" : "index",
-            name,
-            table:
-              index.length === 2 && table.length === 1
-                ? [index[0], ...table]
-                : table,
-            columns,
+            kind: "comment",
+            table: qualified(table),
+            column,
+            text,
             line,
           });
-        }
-      } else if (t.eat("ALTER")) {
-        t.need("TABLE");
-        t.eat("ONLY");
-        const table = t.qualifiedName();
-        do {
-          t.need("ADD");
-          const part = new Tokens(t.until((word) => word === ","));
-          const at = part.line;
-          attempt(at, () => {
-            const key = tableConstraint(part, sql);
-            part.end();
-            changes.push({ ...key, table, line: at });
-          });
-        } while (t.eat(","));
-        t.end();
-      } else if (t.eat("COMMENT")) {
-        t.need("ON");
-        const hasColumn = t.eat("COLUMN");
-        if (!hasColumn) t.need("TABLE");
-        const table = t.qualifiedName();
-        const column = hasColumn ? table.pop() : undefined;
-        if (!table.length) t.fail("コメントの対象テーブルがありません。");
-        t.need("IS");
-        const text = t.eat("NULL") ? "" : t.string();
-        t.end();
-        changes.push({ kind: "comment", table, column, text, line });
-      } else
-        t.fail(
-          `「${t.current.raw.slice(0, 40)}」で始まる文には対応していません。`,
-        );
-    });
+        } else
+          t.fail(
+            `「${t.current.raw.slice(0, 40)}」で始まる文には対応していません。`,
+          );
+      },
+      statement[1]?.raw.toUpperCase() === "TABLE" &&
+        statement[0].raw.toUpperCase() === "CREATE"
+        ? undefined
+        : statement
+            .slice(0, 2)
+            .map((token) => token.raw.slice(0, 40))
+            .join(" "),
+    );
   }
   function findTable(path: Name, line: number, schema?: string) {
     const name = path.at(-1)!;
@@ -560,6 +692,34 @@ export function importDDL(
           const [id] = columnIds(table, [op.column], op.line);
           table.columns.find((c) => c.id === id)!.note = op.text;
         }
+      } else if (op.kind === "identity" || op.kind === "default") {
+        const [id] = columnIds(table, [op.column], op.line);
+        const column = table.columns.find((c) => c.id === id)!;
+        if (op.kind === "identity") {
+          column.identity = op.identity;
+          column.identityOptions = op.options;
+        } else {
+          const match = /^nextval\('((?:''|[^'])+)'::regclass\)$/i.exec(
+            op.value,
+          );
+          if (match) {
+            const seq = new Tokens(
+              [...statements(match[1].replaceAll("''", "'"))][0] ?? [],
+            );
+            const owner = sequences.get(JSON.stringify(seq.qualifiedName()));
+            const serial = serialType(column.type);
+            if (
+              !serial ||
+              !owner ||
+              JSON.stringify(owner) !== JSON.stringify([...op.table, op.column])
+            )
+              throw new SqlError(
+                op.line,
+                `${table.name}.${column.name} の共有シーケンスは読み込めません。`,
+              );
+            column.type = serial;
+          } else column.defaultValue = op.value;
+        }
       } else {
         const ids = columnIds(table, op.columns, op.line);
         if (
@@ -630,6 +790,7 @@ export function importDDL(
     diagram: layoutImportedTables(next, added, base),
     tableCount: added.length,
     applied,
+    ignoredCount,
     issues: issues.sort((a, b) => a.line - b.line),
   };
 }

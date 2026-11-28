@@ -541,6 +541,24 @@ test("a stale delete confirmation preserves an update from another tab", async (
   assert.equal(document.querySelector(".migration-notice"), null);
 });
 
+test("a dump with only settings to skip imports in one click", async () => {
+  await click(byText("DDL を読み込む"));
+  await type(
+    document.querySelector("#ddl-source"),
+    "SET statement_timeout = 0; CREATE TABLE scores(rank int); CREATE INDEX by_rank ON scores USING btree(rank);",
+  );
+  await click(byText("読み込む"));
+  assert.equal(document.querySelector("#ddl-source"), null);
+  assert.match(
+    document.body.textContent,
+    /図に関係しない文を1件読み飛ばしました/,
+  );
+  assert.equal(
+    saved().tables.find((t) => t.name === "scores").keys[0].name,
+    "by_rank",
+  );
+});
+
 test("pasted DDL previews line errors and adds the readable tables in one undo step", async () => {
   const before = saved();
   await click(byText("DDL を読み込む"));

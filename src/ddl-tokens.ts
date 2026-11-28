@@ -15,6 +15,8 @@ export function* statements(sql: string): Generator<Token[]> {
   // inside them. PostgreSQL standard strings keep backslashes literally.
   const token =
     /\s+|--[^\r\n]*|#(?![>#])[^\r\n]*|\/\*[\s\S]*?(?:\*\/|$)|'(?:''|[^'])*(?:'|$)|"(?:""|[^"])*(?:"|$)|`(?:``|[^`])*(?:`|$)|\$([A-Za-z_]\w*|)\$[\s\S]*?\$\1\$|[\p{L}_\d$][\p{L}\p{M}\d_$]*|./guy;
+  const versionedSetting =
+    /^\/\*!\d*\s*(?:SET\b|ALTER TABLE\b[\s\S]*\b(?:ENABLE|DISABLE) KEYS\b)/i;
   const escaped = /'(?:''|\\[\s\S]|[^'\\])*'/y;
   let line = 1;
   let statement: Token[] = [];
@@ -22,6 +24,13 @@ export function* statements(sql: string): Generator<Token[]> {
   let offset = 0;
   while (offset < sql.length) {
     const previous = statement.at(-1);
+    // psql commands end at a newline, even without a SQL semicolon.
+    if (!previous && sql[offset] === "\\") {
+      const command = /^[^\r\n]*/.exec(sql.slice(offset))![0];
+      yield [{ raw: command, line, offset }];
+      offset += command.length;
+      continue;
+    }
     const pgEscape =
       previous?.raw.toUpperCase() === "E" && previous.offset + 1 === offset;
     const inlineComment = previous?.raw.toUpperCase() === "COMMENT";
@@ -38,8 +47,26 @@ export function* statements(sql: string): Generator<Token[]> {
     const raw = match[0];
     if (raw === ";") {
       if (statement.length) yield statement;
+      if (
+        statement[0]?.raw.toUpperCase() === "COPY" &&
+        statement.at(-2)?.raw.toUpperCase() === "FROM" &&
+        statement.at(-1)?.raw.toUpperCase() === "STDIN"
+      ) {
+        // COPY rows are plain text, with one backslash-dot line as their terminator.
+        const end = /^\\\.\r?$/gm;
+        end.lastIndex = offset + 1;
+        const terminator = end.exec(sql);
+        const next = terminator ? end.lastIndex : sql.length;
+        line += (sql.slice(offset, next).match(/\r\n|\r|\n/g) ?? []).length;
+        offset = next;
+        statement = [];
+        mysql = false;
+        continue;
+      }
       statement = [];
       mysql = false;
+    } else if (!previous && versionedSetting.test(raw)) {
+      statement.push({ raw, line, offset });
     } else if (
       previous &&
       raw.startsWith(detailsPrefix) &&
