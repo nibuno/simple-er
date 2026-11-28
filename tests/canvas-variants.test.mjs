@@ -32,3 +32,19 @@ test("diff uses figure and wire IDs, covers memo state, and ignores JSON propert
     ]),
   );
 });
+
+test("図形の ER リンクは図の複製で一致し、リンク先の変更は差分になる", () => {
+  const doc = sampleDocument();
+  doc.nodes[0].erLink = {
+    store: "store",
+    key: "er-sketch.local.v1",
+    id: "first",
+  };
+  const other = structuredClone(doc);
+  assert.equal(compareDiagrams(doc, other).nodes.size, 0);
+  other.nodes[0].erLink.id = "second";
+  assert.equal(
+    compareDiagrams(doc, other).nodes.get(doc.nodes[0].id),
+    "changed",
+  );
+});

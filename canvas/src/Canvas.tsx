@@ -74,6 +74,8 @@ interface Props {
   // `place` asks for a free spot near the point rather than the exact point.
   onAddConnected: (from: string, point: Point, place?: boolean) => void;
   selectionBar?: ReactNode;
+  erTitle: (node: CanvasNode) => string | undefined;
+  onOpenEr: (node: CanvasNode) => void;
   onPreview: (doc: CanvasDocument) => void;
   onCommit: (doc: CanvasDocument, before?: CanvasDocument) => void;
   onStatus: (value: string) => void;
@@ -839,6 +841,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       editing = p.editing === node.id,
       area = boxTextArea(node),
       paths = shapePaths(node),
+      erName = node.erLink && p.erTitle(node),
       marker = memoMarker(node),
       statusLabel = node.memoStatus && memoStatusLabels[node.memoStatus],
       colors = nodeAppearance(node, p.doc),
@@ -1044,6 +1047,23 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
                 </>
               )}
             </button>
+            {node.erLink && (
+              <button
+                className="er-marker"
+                data-missing={!erName || undefined}
+                aria-label={
+                  erName ? erName + "を SimpleER で開く" : "ER 図のリンクを変更"
+                }
+                title={erName || "図が見つかりません"}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  p.onOpenEr(node);
+                }}
+              >
+                ER{!erName && "?"}
+              </button>
+            )}
             {selected &&
               p.selection.length === 1 &&
               RESIZE_DIRS.filter((dir) => dir !== "se").map((dir) => (

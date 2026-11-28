@@ -1,3 +1,4 @@
+import type { LinkEntry } from "../../shared/diagram-links.ts";
 import { isImeKey } from "../../shared/ime.ts";
 import { TextField } from "../../shared/TextField.tsx";
 import { useEffect, useRef, useState } from "react";
@@ -15,7 +16,8 @@ import { minimumWidth, SHAPES, shapeIcons, shapeLabels } from "./shapes";
 import { ColorPicker } from "./ColorPicker";
 import { DEFAULT_COLORS } from "./colors";
 
-export type Panel = "shape" | "icon" | "color" | "memo" | "label" | "more";
+export type Panel =
+  "shape" | "icon" | "color" | "memo" | "label" | "more" | "er";
 // Actions for the selection sit in a bar just above it; anything with more
 // than a click behind it opens in a small panel under the bar.
 export function SelectionBar({
@@ -25,6 +27,10 @@ export function SelectionBar({
   edge,
   count,
   selection,
+  sharedSite,
+  erEntries,
+  selectedEr,
+  onLinkEr,
   onColors,
   onPatch,
   onEdge,
@@ -36,6 +42,10 @@ export function SelectionBar({
   onSelect,
   request,
 }: {
+  sharedSite: boolean;
+  erEntries: LinkEntry[];
+  selectedEr?: string;
+  onLinkEr: (key: string) => void;
   flushInput: () => void;
   doc: CanvasDocument;
   node?: CanvasNode;
@@ -213,6 +223,7 @@ export function SelectionBar({
               <span>メモ</span>
             </>,
           )}
+        {node?.kind === "box" && panelButton("er", "ER 図", "ER 図")}
         {count > 1 && (
           <button
             className="bar-button"
@@ -259,6 +270,46 @@ export function SelectionBar({
           className={"bar-panel" + (open === "memo" ? " memo-editor" : "")}
           key={open}
         >
+          {open === "er" && node && (
+            <div className="er-picker">
+              <label className="field">
+                リンク先の ER 図
+                <select
+                  value={selectedEr ?? (node.erLink ? "missing" : "")}
+                  onChange={(event) => onLinkEr(event.target.value)}
+                >
+                  <option value="">リンクなし</option>
+                  {node.erLink && !selectedEr && (
+                    <option disabled value="missing">
+                      図が見つかりません
+                    </option>
+                  )}
+                  {sharedSite &&
+                    erEntries.map((entry) => (
+                      <option key={entry.key} value={entry.key}>
+                        {entry.title}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {!sharedSite ? (
+                <p>
+                  連携するには、SimpleER を起動して 8765 の /canvas/
+                  を開いてください。8766 や Web 版の図は別々に保存されます。
+                </p>
+              ) : !erEntries.length ? (
+                <p>
+                  この保存先には ER 図がありません。Web
+                  版とローカル版の図は別々に保存されます。
+                  <a href="../" target="_blank" rel="noopener">
+                    SimpleER を開く
+                  </a>
+                </p>
+              ) : (
+                <p>このブラウザの同じ保存先にある図を選べます。</p>
+              )}
+            </div>
+          )}
           {open === "icon" && node && (
             <div
               className="icon-choice"

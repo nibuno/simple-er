@@ -1,3 +1,6 @@
+import { canvasCatalog } from "../shared/diagram-catalog.ts";
+import { clearLinkedUrl, linkedUrl } from "../shared/diagram-links.ts";
+import { useDiagramLinks, MissingDiagram } from "../shared/useDiagramLinks.tsx";
 import { ddlDialects, type DdlDialect } from "./types.ts";
 import { isImeKey } from "../shared/ime.ts";
 import { watchStorage } from "../shared/storage.ts";
@@ -61,23 +64,26 @@ type SavedDiagram = OpenDiagram<DiagramDocument>;
 
 export function App() {
   const [session, setSession] = useState(() => ({
-    initial: library.restoreDiagram(),
+    initial: library.restoreLinkedDiagram(),
     visit: 0,
     before: undefined as DiagramDocument | undefined,
     message: "",
   }));
+  if (!session.initial) return <MissingDiagram app="SimpleER" />;
   return (
     <Editor
       key={session.visit}
       {...session}
-      onOpen={(initial, message = "", before) =>
+      initial={session.initial}
+      onOpen={(initial, message = "", before) => {
+        clearLinkedUrl();
         setSession((old) => ({
           initial,
           message,
           before,
           visit: old.visit + 1,
-        }))
-      }
+        }));
+      }}
     />
   );
 }
@@ -194,6 +200,9 @@ function Editor({
   const [listOpen, setListOpen] = useState(false);
   const pausedSave = useRef(!!initial.error);
   const lastSaved = useRef(initial);
+  const [linkId, setLinkId] = useState(initial.linkId);
+  const sources = useDiagramLinks(canvasCatalog, initial.key, linkId);
+
   const currentDoc = useRef(history.present);
   currentDoc.current = history.present;
   const mounted = useRef(true);
@@ -244,6 +253,7 @@ function Editor({
         checkDiagram(initial.key, saved.raw);
       else
         lastSaved.current = library.writeDiagram(initial.key, doc, saved.raw);
+      setLinkId(lastSaved.current.linkId);
       setSaveError("");
     } catch (e) {
       if (e instanceof DiagramChanged) pause(e.raw);
@@ -1090,6 +1100,26 @@ function Editor({
         </fieldset>
       </header>
       <main>
+        {!!sources.entries.length && (
+          <nav className="canvas-sources" aria-label="参照元の構成図">
+            <span>参照元の構成図</span>
+            {sources.entries.map((entry) => (
+              <a
+                key={entry.key}
+                href={linkedUrl("canvas", { ...entry, store: sources.store! })}
+                onClick={(event) => {
+                  try {
+                    saveBeforeSwitch();
+                  } catch {
+                    event.preventDefault();
+                  }
+                }}
+              >
+                {entry.title}
+              </a>
+            ))}
+          </nav>
+        )}
         {(conflict || (initial.error && initial.raw !== null)) && (
           <div className="migration-notice" role="alert">
             {conflict && (

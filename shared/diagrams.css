@@ -113,3 +113,17 @@
     font-size: 16px;
   }
 }
+
+main.missing-diagram {
+  display: block;
+  height: auto;
+  margin: 4rem auto;
+  padding: 1rem;
+  max-width: 32rem;
+}
+.missing-diagram h1 {
+  font-size: 1.3rem;
+}
+.missing-diagram a {
+  color: var(--accent);
+}

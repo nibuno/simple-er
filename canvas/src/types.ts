@@ -1,3 +1,4 @@
+import type { DiagramLink } from "../../shared/diagram-links.ts";
 export type Point = { x: number; y: number };
 export type View = Point & { zoom: number };
 export type NodeKind = "box" | "note" | "group";
@@ -27,6 +28,7 @@ export interface CanvasNode extends Point {
   description: string;
   body: string;
   memoStatus?: MemoStatus;
+  erLink?: DiagramLink;
   fillColor?: string;
   strokeColor?: string;
   // A small icon beside a box's name, one of NODE_ICONS.

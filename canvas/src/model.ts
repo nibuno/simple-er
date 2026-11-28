@@ -1,3 +1,5 @@
+import { canvasCatalog } from "../../shared/diagram-catalog.ts";
+import { isDiagramLink } from "../../shared/diagram-links.ts";
 import { reduceHistory } from "../../shared/history.ts";
 import { arrowheadLabels, memoStatusLabels } from "./types";
 import type {
@@ -26,7 +28,7 @@ export { bounds } from "./spatial";
 import { wrapText } from "./text";
 export { wrapText } from "./text";
 
-export const STORAGE_KEY = "simple-canvas.document.v1";
+export const STORAGE_KEY = canvasCatalog.storageKey;
 export const VIEW_KEY = "simple-canvas.view.v1";
 export const MAX_NODES = 150;
 export const MAX_EDGES = 400;
@@ -243,6 +245,11 @@ export function decode(raw: string): CanvasDocument {
       (n.kind !== "box" || !NODE_ICONS.some((icon) => icon.id === n.icon))
     )
       fail("対応していないアイコンが含まれています。");
+    if (
+      n.erLink !== undefined &&
+      (n.kind !== "box" || !isDiagramLink(n.erLink))
+    )
+      fail("ER 図のリンクが不正です。");
     if (n.groupId !== undefined && !str(n.groupId, 120))
       fail("囲みの参照が不正です。");
     if (n.attachedTo !== undefined && !str(n.attachedTo, 120))

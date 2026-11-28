@@ -1,3 +1,4 @@
+import { canvasCatalog } from "../../shared/diagram-catalog.ts";
 import { createDiagramLibrary } from "../../shared/diagram-library.ts";
 import type { OpenDiagram as SharedDiagram } from "../../shared/diagram-library.ts";
 import type { CanvasDocument } from "./types";
@@ -16,11 +17,8 @@ import {
 export const viewKeyFor = (key: string) =>
   VIEW_KEY + key.slice(STORAGE_KEY.length);
 export const library = createDiagramLibrary({
-  storageKey: STORAGE_KEY,
-  prefix: STORAGE_KEY + ".",
+  catalog: canvasCatalog,
   activeKey: "simple-canvas.active.v1",
-  format: "simple-canvas",
-  fallbackTitle: () => "無題のキャンバス",
   decode,
   emptyDocument,
   firstDocument: () => growNodes(sampleDocument()),

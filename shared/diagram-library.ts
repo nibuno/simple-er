@@ -1,15 +1,14 @@
-export interface DiagramEntry {
-  key: string;
-  raw: string;
-  title: string;
-  updatedAt: number | null;
-}
+import { recordId } from "./diagram-catalog.ts";
+import type { erCatalog, DiagramEntry } from "./diagram-catalog.ts";
+export type { DiagramEntry } from "./diagram-catalog.ts";
+import { savedDiagramId, storageScope } from "./diagram-links.ts";
 
 export interface OpenDiagram<T> {
   key: string;
   raw: string | null;
   doc: T;
   error?: string;
+  linkId?: string;
 }
 
 export class DiagramChanged extends Error {
@@ -28,11 +27,8 @@ export function checkDiagram(key: string, expected: string | null) {
 }
 
 interface LibraryOptions<T> {
-  storageKey: string;
-  prefix: string;
+  catalog: typeof erCatalog;
   activeKey: string;
-  format: string;
-  fallbackTitle: (key: string) => string;
   decode: (raw: string, key: string) => T;
   emptyDocument: () => T;
   firstDocument: () => T;
@@ -41,51 +37,9 @@ interface LibraryOptions<T> {
 }
 
 export function createDiagramLibrary<T>(options: LibraryOptions<T>) {
-  const { storageKey, prefix, activeKey, format } = options;
-
-  // Both the original save and #37's backup are already individual slots.
-  function isDiagramKey(key: string | null): key is string {
-    return (
-      key !== null &&
-      (key === storageKey ||
-        key === storageKey + ".previous" ||
-        key.startsWith(prefix))
-    );
-  }
-
-  function listDiagrams(): DiagramEntry[] {
-    const entries: DiagramEntry[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!isDiagramKey(key)) continue;
-      const raw = localStorage.getItem(key);
-      if (raw === null) continue;
-      let title = "読み込めない図",
-        updatedAt = null;
-      try {
-        const record = JSON.parse(raw);
-        const legacy = record.format === format;
-        const doc = legacy ? record : record.document;
-        if (doc?.format === format)
-          title =
-            (typeof doc.title === "string" && doc.title.trim()) ||
-            options.fallbackTitle(key);
-        if (
-          !legacy &&
-          typeof record.updatedAt === "number" &&
-          Number.isFinite(new Date(record.updatedAt).getTime())
-        )
-          updatedAt = record.updatedAt;
-      } catch {
-        // Keep damaged entries available for recovery.
-      }
-      entries.push({ key, raw, title, updatedAt });
-    }
-    return entries.sort(
-      (a, b) =>
-        (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || a.key.localeCompare(b.key),
-    );
-  }
+  const { activeKey } = options;
+  const { storageKey, prefix, format, listDiagrams, isDiagramKey } =
+    options.catalog;
 
   function openDiagram(
     key: string,
@@ -98,7 +52,7 @@ export function createDiagramLibrary<T>(options: LibraryOptions<T>) {
         record.format === format ? raw : JSON.stringify(record.document),
         key,
       );
-      return { key, raw, doc };
+      return { key, raw, doc, linkId: recordId(key, record) };
     } catch {
       return {
         key,
@@ -135,6 +89,26 @@ export function createDiagramLibrary<T>(options: LibraryOptions<T>) {
     }
   }
 
+  function restoreLinkedDiagram(): OpenDiagram<T> | null {
+    const query = new URLSearchParams(window.location.search);
+    if (!query.has("diagram")) return restoreDiagram();
+    const key = query.get("diagram");
+    try {
+      if (
+        !isDiagramKey(key) ||
+        !query.get("store") ||
+        query.get("store") !== storageScope()
+      )
+        return null;
+      const raw = localStorage.getItem(key);
+      if (raw === null || savedDiagramId(key, raw) !== query.get("id"))
+        return null;
+      return openDiagram(key, raw);
+    } catch {
+      return null;
+    }
+  }
+
   function rememberDiagram(key: string) {
     // A full store may refuse this preference. The drawing is already saved.
     try {
@@ -151,7 +125,16 @@ export function createDiagramLibrary<T>(options: LibraryOptions<T>) {
     expected: string | null,
     action: "edit" | "delete" = "edit",
   ): OpenDiagram<T> {
-    const raw = JSON.stringify({ updatedAt: Date.now(), document: doc });
+    // The final slot is reused on deletion. Give its replacement a new identity.
+    const linkId =
+      action === "delete" || expected === null
+        ? crypto.randomUUID()
+        : savedDiagramId(key, expected);
+    const raw = JSON.stringify({
+      linkId,
+      updatedAt: Date.now(),
+      document: doc,
+    });
     checkDiagram(key, expected);
     if (action === "edit") options.backupBeforeEdit?.(key, expected);
     try {
@@ -165,7 +148,7 @@ export function createDiagramLibrary<T>(options: LibraryOptions<T>) {
         "ブラウザに保存できませんでした。作業はファイルに保存してください。",
       );
     }
-    return { key, raw, doc };
+    return { key, raw, doc, linkId };
   }
 
   function removeDiagram(entry: DiagramEntry) {
@@ -200,6 +183,7 @@ export function createDiagramLibrary<T>(options: LibraryOptions<T>) {
     listDiagrams,
     openDiagram,
     restoreDiagram,
+    restoreLinkedDiagram,
     rememberDiagram,
     writeDiagram,
     deleteDiagram,
