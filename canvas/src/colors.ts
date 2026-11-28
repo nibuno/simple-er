@@ -77,7 +77,7 @@ export function nodeAppearance(node: CanvasNode, doc: CanvasDocument) {
       : group?.fillColor && group.fillColor !== "transparent"
         ? safeColor(group.fillColor, DEFAULT_COLORS.background)
         : DEFAULT_COLORS.background;
-  const text =
+  const text: string =
     contrastRatio(DEFAULT_COLORS.text, background) >= 4.5
       ? DEFAULT_COLORS.text
       : contrastRatio(DEFAULT_COLORS.white, background) >= 4.5

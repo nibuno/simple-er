@@ -65,6 +65,7 @@ interface Props {
   onClear: () => void;
   onHint: (hint: string) => void;
   onCommit: (next: Diagram) => void;
+  onArrowMove: (step: (diagram: Diagram) => Diagram, id: string) => void;
   onPreview: (next: Diagram | null, tableId?: string) => void;
   fitRequest: number;
   viewRef: RefObject<View>;
@@ -783,23 +784,37 @@ export function DiagramCanvas(p: Props) {
                     )
                       return;
                     e.preventDefault();
-                    const n = e.shiftKey ? 24 : 8,
-                      next = structuredClone(p.state),
-                      table = next.tables.find((x) => x.id === t.id)!;
-                    table.x +=
+                    const n = e.shiftKey ? 24 : 8;
+                    const dx =
                       e.key === "ArrowLeft"
                         ? -n
                         : e.key === "ArrowRight"
                           ? n
                           : 0;
-                    table.y +=
+                    const dy =
                       e.key === "ArrowUp" ? -n : e.key === "ArrowDown" ? n : 0;
-                    if (
-                      !overlaps(table, next.tables) &&
-                      Math.abs(table.x) <= 50000 &&
-                      Math.abs(table.y) <= 50000
-                    )
-                      p.onCommit(next);
+                    p.onArrowMove((base) => {
+                      const current = base.tables.find(
+                        (table) => table.id === t.id,
+                      )!;
+                      const moved = {
+                        ...current,
+                        x: current.x + dx,
+                        y: current.y + dy,
+                      };
+                      if (
+                        Math.abs(moved.x) > 50000 ||
+                        Math.abs(moved.y) > 50000 ||
+                        overlaps(moved, base.tables)
+                      )
+                        return base;
+                      return {
+                        ...base,
+                        tables: base.tables.map((table) =>
+                          table === current ? moved : table,
+                        ),
+                      };
+                    }, t.id);
                   }}
                 >
                   <title>{`${t.logicalName ? t.logicalName + " / " : ""}${qualifiedTitle(t)}${t.note ? "\n" + t.note : ""}`}</title>

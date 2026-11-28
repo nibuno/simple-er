@@ -98,7 +98,9 @@ function markdown(source: string) {
       for (const r of records)
         registerEnum(enums, {
           name: r["型名"],
-          values: JSON.parse(r["値（順序）"]),
+          values: r["値（順序）"].startsWith("[")
+            ? JSON.parse(r["値（順序）"])
+            : r["値（順序）"].split(",").map((v) => v.trim()),
         });
     } else if (header.includes("物理名") && !header.includes("型")) {
       if (overview) {

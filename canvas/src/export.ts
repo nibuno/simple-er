@@ -65,6 +65,7 @@ export function toSvg(
   wrapNode?: (node: CanvasNode, svg: string) => string,
   options?: {
     transparent?: boolean;
+    followTheme?: boolean;
     wrapEdge?: (edge: CanvasEdge, svg: string, path: string) => string;
   },
 ) {
@@ -92,8 +93,24 @@ export function toSvg(
     w: width,
     h: height,
   } = svgFrame({ ...doc, nodes, edges }, { routes, memos });
+  const theme = (name: string, light: string) =>
+    options?.followTheme ? `var(--figure-${name}, ${light})` : light;
+  const line = theme("line", DEFAULT_COLORS.line);
+  const muted = theme("muted", DEFAULT_COLORS.muted);
+  const paper = theme("paper", DEFAULT_COLORS.background);
   const nodeSvg = (n: CanvasNode) => {
     const colors = nodeAppearance(n, doc);
+    if (options?.followTheme) {
+      if (!n.fillColor && n.kind !== "note")
+        colors.fill = theme(n.kind === "group" ? "frame" : "fill", colors.fill);
+      if (!n.strokeColor)
+        colors.stroke =
+          n.shape === "person" ? line : theme("stroke", colors.stroke);
+      if (!colors.customBackground) {
+        colors.text = theme("text", colors.text);
+        colors.muted = theme("muted", colors.muted);
+      }
+    }
     if (n.kind === "group")
       return (
         '<rect x="' +
@@ -186,7 +203,7 @@ export function toSvg(
     // A figure's memo is a pale card; free text is plain, as on the canvas.
     const card = n.attachedTo && colors.fill === "transparent";
     return (
-      `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="${card ? 8 : 0}" fill="${card ? DEFAULT_COLORS.memo : colors.fill}"/>` +
+      `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="${card ? 8 : 0}" fill="${card ? theme("memo", DEFAULT_COLORS.memo) : colors.fill}"/>` +
       textBlock(
         content.title,
         n.x + 14,
@@ -219,13 +236,13 @@ export function toSvg(
   const memoLinks = [...memos.values()]
     .map(
       (r) =>
-        `<path d="${r.path}" fill="none" stroke="${DEFAULT_COLORS.muted}" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="0 4"/>`,
+        `<path d="${r.path}" fill="none" stroke="${muted}" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="0 4"/>`,
     )
     .join("");
   const wires = edges
     .map((e, i) => {
       const r = routes.get(e.id)!;
-      const color = safeColor(e.strokeColor, DEFAULT_COLORS.line);
+      const color = safeColor(e.strokeColor, line);
       const label = r.labelLines
         .map(
           (line, i) =>
@@ -233,7 +250,7 @@ export function toSvg(
             r.label.x +
             '" y="' +
             (r.label.y - 7 + i * 18) +
-            '" text-anchor="middle" font-size="12" fill="#52685c" stroke="#f8faf9" stroke-width="5" paint-order="stroke" stroke-linejoin="round">' +
+            `" text-anchor="middle" font-size="12" fill="${theme("muted", "#52685c")}" stroke="${paper}" stroke-width="5" paint-order="stroke" stroke-linejoin="round">` +
             esc(line) +
             "</text>",
         )
@@ -257,7 +274,7 @@ export function toSvg(
   const markers = edges
     .map(
       (edge, i) =>
-        `<marker id="arrow-${i}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="${safeColor(edge.strokeColor, DEFAULT_COLORS.line)}" stroke-width="1.5"/></marker>`,
+        `<marker id="arrow-${i}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="${safeColor(edge.strokeColor, line)}" stroke-width="1.5"/></marker>`,
     )
     .join("");
   return (
@@ -275,7 +292,11 @@ export function toSvg(
     height +
     '"><title>' +
     esc(doc.title) +
-    "</title><defs>" +
+    "</title>" +
+    (options?.followTheme
+      ? `<style>@media (prefers-color-scheme:dark){svg{--figure-paper:#131917;--figure-fill:#1b2320;--figure-stroke:#64766e;--figure-frame:#24302b80;--figure-text:#e2eae6;--figure-muted:#9aa9a2;--figure-line:#80958b;--figure-memo:#222c28}}</style>`
+      : "") +
+    "<defs>" +
     markers +
     '</defs><rect x="' +
     x +
@@ -285,7 +306,7 @@ export function toSvg(
     width +
     '" height="' +
     height +
-    `" fill="${options?.transparent ? "none" : "#f8faf9"}"/><g font-family="system-ui,-apple-system,BlinkMacSystemFont,Noto Sans JP,sans-serif">` +
+    `" fill="${options?.transparent ? "none" : paper}"/><g font-family="system-ui,-apple-system,BlinkMacSystemFont,Noto Sans JP,sans-serif">` +
     frames +
     memoLinks +
     wires +

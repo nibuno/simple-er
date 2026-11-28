@@ -27,10 +27,14 @@ export function serialType(type: string) {
 }
 
 export function columnMarks(column: Column, table?: TableSchema) {
+  let composite = 0;
+  const unique = (table?.keys ?? []).flatMap((key) => {
+    if (key.kind !== "unique") return [];
+    const label = key.columnIds.length > 1 ? "UK" + ++composite : "UK";
+    return key.columnIds.includes(column.id) ? [label] : [];
+  });
   return [
-    table?.keys?.some(
-      (k) => k.kind === "unique" && k.columnIds.includes(column.id),
-    ) && "UK",
+    ...new Set(unique),
     column.notNull && "NN",
     column.defaultValue && "DF",
     (column.identity || serialBase(column.type)) && "AI",

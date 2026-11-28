@@ -35,6 +35,7 @@ function preview(
     },
     {
       transparent: true,
+      followTheme: true,
       wrapEdge: (edge, content, path) => {
         const kind = changes?.edges.get(edge.id);
         if (!kind) return content;
@@ -234,7 +235,7 @@ function Drawing({
                 <path
                   d="M24 0H0V24"
                   fill="none"
-                  stroke="#dce4df"
+                  stroke="var(--grid)"
                   strokeWidth="1"
                 />
               </pattern>

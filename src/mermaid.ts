@@ -24,7 +24,9 @@ export function identifyingForeignKey(child: Table, columnIds: string[]) {
 }
 
 export function diagramMermaid(diagram: Diagram) {
-  const lines = ["erDiagram"];
+  const lines = diagram.title
+    ? ["---", "title: " + JSON.stringify(diagram.title), "---", "erDiagram"]
+    : ["erDiagram"];
   const qualified = diagram.tables.some((t) => t.schemaName);
   if (qualified) lines.push("    %% simple-er-qualified-names");
   const entityName = (t: Table) =>

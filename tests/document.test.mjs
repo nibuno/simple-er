@@ -232,7 +232,7 @@ test("document import rejects duplicate, dangling and malformed presentation rec
   );
 });
 
-test("v1 and v2 logical names remain labels and seed notes only once", () => {
+test("legacy labels and already duplicated v3 notes load without a duplicate description", () => {
   const v1 = {
     format: "er-sketch",
     version: 1,
@@ -253,14 +253,18 @@ test("v1 and v2 logical names remain labels and seed notes only once", () => {
   v2.version = 2;
   v2.schema.tables[0].logicalName = "会員";
   v2.schema.tables[0].columns[0].logicalName = "会員番号";
-  for (const legacy of [v1, v2]) {
+  const v3 = structuredClone(v2);
+  v3.version = 3;
+  v3.schema.tables[0].note = "会員";
+  v3.schema.tables[0].columns[0].note = "会員番号";
+  for (const legacy of [v1, v2, v3]) {
     const doc = decodeDocument(JSON.stringify(legacy));
     const table = doc.schema.tables[0];
-    assert.equal(table.note, "会員");
+    assert.equal(table.note, undefined);
     assert.equal(table.logicalName, "会員");
-    assert.equal(table.columns[0].note, "会員番号");
+    assert.equal(table.columns[0].note, undefined);
     assert.equal(table.columns[0].logicalName, "会員番号");
-    delete table.note;
+    table.note = "登録済みの会員";
     table.columns[0].note = "採番は登録時に行います。";
     assert.deepEqual(decodeDocument(encodeDocument(doc)), doc);
   }

@@ -5,7 +5,7 @@ import { diagramDDL } from "../src/ddl.ts";
 import { diagramMermaid } from "../src/mermaid.ts";
 import { diagramSvg } from "../src/export.ts";
 import { groupFrames, height, tableWidth } from "../src/geometry.ts";
-import { tidyDiagram } from "../src/layout.ts";
+import { clearGroupFrame, tidyDiagram } from "../src/layout.ts";
 import {
   decode,
   encode,
@@ -120,4 +120,47 @@ test("tidy moves a table out of the space between two grouped members", () => {
       outside.y + height(outside) <= frame.y,
   );
   assert.deepEqual(arranged.groups, diagram.groups);
+});
+
+test("saving a group clears an outsider without moving its members or unrelated tables", () => {
+  const diagram = grouped();
+  diagram.groups[0].tableIds = ["users", "order_items"];
+  const original = structuredClone(diagram);
+  const next = clearGroupFrame(diagram, "sales");
+  const [frame] = groupFrames(next);
+  const [first, outside, last] = next.tables;
+  assert.deepEqual([first, last], [diagram.tables[0], diagram.tables[2]]);
+  assert.ok(
+    outside.x >= frame.x + frame.width ||
+      outside.x + tableWidth(outside) <= frame.x ||
+      outside.y >= frame.y + frame.height ||
+      outside.y + height(outside) <= frame.y,
+  );
+  assert.equal(clearGroupFrame(next, "sales"), next);
+  assert.deepEqual(diagram, original);
+});
+
+test("an overlapping group moves intact, carrying its manual route", () => {
+  const diagram = grouped();
+  const [first, second, third] = diagram.tables;
+  const outer = { ...third, id: "last", name: "last", x: third.x + 600 };
+  diagram.tables = [...diagram.tables, outer];
+  diagram.groups.push({
+    id: "outside",
+    name: "両端",
+    tableIds: [first.id, outer.id],
+  });
+  Object.assign(diagram.edges[1], { manual: true, trunk: 800 });
+  const next = clearGroupFrame(diagram, "outside");
+  const [a, b] = groupFrames(next);
+  assert.ok(
+    a.x + a.width <= b.x ||
+      b.x + b.width <= a.x ||
+      a.y + a.height <= b.y ||
+      b.y + b.height <= a.y,
+  );
+  const dx = next.tables[1].x - second.x;
+  assert.equal(next.tables[2].x - third.x, dx);
+  assert.equal(next.tables[2].y - third.y, next.tables[1].y - second.y);
+  assert.equal(next.edges[1].trunk, 800 + dx);
 });

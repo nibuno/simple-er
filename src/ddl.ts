@@ -67,6 +67,7 @@ export function tableDDL(
     throw new Error(
       `SQLite ではスキーマなしと main の ${tableName} が同じテーブルになります。`,
     );
+  const tableComment = table.note || table.logicalName;
   const constraintName = (name?: string) =>
     name ? `CONSTRAINT ${quote(name)} ` : "";
   const named = (ids: string[]) => {
@@ -129,6 +130,7 @@ export function tableDDL(
       value = value.replace(/'(?:''|[^'])*'/g, (str) =>
         str.replaceAll("\\", "\\\\"),
       );
+    const comment = c.note || c.logicalName;
     const details = detailsComment({
       enumName: enumType && (mysql || sqlite) ? enumType.name : undefined,
       type: !enumType && original !== type ? original : undefined,
@@ -140,7 +142,7 @@ export function tableDDL(
           : undefined,
       identityOptions: dialect !== "PostgreSQL" ? c.identityOptions : undefined,
     });
-    return `  ${quote(c.name).padEnd(width)} ${type}${generation}${c.notNull ? " NOT NULL" : ""}${value ? ` DEFAULT ${value}` : ""}${mysql && c.note ? " COMMENT " + literal(c.note, dialect) : ""}${details}`;
+    return `  ${quote(c.name).padEnd(width)} ${type}${generation}${c.notNull ? " NOT NULL" : ""}${value ? ` DEFAULT ${value}` : ""}${mysql && comment ? " COMMENT " + literal(comment, dialect) : ""}${details}`;
   });
   if (primary && !inlinePrimary && named(primary.columnIds))
     lines.push(
@@ -227,21 +229,23 @@ export function tableDDL(
   if (mysql)
     options =
       " ENGINE=InnoDB" +
-      (table.note ? " COMMENT=" + literal(table.note, dialect) : "");
+      (tableComment ? " COMMENT=" + literal(tableComment, dialect) : "");
   const statements = [
     `CREATE TABLE ${name} (\n${lines.join(",\n")}\n)${tableDetails}${options};`,
     ...indexes,
   ];
   if (dialect === "PostgreSQL") {
-    if (table.note)
+    if (tableComment)
       statements.push(
-        `COMMENT ON TABLE ${name} IS ${literal(table.note, dialect)};`,
+        `COMMENT ON TABLE ${name} IS ${literal(tableComment, dialect)};`,
       );
-    for (const c of columns)
-      if (c.note)
+    for (const c of columns) {
+      const comment = c.note || c.logicalName;
+      if (comment)
         statements.push(
-          `COMMENT ON COLUMN ${name}.${quote(c.name)} IS ${literal(c.note, dialect)};`,
+          `COMMENT ON COLUMN ${name}.${quote(c.name)} IS ${literal(comment, dialect)};`,
         );
+    }
   }
   return statements.join("\n");
 }

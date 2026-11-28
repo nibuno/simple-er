@@ -214,6 +214,23 @@ export function importMermaid(
   const qualified = lines.some(
     (line, i) => i > frontEnd && line.trim() === "%% simple-er-qualified-names",
   );
+  if (!next.title && frontEnd > first) {
+    const field = lines
+      .slice(first + 1, frontEnd)
+      .find((line) => /^title:\s/.test(line));
+    if (field) {
+      let title = field.slice(6).trim();
+      if (title.startsWith('"')) {
+        try {
+          title = JSON.parse(title);
+        } catch {
+          title = "";
+        }
+      } else if (/^'.*'$/.test(title))
+        title = title.slice(1, -1).replaceAll("''", "'");
+      if (title) next.title = title.slice(0, 200);
+    }
+  }
   for (const [index, raw] of lines.entries()) {
     if (index <= frontEnd) continue;
     const line = index + 1,

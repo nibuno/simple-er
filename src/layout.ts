@@ -7,6 +7,7 @@ import {
   height,
   connectionSides,
 } from "./geometry.ts";
+import { moveGroup } from "./utils.ts";
 import { validateDiagram } from "./model.ts";
 
 const COLUMN_GAP = 120,
@@ -118,6 +119,60 @@ export function tidyDiagram(diagram: Diagram, _aspect = 1.5) {
     [e.from.side, e.to.side] = connectionSides(a, b);
     e.trunk = null;
     e.manual = false;
+  }
+  return next;
+}
+
+/** Move only the blocks that the edited frame would cover. Other groups move intact. */
+export function clearGroupFrame(diagram: Diagram, editedId: string): Diagram {
+  const frames = groupFrames(diagram);
+  const fixed = frames.find((frame) => frame.group.id === editedId);
+  if (!fixed) return diagram;
+  const grouped = new Set(frames.flatMap((f) => f.group.tableIds));
+  const blocks = [
+    ...frames,
+    ...diagram.tables
+      .filter((t) => !grouped.has(t.id))
+      .map((t) => ({
+        group: { id: t.id, name: t.name, tableIds: [t.id] },
+        x: t.x,
+        y: t.y,
+        width: tableWidth(t),
+        height: height(t),
+      })),
+  ];
+  type Bounds = Pick<(typeof frames)[number], "x" | "y" | "width" | "height">;
+  const intersects = (a: Bounds, b: Bounds, gap = 0) =>
+    a.x < b.x + b.width + gap &&
+    b.x < a.x + a.width + gap &&
+    a.y < b.y + b.height + gap &&
+    b.y < a.y + a.height + gap;
+  let next = diagram;
+  for (const block of blocks) {
+    if (block === fixed || !intersects(block, fixed)) continue;
+    const others = blocks.filter((b) => b !== block);
+    // Try the nearest clear side first, then the sides of neighboring obstacles.
+    const space = 48;
+    const moves = others
+      .flatMap((b) => [
+        { dx: b.x - space - block.width - block.x, dy: 0 },
+        { dx: b.x + b.width + space - block.x, dy: 0 },
+        { dx: 0, dy: b.y - space - block.height - block.y },
+        { dx: 0, dy: b.y + b.height + space - block.y },
+      ])
+      .sort((a, b) => Math.abs(a.dx + a.dy) - Math.abs(b.dx + b.dy));
+    let placed = false;
+    for (const { dx, dy } of moves) {
+      const target = { ...block, x: block.x + dx, y: block.y + dy };
+      if (others.some((b) => intersects(target, b, space))) continue;
+      const moved = moveGroup(next, block.group, dx, dy);
+      if (!moved) continue;
+      next = moved;
+      Object.assign(block, target);
+      placed = true;
+      break;
+    }
+    if (!placed) return tidyDiagram(diagram);
   }
   return next;
 }

@@ -12,12 +12,18 @@ export function viewerHtml(
 ) {
   const memos = memoNodes(doc);
   const indexes = new Map(memos.map((node, i) => [node.id, i]));
-  const diagram = toSvg(doc, [], computed, (node, svg) => {
-    const index = indexes.get(node.attachedTo ?? node.id);
-    if (index === undefined) return svg;
-    const name = esc(memoOwnerName(memos[index]));
-    return `<g data-memo="${index}" ${node.attachedTo ? "" : "data-owner"} role="button" tabindex="0" aria-label="${name}のメモを選択">${svg}</g>`;
-  });
+  const diagram = toSvg(
+    doc,
+    [],
+    computed,
+    (node, svg) => {
+      const index = indexes.get(node.attachedTo ?? node.id);
+      if (index === undefined) return svg;
+      const name = esc(memoOwnerName(memos[index]));
+      return `<g data-memo="${index}" ${node.attachedTo ? "" : "data-owner"} role="button" tabindex="0" aria-label="${name}のメモを選択">${svg}</g>`;
+    },
+    { followTheme: true },
+  );
   const rows = memos.map((node, i) => {
     const status = node.memoStatus
       ? memoStatusLabels[node.memoStatus]

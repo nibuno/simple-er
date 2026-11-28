@@ -1031,16 +1031,32 @@ test("variants keep the original, compare either pair in sync, and remember the 
   assert.equal(label("右の案").value, first.key);
   await click(label("案2を元の図にする"));
   assert.equal(saved().id, second.doc.id);
+  assert.equal(saved().title, original.title);
   await act(() => root.unmount());
   await mount();
   await click(button("図の一覧"));
   assert.equal(
     document.querySelector(".diagram-link strong").textContent,
-    "案2",
+    original.title,
   );
-  assert.match(label(original.title + "を開く").textContent, /案 ·/);
-  await click(label(original.title + "を開く"));
-  assert.deepEqual(saved(), original);
+  assert.match(label("案2を開く").textContent, /案 ·/);
+  await click(label("案2を開く"));
+  assert.deepEqual(saved(), { ...original, title: "案2" });
+});
+
+test("repeated arrow keys move the selection in one undo step", async () => {
+  const before = saved();
+  await click(label("DBを選択"));
+  await key(document.body, "ArrowRight");
+  await key(document.body, "ArrowRight", { repeat: true });
+  assert.deepEqual(saved(), before);
+  await act(() =>
+    window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight" })),
+  );
+  const db = (doc) => doc.nodes.find((node) => node.id === "db");
+  assert.equal(db(saved()).x, db(before).x + 16);
+  await key(document.body, "z", { ctrlKey: true });
+  assert.deepEqual(saved(), before);
 });
 
 test("pinching either comparison pane moves and scales both views together", async () => {
@@ -1079,7 +1095,7 @@ test("deleting the original keeps the remaining variants together and rejects a 
   const a = listDiagrams().find((e) => e.title === "A");
   createVariant(a, "B");
   const b = listDiagrams().find((e) => e.title === "B");
-  writeDiagram(newDiagramKey(), saved(), null);
+  writeDiagram(newDiagramKey(), { ...saved(), title: "別のキャンバス" }, null);
   assert.deepEqual(
     groupVariants(listDiagrams())
       .map((g) => g.length)
@@ -1090,17 +1106,40 @@ test("deleting the original keeps the remaining variants together and rejects a 
   assert.throws(() => chooseVariant(original, a), /元の図が変わりました/);
   writeDiagram(a.key, { ...saved(), title: "編集中の案" }, a.raw);
   assert.throws(() => chooseVariant(b, a), /別のタブ/);
-  removeDiagram(original);
+  removeDiagram(listDiagrams().find((e) => e.key === original.key)!);
   assert.equal(
     groupVariants(listDiagrams()).find((g) => g.length === 2)[0].key,
     b.key,
   );
   await click(button("図の一覧"));
-  await click(label("Bの操作"));
+  await click(label(original.title + "の操作"));
   await click(button("削除"));
   await click(button("削除する"));
   assert.ok(label("編集中の案を開く"));
   assert.equal(groupVariants(listDiagrams()).length, 2);
+});
+
+test("a failed choice restores both names and the current primary", async () => {
+  const { createVariant, chooseVariant, groupVariants } =
+    await import("../canvas/src/variants.ts");
+  const [primary] = listDiagrams();
+  createVariant(primary, "案1");
+  const selected = listDiagrams().find((entry) => entry.title === "案1")!;
+  const proto = Object.getPrototypeOf(localStorage),
+    setItem = proto.setItem;
+  proto.setItem = function (key, raw) {
+    if (key.startsWith("simple-canvas.chosen."))
+      throw new dom.window.DOMException("full", "QuotaExceededError");
+    return setItem.call(this, key, raw);
+  };
+  try {
+    assert.throws(() => chooseVariant(primary, selected), /空き容量/);
+    assert.equal(localStorage.getItem(primary.key), primary.raw);
+    assert.equal(localStorage.getItem(selected.key), selected.raw);
+    assert.equal(groupVariants(listDiagrams())[0][0].key, primary.key);
+  } finally {
+    proto.setItem = setItem;
+  }
 });
 
 test("quota errors keep saved drawings and pending edits until another drawing is removed", async () => {
@@ -1814,6 +1853,10 @@ test("Mermaidでコピーした図は選択にかかわらず図全体を貼り�
   });
   t.after(() => delete navigator.clipboard);
   await click(label("Queueを選択"));
+  assert.match(
+    document.querySelector(".file-popover")!.textContent!,
+    /メモとテキストは含まれません/,
+  );
   await click(button("Mermaidでコピー"));
   const before = saved();
   await paste(text);

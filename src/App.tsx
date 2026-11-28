@@ -1,3 +1,4 @@
+import { useArrowMove } from "../shared/useArrowMove.ts";
 import { canvasCatalog } from "../shared/diagram-catalog.ts";
 import { clearLinkedUrl, linkedUrl } from "../shared/diagram-links.ts";
 import { useDiagramLinks, MissingDiagram } from "../shared/useDiagramLinks.tsx";
@@ -46,7 +47,7 @@ import {
   uid,
 } from "./model.ts";
 import { EdgeRouteCache, routeEdges, tableWidth } from "./geometry.ts";
-import { tidyDiagram } from "./layout.ts";
+import { clearGroupFrame, tidyDiagram } from "./layout.ts";
 import { historyReducer } from "./history.ts";
 import { GroupDialog } from "./GroupDialog.tsx";
 import { DiagramCanvas } from "./DiagramCanvas.tsx";
@@ -137,7 +138,9 @@ function Editor({
     diagram: Diagram;
     tableId?: string;
   } | null>(null);
-  const activePreview = preview?.base === committed ? preview : null;
+  const arrows = useArrowMove(committed, commit);
+  const activePreview =
+    (preview?.base === committed ? preview : null) ?? arrows.preview;
   const state = activePreview?.diagram ?? committed;
   const visible = useMemo(
     () => (activePreview ? relatedDiagram(state, relatedTo) : visibleCommitted),
@@ -1338,6 +1341,7 @@ function Editor({
             onClear={clear}
             onHint={setHint}
             onCommit={commit}
+            onArrowMove={arrows.move}
             onPreview={(diagram, tableId) =>
               setPreview(diagram ? { base: committed, diagram, tableId } : null)
             }
@@ -1467,7 +1471,7 @@ function Editor({
           displayTable={displayTable}
           onClose={() => setGroupDraft(null)}
           onApply={(groups) => {
-            replace({ ...state, groups });
+            replace(clearGroupFrame({ ...state, groups }, groupDraft.id));
             setGroupDraft(null);
           }}
         />

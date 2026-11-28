@@ -1,3 +1,4 @@
+import { useArrowMove } from "../../shared/useArrowMove.ts";
 import { erCatalog } from "../../shared/diagram-catalog.ts";
 import {
   clearLinkedUrl,
@@ -157,6 +158,7 @@ function Editor({
   );
   const docRef = useRef(history.present);
   docRef.current = history.present;
+  const arrows = useArrowMove(history.present, commit);
   const historyRef = useRef(history);
   historyRef.current = history;
   const [selection, setSelection] = useState<string[]>([]),
@@ -878,9 +880,9 @@ function Editor({
       } else if (e.key.startsWith("Arrow") && selectionRef.current.length) {
         e.preventDefault();
         const step = e.shiftKey ? 32 : 8;
-        commit(
+        arrows.move((base) =>
           moveNodes(
-            docRef.current,
+            base,
             selectionRef.current,
             e.key === "ArrowRight" ? step : e.key === "ArrowLeft" ? -step : 0,
             e.key === "ArrowDown" ? step : e.key === "ArrowUp" ? -step : 0,
@@ -993,7 +995,8 @@ function Editor({
       <main className="workspace">
         <Canvas
           ref={canvas}
-          doc={doc}
+          doc={arrows.preview?.diagram ?? doc}
+          arrowBase={arrows.preview?.base}
           viewKey={viewKeyFor(initial.key)}
           selection={selection}
           tool={tool}
@@ -1197,6 +1200,11 @@ function Editor({
               >
                 Mermaidで保存
               </button>
+              {doc.nodes.some((n) => n.kind === "note" || n.body.trim()) && (
+                <small className="mermaid-note">
+                  Mermaidにはメモとテキストは含まれません。
+                </small>
+              )}
               <hr />
               <button
                 onClick={() =>

@@ -1,4 +1,5 @@
 import { typeName } from "./schema-constraints.ts";
+import { ddlType } from "./ddl-dialect.ts";
 import { serialBase } from "./column-attributes.ts";
 import { localDate } from "./export.ts";
 import type {
@@ -66,6 +67,7 @@ function describeTable(
   tables: TableSchema[],
   logicalFirst: boolean,
   group: string | undefined,
+  dialect: DiagramDocument["ddlDialect"],
 ) {
   const info = [
     ...orderedNames(physicalName(table), table.logicalName, logicalFirst),
@@ -96,11 +98,19 @@ function describeTable(
     const refs = foreignKeys.filter(({ fk }) =>
       fk.columnIds.includes(column.id),
     );
+    const isPrimary = primary?.columnIds.includes(column.id);
+    // Ordinary SQLite tables allow NULL in primary keys other than the rowid alias.
+    const impliedNotNull =
+      isPrimary &&
+      (dialect !== "SQLite" ||
+        (primary?.columnIds.length === 1 &&
+          (column.identity ||
+            ddlType(column.type, "SQLite", true).toUpperCase() === "INTEGER")));
     const cells = [
       ...orderedNames(column.name, column.logicalName, logicalFirst),
       column.type,
-      primary?.columnIds.includes(column.id) ? "○" : "",
-      column.notNull ? "○" : "",
+      isPrimary ? "○" : "",
+      column.notNull ? "○" : impliedNotNull ? "主キー" : "",
       column.defaultValue ?? "",
       autoNumber(column),
       refs
@@ -147,7 +157,12 @@ function markdown(
       "## ENUM 型",
       markdownTable(
         ["型名", "値（順序）"],
-        enums.map((e) => [e.name, JSON.stringify(e.values)]),
+        enums.map((e) => [
+          e.name,
+          e.values.every((v) => /^[\p{L}\p{N}_-]+$/u.test(v))
+            ? e.values.join(", ")
+            : JSON.stringify(e.values),
+        ]),
       ),
     );
   for (const { info, columns, foreignKeys, constraints, checks } of tables) {
@@ -332,6 +347,7 @@ export function tableDefinition(
         ? (doc.presentation.groups.find((g) => g.tableIds.includes(table.id))
             ?.name ?? "")
         : undefined,
+      doc.ddlDialect,
     ),
   );
   const render = format === "md" ? markdown : csv;
