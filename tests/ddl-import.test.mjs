@@ -49,6 +49,34 @@ test("column modifiers retain a primary key after IDENTITY and the default befor
   assert.equal(updated.notNull, true);
 });
 
+// SQL imports allocate fresh IDs and lay out the tables again. Compare the
+// schema by resolving those IDs to physical table/column names in each diagram.
+function schemaByName(diagram) {
+  const names = (table, ids) =>
+    ids.map((id) => table.columns.find((c) => c.id === id).name);
+  return diagram.tables.map((table) => ({
+    name: table.name,
+    schemaName: table.schemaName,
+    logicalName: table.logicalName,
+    note: table.note,
+    columns: table.columns.map(({ id, ...column }) => column),
+    keys: table.keys.map(({ kind, name, columnIds }) => ({
+      kind,
+      name,
+      columns: names(table, columnIds),
+    })),
+    foreignKeys: table.foreignKeys.map(({ id, target, columnIds, ...fk }) => {
+      const parent = diagram.tables.find((t) => t.id === target.tableId);
+      return {
+        ...fk,
+        columns: names(table, columnIds),
+        parent: parent.name,
+        targets: names(parent, target.columnIds),
+      };
+    }),
+  }));
+}
+
 test("every bundled diagram round-trips the DDL written by SimpleER", async () => {
   const directory = new URL("../examples/", import.meta.url);
   const files = (await readdir(directory)).filter((file) =>
@@ -67,8 +95,7 @@ test("every bundled diagram round-trips the DDL written by SimpleER", async () =
       const label = file + " / " + dialect;
       assert.deepEqual(issues, [], label);
       assert.equal(diagramDDL(diagram, dialect), ddl, label);
-      // Compare to the original schema in one spelling, including notes and keys.
-      assert.equal(diagramDDL(diagram), diagramDDL(original), label);
+      assert.deepEqual(schemaByName(diagram), schemaByName(original), label);
       assert.equal(diagram.edges.length, original.edges.length, label);
       assert.ok(
         diagram.tables.every((t) => !overlaps(t, diagram.tables)),

@@ -11,7 +11,7 @@ type Constraint = { name: string; columns: string[] } & (
   | { kind: KeyDefinition["kind"] }
   | ({ kind: "foreign"; parent: Name; targets?: string[] } & Pick<
       ForeignKey,
-      "onDelete" | "onUpdate"
+      "onDelete" | "onUpdate" | "label" | "cardinality"
     >)
 );
 type Change = { table: Name; line: number } & (
@@ -54,7 +54,19 @@ function reference(
     tokens.index += action.split(" ").length;
     actions[deleting ? "onDelete" : "onUpdate"] = action;
   }
-  return { kind: "foreign", columns, name, parent, targets, ...actions };
+  const { label, cardinality } = readDetails(
+    tokens.items[tokens.index - 1]?.details,
+  );
+  return {
+    kind: "foreign",
+    columns,
+    name,
+    parent,
+    targets,
+    ...actions,
+    label,
+    cardinality,
+  };
 }
 
 function tableConstraint(tokens: Tokens): Constraint {
@@ -198,6 +210,7 @@ function parseColumn(tokens: Tokens, sql: string, issues: DdlIssue[]) {
       column.identityOptions = details.identityOptions;
   }
   if (details.note !== undefined) column.note = details.note;
+  if (details.logicalName) column.logicalName = details.logicalName;
   return { column, keys };
 }
 
@@ -306,7 +319,8 @@ export function importDDL(
       if (!t.eat(",")) break;
     }
     t.need(")");
-    const { note } = readDetails(t.items[t.index - 1].details);
+    const { note, logicalName } = readDetails(t.items[t.index - 1].details);
+    if (logicalName) table.logicalName = logicalName;
     if (note !== undefined) table.note = note;
     if (!table.columns.length)
       t.fail(`${name} に読み込めるカラムがありません。`);
@@ -453,6 +467,8 @@ export function importDDL(
             id: uid(),
             name: op.name,
             columnIds: ids,
+            ...(op.label && { label: op.label }),
+            ...(op.cardinality && { cardinality: op.cardinality }),
             ...(op.onDelete && { onDelete: op.onDelete }),
             ...(op.onUpdate && { onUpdate: op.onUpdate }),
             target: { tableId: parent.id, columnIds: targets },

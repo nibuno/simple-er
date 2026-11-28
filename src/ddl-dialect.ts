@@ -1,5 +1,5 @@
 import { serialBase } from "./column-attributes.ts";
-import type { Column, DdlDialect } from "./types.ts";
+import type { Column, DdlDialect, ForeignKey } from "./types.ts";
 
 export function ddlType(type: string, dialect: DdlDialect, indexed: boolean) {
   if (dialect === "PostgreSQL") {
@@ -58,9 +58,10 @@ export function ddlType(type: string, dialect: DdlDialect, indexed: boolean) {
 
 // SQL has no SQLite COMMENT clause or portable spelling for the original type.
 // Keep only details lost in translation, adjacent to their column or table.
-type Details = Pick<Column, "note" | "identity" | "identityOptions"> & {
-  type?: string;
-};
+type Details = Partial<
+  Pick<Column, "type" | "logicalName" | "note" | "identity" | "identityOptions">
+> &
+  Pick<ForeignKey, "label" | "cardinality">;
 export const detailsPrefix = "/* simple-er ";
 export function detailsComment(details: Details) {
   if (!Object.values(details).some(Boolean)) return "";
@@ -79,7 +80,18 @@ export function readDetails(raw?: string): Details {
     if (!d || typeof d !== "object") return {};
     const text = (v: unknown, length: number) =>
       typeof v === "string" && v.length <= length && v.trim().length > 0;
+    const cardinality = d.cardinality;
     return {
+      ...(text(d.logicalName, 80) && { logicalName: d.logicalName }),
+      ...(text(d.label, 80) && { label: d.label }),
+      ...(cardinality &&
+        typeof cardinality === "object" &&
+        !Array.isArray(cardinality) &&
+        Object.entries(cardinality).every(
+          ([key, value]) =>
+            (key === "parentMinimum" || key === "childMinimum") &&
+            (value === 0 || value === 1),
+        ) && { cardinality }),
       ...(text(d.type, 40) && { type: d.type }),
       ...(typeof d.note === "string" &&
         d.note.length <= 2_000_000 && { note: d.note }),

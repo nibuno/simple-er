@@ -103,6 +103,7 @@ export function tableDDL(
       );
     const details = detailsComment({
       type: original !== type ? original : undefined,
+      logicalName: c.logicalName || undefined,
       note: sqlite ? c.note : undefined,
       identity:
         dialect !== "PostgreSQL" && c.identity === "always"
@@ -158,7 +159,7 @@ export function tableDDL(
       sqlite ? undefined : parent.schemaName,
       parent.name?.trim() || parent.id,
     );
-    const constraint = `${constraintName(fk.name)}FOREIGN KEY (${named(fk.columnIds)}) REFERENCES ${target} (${targets.map(quote).join(", ")})${fk.onDelete ? ` ON DELETE ${fk.onDelete}` : ""}${fk.onUpdate ? ` ON UPDATE ${fk.onUpdate}` : ""}`;
+    const constraint = `${constraintName(fk.name)}FOREIGN KEY (${named(fk.columnIds)}) REFERENCES ${target} (${targets.map(quote).join(", ")})${fk.onDelete ? ` ON DELETE ${fk.onDelete}` : ""}${fk.onUpdate ? ` ON UPDATE ${fk.onUpdate}` : ""}${detailsComment({ label: fk.label || undefined, cardinality: fk.cardinality })}`;
     if (
       !sqlite &&
       forwardReferences &&
@@ -167,14 +168,17 @@ export function tableDDL(
       forwardReferences.push(`ALTER TABLE ${name} ADD ${constraint};`);
     else lines.push(`  ${constraint}`);
   }
+  const tableDetails = detailsComment({
+    logicalName: table.logicalName || undefined,
+    note: sqlite ? table.note : undefined,
+  });
   let options = "";
   if (mysql)
     options =
       " ENGINE=InnoDB" +
       (table.note ? " COMMENT=" + literal(table.note, dialect) : "");
-  if (sqlite) options = detailsComment({ note: table.note });
   const statements = [
-    `CREATE TABLE ${name} (\n${lines.join(",\n")}\n)${options};`,
+    `CREATE TABLE ${name} (\n${lines.join(",\n")}\n)${tableDetails}${options};`,
     ...indexes,
   ];
   if (dialect === "PostgreSQL") {
