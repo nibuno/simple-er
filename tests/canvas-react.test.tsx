@@ -1525,6 +1525,61 @@ async function paste(text, target = label("設計キャンバス")) {
   return event.defaultPrevented;
 }
 
+test("画像コピーが使えないときはメニューとショートカットからPNG保存を案内する", async () => {
+  await key(label("キャンバス名"), "C", { metaKey: true, shiftKey: true });
+  assert.equal(document.querySelector('[role="alert"]'), null);
+  await key(window, "C", { metaKey: true, shiftKey: true });
+  assert.match(
+    document.querySelector('[role="alert"]').textContent,
+    /PNGで保存/,
+  );
+  await click(label("通知を閉じる"));
+  await click(button("画像をコピー ⌘⇧C"));
+  assert.match(
+    document.querySelector('[role="alert"]').textContent,
+    /PNGで保存/,
+  );
+});
+
+test("Mermaidでコピーした図は選択にかかわらず図全体を貼り付けられる", async (t) => {
+  let text;
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (source) => {
+        text = source;
+      },
+    },
+  });
+  t.after(() => delete navigator.clipboard);
+  await click(label("Queueを選択"));
+  await click(button("Mermaidでコピー"));
+  const before = saved();
+  await paste(text);
+  assert.equal(
+    saved().nodes.length - before.nodes.length,
+    before.nodes.filter((n) => n.kind === "box").length,
+  );
+  assert.equal(saved().edges.length, 2 * before.edges.length);
+});
+
+test("長いMermaidを貼り付けても、自由なテキストだけは6000文字の上限を守る", async () => {
+  const before = saved();
+  await paste(
+    "flowchart LR\n" +
+      Array.from(
+        { length: 35 },
+        (_, i) => "n" + i + '["' + "あ".repeat(190) + '"]',
+      ).join("\n"),
+  );
+  assert.equal(saved().nodes.length, before.nodes.length + 35);
+  await paste("あ".repeat(6001));
+  assert.match(
+    document.querySelector('[role="alert"]').textContent,
+    /6000文字/,
+  );
+});
+
 test("pasting a flowchart appends one undoable edit to the open diagram", async () => {
   const before = saved();
   // Reuse an ID from the open diagram. Both new edges must point to the pasted nodes.

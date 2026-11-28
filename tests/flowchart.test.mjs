@@ -1,10 +1,78 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { looksLikeFlowchart, parseFlowchart } from "../canvas/src/flowchart.ts";
-import { decode, encode } from "../canvas/src/model.ts";
+import {
+  looksLikeFlowchart,
+  parseFlowchart,
+  toFlowchart,
+} from "../canvas/src/flowchart.ts";
+import {
+  decode,
+  encode,
+  emptyDocument,
+  makeNode,
+} from "../canvas/src/model.ts";
+import { SHAPES } from "../canvas/src/shapes.ts";
 
 const box = (doc, id) => doc.nodes.find((n) => n.id === id);
 const valid = (doc) => decode(encode(doc));
+
+test("書き出した図を貼り付けると、図形・ラベル・囲み・線を復元できる", () => {
+  const doc = emptyDocument();
+  const group = {
+    ...makeNode("group", { x: 0, y: 0 }),
+    title: '注文 [本番] "東" %%',
+  };
+  const shapes = SHAPES.map((shape, i) => ({
+    ...makeNode("box", { x: i * 300, y: 20 }, shape),
+    id: i === 0 ? "end" : "図形:" + i,
+    title: i === 0 ? "" : i === 1 ? ' 受付 "["\n<br/> ' : shape,
+    description: i === 0 ? "" : "  詳細 #35; | \\n\n\n次の行  ",
+    groupId: i % 2 ? group.id : undefined,
+    body: "非公開のメモ",
+    fillColor: "#ccbbaa",
+  }));
+  shapes[2].title = ""; // Only the description is populated.
+  const note = { ...makeNode("note", { x: 0, y: 0 }), body: "自由なテキスト" };
+  doc.nodes = [group, ...shapes, note];
+  doc.edges = shapes.map((n, i) => ({
+    id: "edge" + i,
+    from: n.id,
+    to: shapes[(i + 1) % shapes.length].id,
+    label: i % 2 ? '  注文 "|]" %% <br/>\n#124;  ' : "",
+    dashed: !!(i % 2),
+    arrowheads: [undefined, "both", "none"][i % 3],
+  }));
+  doc.edges.push({
+    id: "note-edge",
+    from: note.id,
+    to: shapes[0].id,
+    label: "",
+    dashed: false,
+  });
+  const text = toFlowchart(doc);
+  assert.doesNotMatch(text, /非公開のメモ|自由なテキスト|ccbbaa/);
+  const restored = valid(parseFlowchart(text));
+  const frame = restored.nodes.find((n) => n.kind === "group");
+  assert.equal(frame.title, group.title);
+  assert.equal(restored.nodes.length, shapes.length + 1);
+  for (const original of shapes) {
+    const n = restored.nodes.find(
+      (n) => n.kind === "box" && n.shape === original.shape,
+    );
+    assert.equal(n.title, original.title);
+    assert.equal(n.description, original.description);
+    assert.equal(n.groupId, original.groupId ? frame.id : undefined);
+  }
+  const wires = (doc) =>
+    doc.edges.map((e) => [
+      box(doc, e.from).shape,
+      box(doc, e.to).shape,
+      e.label,
+      e.dashed,
+      e.arrowheads ?? "end",
+    ]);
+  assert.deepEqual(wires(restored), wires(doc).slice(0, -1));
+});
 
 test("図形と線を読み取る", () => {
   const doc = parseFlowchart(

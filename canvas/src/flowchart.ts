@@ -36,6 +36,78 @@ const BRACKETS: [string, string, NodeShape][] = [
   ["{", "}", "diamond"],
   [">", "]", "document"],
 ];
+// The importer also accepts alternate spellings. Use one spelling per shape.
+const SHAPE_MARKS: Record<NodeShape, [string, string]> = {
+  rectangle: ["[", "]"],
+  ellipse: ["([", "])"],
+  circle: ["((", "))"],
+  diamond: ["{", "}"],
+  cylinder: ["[(", ")]"],
+  document: ["[/", "/]"],
+  person: ["[", "]:::person"],
+  cloud: ["[", "]:::cloud"],
+  screen: ["[", "]:::screen"],
+};
+
+function escapeLabel(value: string) {
+  return value.replace(
+    /["#%&<>[\]|\\\r\n\x60]/g,
+    (c) => "#" + c.charCodeAt(0) + ";",
+  );
+}
+
+function decodeLabel(value: string) {
+  return value.replace(/#(\d{1,7}|quot);/g, (entity, code) => {
+    if (code === "quot") return '"';
+    const point = Number(code);
+    return point <= 0x10ffff ? String.fromCodePoint(point) : entity;
+  });
+}
+
+export function toFlowchart(doc: CanvasDocument) {
+  const boxes = doc.nodes.filter((n) => n.kind === "box");
+  // Canvas IDs may contain punctuation or Mermaid keywords such as "end".
+  const ids = new Map(boxes.map((n, i) => [n.id, "n" + (i + 1)]));
+  const lines = ["flowchart LR"];
+  function label(n: CanvasNode) {
+    const title = escapeLabel(n.title);
+    const description = n.description
+      .split("\n")
+      .map(escapeLabel)
+      .join("<br/>");
+    // Mermaid requires some content inside the brackets, even for a blank box.
+    return (
+      '"' +
+      ((description ? title + "<br/>" + description : title) || "<br/>") +
+      '"'
+    );
+  }
+  function box(n: CanvasNode) {
+    const [open, close] = SHAPE_MARKS[n.shape];
+    return ids.get(n.id) + open + label(n) + close;
+  }
+  for (const n of boxes) if (!n.groupId) lines.push("  " + box(n));
+  const groups = doc.nodes.filter((n) => n.kind === "group");
+  groups.forEach((group, i) => {
+    const members = boxes.filter((n) => n.groupId === group.id);
+    if (!members.length) return;
+    lines.push("  subgraph g" + (i + 1) + " [" + label(group) + "]");
+    for (const n of members) lines.push("    " + box(n));
+    lines.push("  end");
+  });
+  for (const edge of doc.edges) {
+    const from = ids.get(edge.from),
+      to = ids.get(edge.to);
+    if (!from || !to) continue;
+    const arrows = edge.dashed
+      ? { end: "-.->", both: "<-.->", none: "-.-" }
+      : { end: "-->", both: "<-->", none: "---" };
+    const arrow = arrows[edge.arrowheads ?? "end"];
+    const text = edge.label ? '|"' + escapeLabel(edge.label) + '"|' : "";
+    lines.push("  " + from + " " + arrow + text + " " + to);
+  }
+  return lines.join("\n") + "\n";
+}
 const SKIP =
   /^(classDef|class|style|linkStyle|click|direction|accTitle|accDescr)\b/i;
 const GAP = 120,
@@ -62,14 +134,15 @@ export function looksLikeFlowchart(text: string) {
 }
 
 function labelText(raw: string) {
-  const lines = raw
-    .trim()
-    .replace(/^"([\s\S]*)"$/, "$1")
+  const trimmed = raw.trim();
+  const quoted = trimmed.startsWith('"') && trimmed.endsWith('"');
+  const parts = (quoted ? trimmed.slice(1, -1) : trimmed)
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/\\n/g, "\n")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+    .split("\n");
+  const lines = (
+    quoted ? parts : parts.map((line) => line.trim()).filter(Boolean)
+  ).map(decodeLabel);
   return {
     title: (lines[0] ?? "").slice(0, 200),
     description: lines.slice(1).join("\n").slice(0, 500),
@@ -149,7 +222,10 @@ function readLink(text: string, i: number) {
     i = end + 1;
   }
   return {
-    label: label.trim().slice(0, 200),
+    label: decodeLabel(label.trim().replace(/^"([\s\S]*)"$/, "$1")).slice(
+      0,
+      200,
+    ),
     dashed: (spaced?.[1] ?? head).includes("."),
     arrowheads,
     reversed: startArrow && !endArrow,

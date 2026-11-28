@@ -35,7 +35,7 @@ export function filename(title: string, fallback = "canvas") {
   ).slice(0, 100);
 }
 
-export async function downloadPng(svg: string, name: string) {
+export async function pngBlob(svg: string) {
   const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
   try {
     const image = new Image();
@@ -60,7 +60,7 @@ export async function downloadPng(svg: string, name: string) {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("このブラウザでは画像に変換できません。");
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob>((resolve, reject) =>
+    return await new Promise<Blob>((resolve, reject) =>
       canvas.toBlob(
         (value) =>
           value
@@ -69,8 +69,11 @@ export async function downloadPng(svg: string, name: string) {
         "image/png",
       ),
     );
-    downloadFile(blob, name);
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+export async function downloadPng(svg: string, name: string) {
+  downloadFile(await pngBlob(svg), name);
 }

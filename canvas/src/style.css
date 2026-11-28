@@ -214,6 +214,8 @@ button svg {
   top: calc(100% + 8px);
   left: 0;
   min-width: 245px;
+  max-height: calc(100dvh - 80px);
+  overflow-y: auto;
   background: var(--surface);
   padding: 6px;
   border: 1px solid var(--border);
