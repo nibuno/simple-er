@@ -13,7 +13,16 @@ export interface Column {
   logicalName: string;
   note?: string;
 }
+export interface EnumType {
+  name: string;
+  values: string[];
+}
+export interface CheckConstraint {
+  name: string;
+  expression: string;
+}
 export interface TableSchema {
+  checks?: CheckConstraint[];
   schemaName?: string;
   id: string;
   name: string;
@@ -24,6 +33,7 @@ export interface TableSchema {
   foreignKeys: ForeignKey[];
 }
 export interface Schema {
+  enums?: EnumType[];
   tables: TableSchema[];
 }
 export const tableColors = {
@@ -104,6 +114,7 @@ export interface Edge {
 }
 /** Derived editing/rendering projection; never the history or storage source of truth. */
 export interface Diagram {
+  enums?: EnumType[];
   ddlDialect?: DdlDialect;
   groups?: TableGroup[];
   schemaVersion?: 2;

@@ -1,4 +1,5 @@
-import { tableColors, type TableColor } from "./types.ts";
+import { ChecksEditor, EnumEditor } from "./ValueConstraints.tsx";
+import { tableColors, type EnumType, type TableColor } from "./types.ts";
 import { isImeKey } from "../shared/ime.ts";
 import { KeyList, DefinitionEditor } from "./ConstraintsEditor.tsx";
 import type { DefinitionSelection } from "./ConstraintsEditor.tsx";
@@ -199,21 +200,30 @@ export function Modal({
   );
 }
 function TypeControl({
+  enums,
   column,
   index,
   onChange,
 }: {
+  enums: EnumType[];
   column: Column;
   index: number;
   onChange: (value: string) => void;
 }) {
-  const [custom, setCustom] = useState(!TYPES.includes(column.type)),
+  const [custom, setCustom] = useState(
+      !TYPES.includes(column.type) &&
+        !enums.some((e) => e.name === column.type),
+    ),
     lastCustom = useRef(custom ? column.type : "");
   return (
     <div className="column-type-control">
       <select
         aria-label={`カラム${index + 1}の型`}
-        value={custom ? "__custom__" : column.type}
+        value={
+          custom && !enums.some((e) => e.name === column.type)
+            ? "__custom__"
+            : column.type
+        }
         onChange={(e) => {
           const isCustom = e.target.value === "__custom__";
           setCustom(isCustom);
@@ -223,9 +233,16 @@ function TypeControl({
         {TYPES.map((t) => (
           <option key={t}>{t}</option>
         ))}
+        {!!enums.length && (
+          <optgroup label="ENUM 型">
+            {enums.map((e) => (
+              <option key={e.name}>{e.name}</option>
+            ))}
+          </optgroup>
+        )}
         <option value="__custom__">その他…</option>
       </select>
-      {custom && (
+      {custom && !enums.some((e) => e.name === column.type) && (
         <input
           autoFocus
           required
@@ -267,10 +284,40 @@ export function TableEditor({
       ? { kind: "foreign", id: fk.id, before: structuredClone(fk) }
       : null;
   });
+  const [schemaDraft, setSchemaDraft] = useState(state);
+  const [editingEnum, setEditingEnum] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
+  function changeEnum(old: string | undefined, entry?: EnumType) {
+    const enums = schemaDraft.enums ?? [];
+    if (
+      entry &&
+      entry.name !== old &&
+      [...schemaDraft.tables.filter((t) => t.id !== draft.id), draft].some(
+        (t) => t.columns.some((c) => c.type === entry.name),
+      )
+    )
+      throw new Error("カラムで使用中の型名です。別の名前を入力してください。");
+    const rename = (t: Table) =>
+      old && entry && old !== entry.name
+        ? {
+            ...t,
+            columns: t.columns.map((c) =>
+              c.type === old ? { ...c, type: entry.name } : c,
+            ),
+          }
+        : t;
+    setSchemaDraft({
+      ...schemaDraft,
+      tables: schemaDraft.tables.map(rename),
+      enums: old
+        ? enums.flatMap((e) => (e.name !== old ? [e] : entry ? [entry] : []))
+        : [...enums, entry!],
+    });
+    setDraft(rename(draft));
+  }
   function ddlPreview() {
     try {
-      return tableDDL(draft, state);
+      return tableDDL(draft, schemaDraft);
     } catch (error) {
       return messageOf(error);
     }
@@ -513,7 +560,8 @@ export function TableEditor({
         onSubmit={(e) => {
           e.preventDefault();
           try {
-            const next = editTable(state, draft),
+            if (editingEnum) throw new Error("ENUM の編集を完了してください。");
+            const next = editTable(schemaDraft, draft),
               table = next.tables.find((t) => t.id === draft.id)!;
             if (overlaps(table, next.tables))
               throw new Error(
@@ -740,6 +788,7 @@ export function TableEditor({
                         />
                       </div>
                       <TypeControl
+                        enums={schemaDraft.enums ?? []}
                         column={c}
                         index={i}
                         onChange={(value) => column(i, { type: value })}
@@ -931,6 +980,21 @@ export function TableEditor({
                   />
                 </div>
               )}
+              <ChecksEditor
+                checks={draft.checks ?? []}
+                onChange={(checks) => setDraft({ ...draft, checks })}
+              />
+              <EnumEditor
+                enums={schemaDraft.enums ?? []}
+                onEditing={setEditingEnum}
+                onChange={changeEnum}
+                used={(name) =>
+                  [
+                    ...schemaDraft.tables.filter((t) => t.id !== draft.id),
+                    draft,
+                  ].some((t) => t.columns.some((c) => c.type === name))
+                }
+              />
               <details className="ddl-section">
                 <summary>
                   DDL プレビュー <span>{state.ddlDialect ?? "PostgreSQL"}</span>
@@ -995,6 +1059,7 @@ export function TableEditor({
           </button>
           <button
             type="submit"
+            disabled={editingEnum}
             className="primary"
             title={`${creating ? "追加" : "変更を反映"} (⌘Enter)`}
           >

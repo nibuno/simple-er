@@ -1,3 +1,4 @@
+import type { DdlDialect } from "./types.ts";
 import { detailsPrefix } from "./ddl-dialect.ts";
 
 // Keep source positions so types and default expressions retain their SQL spelling.
@@ -68,6 +69,8 @@ export function* statements(sql: string): Generator<Token[]> {
       statement.push(item);
       if (
         raw.startsWith("`") ||
+        (raw.toUpperCase() === "ENUM" &&
+          previous?.raw.toUpperCase() !== "AS") ||
         /^(?:AUTO_INCREMENT|ENGINE|CHARSET)$/i.test(raw)
       )
         mysql = true;
@@ -171,13 +174,24 @@ export class Tokens {
     return this.items.slice(start, this.index);
   }
 }
-export function expression(tokens: Token[], sql: string) {
+export function expression(
+  tokens: Token[],
+  sql: string,
+  checkDialect?: DdlDialect,
+) {
   return tokens
     .map((token, i) => {
-      const raw =
+      let raw =
         token.mysqlString !== undefined
           ? "'" + token.mysqlString.replaceAll("'", "''") + "'"
           : token.raw;
+      if (checkDialect && (raw.startsWith('"') || raw.startsWith("`"))) {
+        const quote = checkDialect === "MySQL" ? "`" : '"';
+        const name = new Tokens([token]).name();
+        raw = quote + name.replaceAll(quote, quote + quote) + quote;
+      } else if (checkDialect === "MySQL" && raw.startsWith("'")) {
+        raw = raw.replaceAll("\\", "\\\\");
+      }
       if (!i) return raw;
       const prev = tokens[i - 1];
       const gap = sql.slice(prev.offset + prev.raw.length, token.offset);

@@ -12,6 +12,13 @@ import type {
 } from "./types.ts";
 import { ddlDialects, referenceActions } from "./types.ts";
 import { serialBase } from "./column-attributes.ts";
+import {
+  inlineEnumName,
+  readChecks,
+  readEnum,
+  readEnumValues,
+} from "./schema-constraints.ts";
+import { statements, Tokens } from "./ddl-tokens.ts";
 import { tableWidth, connectionSides } from "./geometry.ts";
 
 import { tableColors, type TableGroup } from "./types.ts";
@@ -101,6 +108,11 @@ export function validateDiagram(input: unknown): Diagram {
   const tableIds = new Set(),
     names = new Set(),
     edgeIds = new Set();
+  if (value.enums !== undefined && !Array.isArray(value.enums))
+    fail("ENUM の形式が不正です。");
+  const enums = (value.enums ?? []).map(readEnum);
+  if (new Set(enums.map((e) => e.name)).size !== enums.length)
+    fail("ENUM の型名が重複しています。");
   const tables = value.tables.map((t) => {
     if (
       !t ||
@@ -138,16 +150,33 @@ export function validateDiagram(input: unknown): Diagram {
         fail("カラムIDが不正、または重複しています。");
       columnIds.add(id);
       columnNames.add(c.name.trim().toLowerCase());
+      let type = c.type.trim();
+      // Earlier versions stored a MySQL ENUM as a short free-form type.
+      if (/^enum\s*\(/i.test(type)) {
+        const tokens = new Tokens([...statements(type)][0] ?? []);
+        try {
+          tokens.need("ENUM");
+          const values = readEnumValues(tokens);
+          tokens.end();
+          const name = inlineEnumName(title(t), c.name, enums);
+          enums.push(readEnum({ name, values }));
+          type = name;
+        } catch {
+          // Keep a legacy free-form type verbatim if it cannot become an ENUM.
+        }
+      }
       return {
         name: c.name.trim(),
-        type: c.type.trim(),
+        type,
         ...columnAttributes(c),
         key: c.key,
         id,
         logicalName: logicalName(c.logicalName),
       };
     });
+    const checks = readChecks(t.checks);
     return {
+      ...(checks.length && { checks }),
       id: t.id,
       name: title(t).trim(),
       ...(t.schemaName && { schemaName: t.schemaName.trim() }),
@@ -201,7 +230,7 @@ export function validateDiagram(input: unknown): Diagram {
     };
   });
   const groups = readGroups(value.groups, new Set(tables.map((t) => t.id)));
-  return normalizeRelations({ ...value, groups, tables, edges });
+  return normalizeRelations({ ...value, enums, groups, tables, edges });
 }
 
 function readGroups(groups: TableGroup[] | undefined, tables: Set<string>) {
@@ -277,7 +306,9 @@ export function documentFromDiagram(diagram: Diagram): DiagramDocument {
     ...(valid.title && { title: valid.title }),
     ...(valid.ddlDialect && { ddlDialect: valid.ddlDialect }),
     schema: {
+      ...(valid.enums?.length && { enums: valid.enums }),
       tables: valid.tables.map((t) => ({
+        ...(t.checks?.length && { checks: t.checks }),
         id: t.id,
         name: t.name,
         ...(t.schemaName !== undefined && { schemaName: t.schemaName }),
@@ -356,6 +387,7 @@ export function projectDocument(
       schemaName: t.schemaName,
       logicalName: t.logicalName,
       note: document.version === 2 ? (t.logicalName ?? undefined) : t.note,
+      checks: t.checks,
       keys: t.keys,
       foreignKeys: t.foreignKeys,
       color: pos.color,
@@ -375,6 +407,7 @@ export function projectDocument(
   const valid = validateDiagram({
     schemaVersion: 2,
     title: document.title,
+    enums: document.schema.enums,
     ddlDialect: document.ddlDialect,
     groups: document.presentation.groups,
     tables,
@@ -796,6 +829,7 @@ function normalizeRelations(diagram: Diagram): Diagram {
       ddlDialects.includes(diagram.ddlDialect) && {
         ddlDialect: diagram.ddlDialect,
       }),
+    ...(diagram.enums?.length && { enums: diagram.enums }),
     ...(diagram.groups?.length && { groups: diagram.groups }),
     tables,
     edges,
@@ -828,7 +862,7 @@ function validateConstraints(tables: Table[]) {
     if (
       !Array.isArray(t.keys) ||
       !Array.isArray(t.foreignKeys) ||
-      t.keys.length + t.foreignKeys.length > 200
+      t.keys.length + t.foreignKeys.length + (t.checks?.length ?? 0) > 200
     )
       fail("制約の形式または件数が不正です。");
     if (t.keys.filter((k) => k.kind === "primary").length > 1)

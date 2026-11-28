@@ -819,6 +819,25 @@ export function DiagramCanvas(p: Props) {
                     y2={HEADER - 0.5}
                     className="table-divider"
                   />
+                  {!!t.checks?.length && (
+                    <text
+                      x={width - 50}
+                      y={31}
+                      textAnchor="end"
+                      className="table-schema"
+                    >
+                      <title>
+                        {t.checks
+                          .map((check) =>
+                            [check.name, check.expression]
+                              .filter(Boolean)
+                              .join("："),
+                          )
+                          .join("\n")}
+                      </title>
+                      CHECK {t.checks.length}
+                    </text>
+                  )}
                   {t.schemaName && (
                     <text x={16} y={17} className="table-schema">
                       {t.schemaName}.
@@ -869,11 +888,31 @@ export function DiagramCanvas(p: Props) {
                 {t.columns.map((c, i) => {
                   const y = HEADER + i * ROW;
                   const generated = c.identity || serialBase(c.type);
-                  const marks = columnMarks(c);
+                  const marks = columnMarks(c, t);
+                  const enumType = p.state.enums?.find(
+                    (e) => e.name === c.type,
+                  );
                   const tooltip = [
                     c.logicalName,
                     c.name + " · " + c.type,
                     c.key,
+                    t.keys
+                      .filter(
+                        (k) =>
+                          k.kind === "unique" && k.columnIds.includes(c.id),
+                      )
+                      .map(
+                        (k) =>
+                          "一意制約 " +
+                          k.columnIds
+                            .map(
+                              (id) =>
+                                t.columns.find((col) => col.id === id)?.name,
+                            )
+                            .join(", "),
+                      )
+                      .join("\n"),
+                    enumType && "ENUM：" + enumType.values.join("、"),
                     c.notNull && "NOT NULL",
                     c.defaultValue && "既定値 " + c.defaultValue,
                     generated && "自動採番",
@@ -943,6 +982,9 @@ export function DiagramCanvas(p: Props) {
                         y={y + (marks ? 17 : 24)}
                         textAnchor="end"
                         className="column-type"
+                        textDecoration={
+                          enumType ? "underline dotted" : undefined
+                        }
                       >
                         {c.type}
                       </text>

@@ -1,4 +1,6 @@
 import { serialBase } from "./column-attributes.ts";
+import { expression } from "./ddl-tokens.ts";
+import { checkTokens, enumPath } from "./schema-constraints.ts";
 import { ddlType, detailsComment } from "./ddl-dialect.ts";
 import type { DdlDialect, Diagram, Table } from "./types.ts";
 
@@ -76,6 +78,15 @@ export function tableDDL(
       table.foreignKeys?.some((k) => k.columnIds.includes(c.id)) ||
       false;
     let type = ddlType(original, dialect, indexed);
+    const enumType = state.enums?.find((e) => e.name === original);
+    if (enumType) {
+      const values = enumType.values.map((v) => literal(v, dialect)).join(", ");
+      type = mysql
+        ? `ENUM(${values})`
+        : sqlite
+          ? `TEXT CHECK (${quote(c.name)} IN (${values}))`
+          : enumPath(original).map(quote).join(".");
+    }
     let generation = "";
     if (sqlite && (serial || c.identity)) {
       if (primary?.columnIds.length !== 1 || primary.columnIds[0] !== c.id)
@@ -106,7 +117,8 @@ export function tableDDL(
         str.replaceAll("\\", "\\\\"),
       );
     const details = detailsComment({
-      type: original !== type ? original : undefined,
+      enumName: enumType && (mysql || sqlite) ? enumType.name : undefined,
+      type: !enumType && original !== type ? original : undefined,
       logicalName: c.logicalName || undefined,
       note: sqlite ? c.note : undefined,
       identity:
@@ -124,6 +136,11 @@ export function tableDDL(
   for (const k of keys.filter((k) => k.kind === "unique"))
     if (named(k.columnIds))
       lines.push(`  ${constraintName(k.name)}UNIQUE (${named(k.columnIds)})`);
+  for (const check of table.checks ?? [])
+    if (check.expression.trim())
+      lines.push(
+        `  ${constraintName(check.name)}CHECK (${expression(checkTokens(check.expression), "(" + check.expression + ")", dialect)})`,
+      );
   const indexes: string[] = [];
   keys
     .filter((k) => k.kind === "index" && named(k.columnIds))
@@ -204,5 +221,23 @@ export function diagramDDL(
   const tables = state.tables.map((table) =>
     tableDDL(table, state, dialect, forwardReferences),
   );
-  return [...tables, ...forwardReferences].join("\n\n");
+  const enums = state.enums ?? [];
+  const preamble: string[] = [];
+  if (dialect === "PostgreSQL") {
+    for (const e of enums) {
+      const name = enumPath(e.name)
+        .map((n) => identifier(n))
+        .join(".");
+      const values = e.values.map((v) => literal(v, dialect)).join(", ");
+      preamble.push(`CREATE TYPE ${name} AS ENUM (${values});`);
+    }
+  } else {
+    const unused = enums.filter(
+      (e) =>
+        !state.tables.some((t) => t.columns.some((c) => c.type === e.name)),
+    );
+    if (unused.length)
+      preamble.push("-- simple-er-enums " + JSON.stringify(unused));
+  }
+  return [...preamble, ...tables, ...forwardReferences].join("\n\n");
 }

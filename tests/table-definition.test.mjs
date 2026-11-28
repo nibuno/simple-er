@@ -103,17 +103,17 @@ test("CSV quotes multiline fields and aligns references, actions and index membe
   assert.deepEqual([...Buffer.from(csv).subarray(0, 3)], [0xef, 0xbb, 0xbf]);
   assert.ok(
     csv.startsWith(
-      "\uFEFF図の名前,出力日,テーブル物理名,テーブル論理名,テーブル説明,カラム物理名,カラム論理名,型,PK,NN,既定値,自動採番,FK 参照先,カラム説明,外部キー名,ON DELETE,ON UPDATE,インデックス,一意制約\r\n",
+      "\uFEFF図の名前,出力日,テーブル物理名,テーブル論理名,テーブル説明,カラム物理名,カラム論理名,型,PK,NN,既定値,自動採番,FK 参照先,カラム説明,外部キー名,ON DELETE,ON UPDATE,インデックス,一意制約,主キー,外部キーの順序\r\n",
     ),
   );
   assert.ok(
     csv.includes(
-      `注文管理,2026-01-02,orders,注文,"受注, ""履歴""",account_id,顧客番号,uuid,,○,"'A,B'",,"sales.accounts.id\n未設定","顧客|番号\n<必須>","orders_account_fk\npending_fk","CASCADE\n","RESTRICT\n","orders_lookup (account_id, created_at)",\r\n`,
+      `注文管理,2026-01-02,orders,注文,"受注, ""履歴""",account_id,顧客番号,uuid,,○,"'A,B'",,"sales.accounts.id\n未設定","顧客|番号\n<必須>","orders_account_fk\npending_fk","CASCADE\n","RESTRICT\n","orders_lookup (account_id, created_at)",,,"1.2\n2.1"\r\n`,
     ),
   );
   assert.ok(
     csv.includes(
-      `sales.accounts,,'=SUM(1),tenant_id,,uuid,○,,,,,,,,,,"accounts_email_unique (tenant_id, email)"\r\n`,
+      `sales.accounts,,'=SUM(1),tenant_id,,uuid,○,,,,,,,,,,"accounts_email_unique (tenant_id, email)","accounts_pk (tenant_id, id)",\r\n`,
     ),
   );
 });

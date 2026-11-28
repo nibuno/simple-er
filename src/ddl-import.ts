@@ -1,13 +1,26 @@
+import {
+  inlineEnumName,
+  readEnumValues,
+  registerEnum,
+  typeName,
+} from "./schema-constraints.ts";
 import { ddlType, readDetails } from "./ddl-dialect.ts";
 import { serialBase } from "./column-attributes.ts";
 import { expression, SqlError, statements, Tokens } from "./ddl-tokens.ts";
 import { layoutImportedTables } from "./import-layout.ts";
 import { MAX_COLUMNS, MAX_TABLES, MAX_CONNECTIONS, uid } from "./model.ts";
 import { ddlDialects, referenceActions } from "./types.ts";
-import type { Diagram, ForeignKey, KeyDefinition, Table } from "./types.ts";
+import type {
+  Diagram,
+  EnumType,
+  ForeignKey,
+  KeyDefinition,
+  Table,
+} from "./types.ts";
 
 type Name = string[];
 type Constraint = { name: string; columns: string[] } & (
+  | { kind: "check"; expression: string }
   | { kind: KeyDefinition["kind"] }
   | ({ kind: "foreign"; parent: Name; targets?: string[] } & Pick<
       ForeignKey,
@@ -69,8 +82,26 @@ function reference(
   };
 }
 
-function tableConstraint(tokens: Tokens): Constraint {
+function checkConstraint(
+  tokens: Tokens,
+  name: string,
+  sql: string,
+): Constraint {
+  tokens.need("(");
+  const body = tokens.until((word) => word === ")");
+  if (!body.length) tokens.fail("CHECK の条件式がありません。");
+  tokens.need(")");
+  return {
+    kind: "check",
+    columns: [],
+    name,
+    expression: expression(body, sql, "PostgreSQL"),
+  };
+}
+
+function tableConstraint(tokens: Tokens, sql: string): Constraint {
   let name = tokens.eat("CONSTRAINT") ? tokens.name() : "";
+  if (tokens.eat("CHECK")) return checkConstraint(tokens, name, sql);
   if (tokens.eat("FOREIGN")) {
     tokens.need("KEY");
     if (tokens.keyword !== "(") {
@@ -108,10 +139,19 @@ function parseColumn(tokens: Tokens, sql: string, issues: DdlIssue[]) {
   if (!first || (modifiers.has(first) && first !== "CHARACTER"))
     tokens.fail(`${name} の型を読み取れません。`);
   const start = tokens.index;
-  tokens.name();
-  tokens.until((word) => modifiers.has(word));
-  const type = expression(tokens.items.slice(start, tokens.index), sql);
+  let enumValues: string[] | undefined;
+  if (tokens.eat("ENUM") && tokens.keyword === "(") {
+    enumValues = readEnumValues(tokens);
+  } else {
+    tokens.index = start;
+    tokens.name();
+    tokens.until((word) => modifiers.has(word));
+  }
+  const type = enumValues
+    ? "ENUM"
+    : expression(tokens.items.slice(start, tokens.index), sql);
   if (type.length > 40) tokens.fail("型は40文字以内で指定してください。");
+  const details = readDetails(tokens.items.at(-1)?.details);
   const column: Table["columns"][number] = {
     id: uid(),
     name,
@@ -166,13 +206,25 @@ function parseColumn(tokens: Tokens, sql: string, issues: DdlIssue[]) {
       } else if (tokens.eat("AUTO_INCREMENT") || tokens.eat("AUTOINCREMENT")) {
         column.identity = "byDefault";
       } else if (tokens.eat("CHECK")) {
-        issues.push({
-          line: tokens.line,
-          message: `${name} の CHECK 制約は図に含められません。`,
-        });
-        tokens.need("(");
-        tokens.until((word) => word === ")");
-        tokens.need(")");
+        const start = tokens.index;
+        const check = checkConstraint(tokens, keyName, sql);
+        // A tagged SQLite TEXT/IN declaration denotes an ENUM. Keep a changed condition as a CHECK.
+        if (details.enumName && type.toUpperCase() === "TEXT" && !enumValues) {
+          const body = new Tokens(
+            tokens.items.slice(start + 1, tokens.index - 1),
+          );
+          try {
+            if (body.name() === name && body.eat("IN")) {
+              const values = readEnumValues(body);
+              body.end();
+              enumValues = values;
+              continue;
+            }
+          } catch (error) {
+            if (!(error instanceof SqlError)) throw error;
+          }
+        }
+        keys.push(check);
       } else if (tokens.eat("COMMENT")) column.note = tokens.string();
       else if (tokens.eat("CHARACTER")) {
         tokens.need("SET");
@@ -191,7 +243,6 @@ function parseColumn(tokens: Tokens, sql: string, issues: DdlIssue[]) {
     if (!(error instanceof SqlError)) throw error;
     issues.push({ line: error.line, message: `${name}：${error.message}` });
   }
-  const details = readDetails(tokens.items.at(-1)?.details);
   // If the native type has since been edited, keep the SQL declaration.
   if (
     details.type &&
@@ -211,7 +262,7 @@ function parseColumn(tokens: Tokens, sql: string, issues: DdlIssue[]) {
   }
   if (details.note !== undefined) column.note = details.note;
   if (details.logicalName) column.logicalName = details.logicalName;
-  return { column, keys };
+  return { column, keys, enumValues, enumName: details.enumName };
 }
 
 function parseOptions(tokens: Tokens, table: Table) {
@@ -255,6 +306,16 @@ export function importDDL(
   base: Diagram = { tables: [], edges: [] },
 ) {
   const next = structuredClone(base);
+  const enums = (next.enums ??= []);
+  const supplemental = /^-- simple-er-enums (.+)$/.exec(
+    sql.trimStart().split("\n", 1)[0],
+  );
+  if (supplemental) {
+    const values: EnumType[] = JSON.parse(supplemental[1]);
+    if (!Array.isArray(values))
+      throw new Error("ENUM の補足コメントが不正です。");
+    for (const e of values) registerEnum(enums, e);
+  }
   const issues: DdlIssue[] = [];
   const changes: Change[] = [];
   const added: Table[] = [];
@@ -303,14 +364,23 @@ export function importDDL(
       attempt(at, () => {
         let keys: Constraint[];
         if (constraints.has(part.keyword)) {
-          keys = [tableConstraint(part)];
+          keys = [tableConstraint(part, sql)];
           part.end();
         } else {
-          const { column, keys: inline } = parseColumn(part, sql, issues);
+          const {
+            column,
+            keys: inline,
+            enumValues,
+            enumName,
+          } = parseColumn(part, sql, issues);
           if (table.columns.length >= MAX_COLUMNS)
             part.fail("カラムは60個までです。");
           if (table.columns.some((c) => same(c.name, column.name)))
             part.fail(`${column.name} が重複しています。`);
+          if (enumValues) {
+            column.type = enumName ?? inlineEnumName(name, column.name, enums);
+            registerEnum(enums, { name: column.type, values: enumValues });
+          }
           table.columns.push(column);
           keys = inline;
         }
@@ -337,6 +407,13 @@ export function importDDL(
         if (!t.eat("TEMPORARY")) t.eat("TEMP");
         if (t.eat("TABLE")) {
           readTable(t, line);
+        } else if (t.eat("TYPE")) {
+          const name = typeName(t.qualifiedName());
+          t.need("AS");
+          t.need("ENUM");
+          const values = readEnumValues(t);
+          t.end();
+          registerEnum(enums, { name, values });
         } else {
           const unique = t.eat("UNIQUE");
           t.need("INDEX");
@@ -366,7 +443,7 @@ export function importDDL(
           const part = new Tokens(t.until((word) => word === ","));
           const at = part.line;
           attempt(at, () => {
-            const key = tableConstraint(part);
+            const key = tableConstraint(part, sql);
             part.end();
             changes.push({ ...key, table, line: at });
           });
@@ -417,7 +494,27 @@ export function importDDL(
     return ids;
   }
   let connections = base.edges.length;
-  let applied = added.length;
+  for (const table of added) {
+    for (const column of table.columns) {
+      if (!enums.length) continue;
+      try {
+        const t = new Tokens([...statements(column.type)][0] ?? []);
+        const parts = t.qualifiedName();
+        t.end();
+        const qualified =
+          table.schemaName && parts.length === 1
+            ? typeName([table.schemaName, ...parts])
+            : undefined;
+        const found =
+          enums.find((e) => e.name === qualified) ??
+          enums.find((e) => e.name === typeName(parts));
+        if (found) column.type = found.name;
+      } catch (error) {
+        if (!(error instanceof SqlError)) throw error;
+      }
+    }
+  }
+  let applied = added.length + enums.length - (base.enums?.length ?? 0);
   // Resolve every candidate key before foreign keys, including forward references and cycles.
   for (const op of [
     ...changes.filter((c) => c.kind !== "foreign"),
@@ -440,9 +537,19 @@ export function importDDL(
         }
       } else {
         const ids = columnIds(table, op.columns, op.line);
-        if (table.keys.length + table.foreignKeys.length >= 200)
+        if (
+          table.keys.length +
+            table.foreignKeys.length +
+            (table.checks?.length ?? 0) >=
+          200
+        )
           throw new SqlError(op.line, "制約は200件までです。");
-        if (op.kind === "foreign") {
+        if (op.kind === "check") {
+          (table.checks ??= []).push({
+            name: op.name,
+            expression: op.expression,
+          });
+        } else if (op.kind === "foreign") {
           const parent = findTable(op.parent, op.line, table.schemaName);
           const targets = op.targets
             ? columnIds(parent, op.targets, op.line)
