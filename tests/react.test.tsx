@@ -249,12 +249,7 @@ test("column reorder retains stable relation identities and manual routing", asy
 
 test("custom type stays editable and cancellation does not persist draft", async () => {
   await click(byLabel("usersを編集"));
-  await act(() => {
-    const select = byLabel("カラム2の型");
-    select.value = "__custom__";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-  await type(byLabel("カラム2の独自の型"), "varchar(32)");
+  await type(byLabel("カラム2の型"), "varchar(32)");
   await submit();
   assert.equal(saved().tables[0].columns[1].type, "varchar(32)");
   await click(byLabel("usersを編集"));
@@ -562,6 +557,7 @@ test("a dump with only settings to skip imports in one click", async () => {
 test("pasted DDL previews line errors and adds the readable tables in one undo step", async () => {
   const before = saved();
   await click(byText("DDL を読み込む"));
+  await click(document.querySelector('input[name="ddl-destination"]'));
   const textarea = document.querySelector("#ddl-source");
   await type(
     textarea,
@@ -637,7 +633,7 @@ for (const [format, extension, source] of [
     await act(async () => {
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    await click(document.querySelectorAll(".ddl-destination input")[1]);
+    await click(document.querySelectorAll('input[name="ddl-destination"]')[1]);
     await click(byText("読み込む"));
     const imported = library.restoreDiagram();
     assert.notEqual(original.key, imported.key);
@@ -679,7 +675,7 @@ test("an empty diagram offers next steps, samples and help", async () => {
   assert.ok(document.body.textContent.includes("サンプルを開きました"));
   assert.equal(byLabel("元に戻す").disabled, true);
   assert.equal(library.listDiagrams().length, 3);
-  assert.equal(saved().title, "ライブ配信");
+  assert.equal(saved().title, "サンプル：ライブ配信");
 
   await key(document.body, "?");
   assert.ok(document.querySelector("#help-dialog"));
@@ -823,7 +819,7 @@ test("editing a table keeps the apply button label", async () => {
 test("invalid imports preserve the diagram and importing a file twice creates independent drawings", async () => {
   const before = localStorage.getItem(storageKey);
   async function upload(text) {
-    const input = document.querySelector('input[type="file"]');
+    const input = document.querySelector('input[accept*=".json"]');
     Object.defineProperty(input, "files", {
       configurable: true,
       value: [
@@ -1527,12 +1523,7 @@ test("single-column FK can be entered source-first and target choices retain uni
 });
 
 test("CHECK and shared ENUM edits apply with the table, cancel and undo together", async () => {
-  const chooseType = async (label, value) =>
-    act(() => {
-      const select = byLabel(label);
-      select.value = value;
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+  const chooseType = async (label, value) => type(byLabel(label), value);
   await click(byLabel("ordersを編集"));
   await click(byLabel("CHECK 制約を追加"));
   await type(byLabel("CHECK 1の条件式"), "total >= 0");
@@ -2147,7 +2138,7 @@ test("column details and referential actions can be edited, cleared and undone",
   await type(byLabel("totalの既定値"), "0");
   await type(byLabel("totalの説明"), "税込の合計");
   await click(byLabel("idの詳細"));
-  await choose(byLabel("カラム1の型"), "integer");
+  await type(byLabel("カラム1の型"), "integer");
   await choose(byLabel("idの自動採番"), "serial");
   assert.equal(byLabel("カラム1の型").value, "serial");
   await click(byLabel("user_idの参照先 users.idを編集"));
@@ -2318,4 +2309,106 @@ test("changing a table's schema preserves incoming FKs and rejects a duplicate i
     /orders.*重複/,
   );
   assert.equal(saved().tables[0].schemaName, "auth");
+});
+
+test("first visit starts empty; a dump names the drawing, sets its dialect and highlights missing names", async () => {
+  await act(() => root.unmount());
+  localStorage.clear();
+  await mount();
+  assert.ok(document.querySelector(".empty-diagram"));
+  await click(byText("DDL を読み込む"));
+  assert.equal(
+    document.querySelectorAll('input[name="ddl-destination"]')[0].checked,
+    true,
+  );
+  await type(
+    document.querySelector("#ddl-source"),
+    "USE shop; CREATE TABLE users(id bigint unsigned AUTO_INCREMENT PRIMARY KEY COMMENT '顧客番号', email text) COMMENT='顧客';",
+  );
+  await click(byText("読み込む"));
+  assert.equal(saved().title, "shop");
+  assert.equal(saved().ddlDialect, "MySQL");
+  await click(document.querySelector('input[value="logical"]'));
+  assert.equal(document.querySelector(".table-title").textContent, "顧客");
+  assert.equal(document.querySelector(".missing-name").textContent, "email");
+  assert.equal(document.querySelector(".table-schema"), null);
+  await click(byText("DDL を読み込む"));
+  assert.equal(
+    document.querySelectorAll('input[name="ddl-destination"]')[1].checked,
+    true,
+  );
+  await click(document.querySelectorAll('input[name="ddl-destination"]')[0]);
+  await click(document.querySelectorAll('input[name="ddl-comments"]')[1]);
+  await type(
+    document.querySelector("#ddl-source"),
+    "CREATE TABLE prefs (data jsonb); COMMENT ON COLUMN prefs.data IS '設定';",
+  );
+  await click(byText("読み込む"));
+  assert.equal(saved().ddlDialect, "MySQL");
+  assert.equal(saved().tables[1].columns[0].logicalName, "");
+  assert.equal(saved().tables[1].columns[0].note, "設定");
+});
+
+test("new MySQL tables use native defaults, infer reference types and preview the chosen export", async () => {
+  await click(byText("新しい図"));
+  const dialect = document.querySelector(".ddl-dialect select");
+  await act(() => {
+    dialect.value = "MySQL";
+    dialect.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await key(document.body, "t");
+  await type(document.querySelector("#table-editor input"), "users");
+  assert.equal(byLabel("カラム1の型").value, "bigint unsigned");
+  await click(byLabel("idの詳細"));
+  assert.match(byLabel("idの自動採番").textContent, /AUTO_INCREMENT/);
+  assert.doesNotMatch(byLabel("idの自動採番").textContent, /IDENTITY/);
+  await submit();
+  await key(document.body, "t");
+  await click(byText("カラムを追加"));
+  assert.equal(byLabel("カラム2の型").value, "varchar(255)");
+  assert.equal(
+    document.querySelector('#column-types option[value="uuid"]'),
+    null,
+  );
+  await type(byLabel("カラム2の物理名"), "user_id");
+  assert.equal(byLabel("カラム2の型").value, "bigint unsigned");
+  await type(byLabel("カラム2の論理名"), "利用者番号");
+  assert.doesNotMatch(document.querySelector(".ddl").textContent, /simple-er/);
+  await submit();
+  await click(byText("自動で接続"));
+  assert.match(
+    document.querySelector(".candidate").textContent,
+    /user_id.*users.id/,
+  );
+  await click(byText("選択した候補を接続"));
+  assert.equal(saved().edges.length, 1);
+  await click(document.querySelector('.ddl-dialect input[type="checkbox"]'));
+  assert.equal(saved().ddlAnnotations, true);
+  await click(byLabel("table_1を編集"));
+  assert.match(document.querySelector(".ddl").textContent, /\/\* simple-er /);
+});
+
+test("inferred type changes require selection and undo restores the previous type", async () => {
+  await click(byText("DDL を読み込む"));
+  await type(
+    document.querySelector("#ddl-source"),
+    "USE shop; CREATE TABLE users(id int PRIMARY KEY); CREATE TABLE posts(user_id text, absent_id int);",
+  );
+  await click(byText("読み込む"));
+  const before = saved();
+  await click(byText("自動で接続"));
+  const candidate = document.querySelector("#infer-dialog .candidate input");
+  assert.equal(candidate.checked, false);
+  assert.match(
+    document.querySelector(".type-change").textContent,
+    /text から int/,
+  );
+  assert.equal(document.querySelector("#infer-dialog details").open, true);
+  assert.equal(byText("選択した候補を接続").disabled, true);
+  await click(candidate);
+  await click(byText("選択した候補を接続"));
+  assert.equal(saved().tables[1].columns[0].type, "int");
+  assert.equal(saved().edges.length, 1);
+  await click(byLabel("元に戻す"));
+  assert.deepEqual(saved(), before);
 });

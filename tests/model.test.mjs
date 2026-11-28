@@ -112,7 +112,7 @@ test("ambiguous table names are skipped instead of connecting arbitrarily", () =
 test("type mismatch and composite primary keys are skipped", () => {
   const data = fixture();
   data.tables[0].columns[0].type = "integer";
-  assert.match(inferConnections(data).skipped[0], /型/);
+  assert.equal(inferConnections(data).mismatches.length, 1);
   data.tables[0].columns[0].type = "uuid";
   data.tables[0].keys[0].columnIds.push("u-name");
   assert.match(inferConnections(data).skipped[0], /主キー/);

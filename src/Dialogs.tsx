@@ -6,6 +6,7 @@ import type { DefinitionSelection } from "./ConstraintsEditor.tsx";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type {
+  Candidate,
   Column,
   Diagram,
   Table,
@@ -14,6 +15,7 @@ import type {
 } from "./types.ts";
 import {
   createColumn,
+  newColumnType,
   qualifiedTitle,
   MAX_COLUMNS,
   referenceImpacts,
@@ -25,35 +27,29 @@ import {
 } from "./model.ts";
 import { messageOf, overlaps } from "./utils.ts";
 import { serialBase, serialType } from "./column-attributes.ts";
+import { dialectColumns, supportsIdentity } from "./ddl-dialect.ts";
+import type { DdlDialect } from "./types.ts";
 import { tableDDL } from "./ddl.ts";
 import { Icon } from "./icons.tsx";
 import { samples } from "./samples.ts";
-const TYPES = [
-  "uuid",
-  "integer",
-  "bigint",
-  "smallint",
-  "smallserial",
-  "serial",
-  "bigserial",
-  "text",
-  "varchar(255)",
-  "boolean",
-  "timestamp",
-  "date",
-  "decimal",
-  "json",
-];
 function ColumnDetails({
+  dialect,
   column,
   update,
 }: {
+  dialect: DdlDialect;
   column: Column;
   update: (patch: Partial<Column>) => void;
 }) {
   const base = serialBase(column.type);
   const serial = serialType(column.type);
-  const generation = base ? "serial" : (column.identity ?? "");
+  const pg = dialect === "PostgreSQL";
+  const generation =
+    !pg && (base || column.identity)
+      ? "byDefault"
+      : base
+        ? "serial"
+        : (column.identity ?? "");
   return (
     <div className="column-details">
       <label className="definition-field">
@@ -91,13 +87,22 @@ function ColumnDetails({
           }}
         >
           <option value="">なし</option>
-          <option value="byDefault" disabled={!serial && !generation}>
-            IDENTITY（既定）
+          <option
+            value="byDefault"
+            disabled={!supportsIdentity(column.type, dialect) && !generation}
+          >
+            {pg
+              ? "IDENTITY（既定）"
+              : dialect === "MySQL"
+                ? "AUTO_INCREMENT"
+                : "AUTOINCREMENT"}
           </option>
-          <option value="always" disabled={!serial && !generation}>
-            IDENTITY（常に生成）
-          </option>
-          {(base || serial) && <option value="serial">SERIAL</option>}
+          {pg && (
+            <option value="always" disabled={!serial && !generation}>
+              IDENTITY（常に生成）
+            </option>
+          )}
+          {pg && (base || serial) && <option value="serial">SERIAL</option>}
         </select>
       </label>
       <label className="definition-field column-note">
@@ -200,66 +205,6 @@ export function Modal({
     </dialog>
   );
 }
-function TypeControl({
-  enums,
-  column,
-  index,
-  onChange,
-}: {
-  enums: EnumType[];
-  column: Column;
-  index: number;
-  onChange: (value: string) => void;
-}) {
-  const [custom, setCustom] = useState(
-      !TYPES.includes(column.type) &&
-        !enums.some((e) => e.name === column.type),
-    ),
-    lastCustom = useRef(custom ? column.type : "");
-  return (
-    <div className="column-type-control">
-      <select
-        aria-label={`カラム${index + 1}の型`}
-        value={
-          custom && !enums.some((e) => e.name === column.type)
-            ? "__custom__"
-            : column.type
-        }
-        onChange={(e) => {
-          const isCustom = e.target.value === "__custom__";
-          setCustom(isCustom);
-          onChange(isCustom ? lastCustom.current : e.target.value);
-        }}
-      >
-        {TYPES.map((t) => (
-          <option key={t}>{t}</option>
-        ))}
-        {!!enums.length && (
-          <optgroup label="ENUM 型">
-            {enums.map((e) => (
-              <option key={e.name}>{e.name}</option>
-            ))}
-          </optgroup>
-        )}
-        <option value="__custom__">その他…</option>
-      </select>
-      {custom && !enums.some((e) => e.name === column.type) && (
-        <input
-          autoFocus
-          required
-          maxLength={40}
-          aria-label={`カラム${index + 1}の独自の型`}
-          placeholder="例: decimal(10,2)"
-          value={column.type}
-          onChange={(e) => {
-            lastCustom.current = e.target.value;
-            onChange(e.target.value);
-          }}
-        />
-      )}
-    </div>
-  );
-}
 export function TableEditor({
   initial,
   showConstraints = false,
@@ -287,6 +232,8 @@ export function TableEditor({
   });
   const [schemaDraft, setSchemaDraft] = useState(state);
   const [editingEnum, setEditingEnum] = useState(false);
+  const dialect = state.ddlDialect ?? "PostgreSQL";
+  const automaticTypes = useRef(new Set<string>());
   const [detailId, setDetailId] = useState<string | null>(null);
   function changeEnum(old: string | undefined, entry?: EnumType) {
     const enums = schemaDraft.enums ?? [];
@@ -483,7 +430,8 @@ export function TableEditor({
     }));
   }
   function addColumn() {
-    const column = createColumn(draft.columns);
+    const column = createColumn(draft.columns, dialect);
+    automaticTypes.current.add(column.id);
     addedColumn.current = column.id;
     setDraft({ ...draft, columns: [...draft.columns, column] });
   }
@@ -701,6 +649,16 @@ export function TableEditor({
                 <span>参照先</span>
                 <span />
               </div>
+              <datalist id="column-types">
+                {[
+                  ...new Set([
+                    ...dialectColumns[dialect].types,
+                    ...(schemaDraft.enums ?? []).map((e) => e.name),
+                  ]),
+                ].map((type) => (
+                  <option key={type} value={type} />
+                ))}
+              </datalist>
               <div id="column-editor" ref={list}>
                 {draft.columns.map((c, i) => {
                   const otherIndex = draft.columns
@@ -775,7 +733,18 @@ export function TableEditor({
                           maxLength={80}
                           data-field="name"
                           value={c.name}
-                          onChange={(e) => column(i, { name: e.target.value })}
+                          onChange={(e) =>
+                            column(i, {
+                              name: e.target.value,
+                              ...(automaticTypes.current.has(c.id) && {
+                                type: newColumnType(
+                                  schemaDraft,
+                                  draft.id,
+                                  e.target.value,
+                                ),
+                              }),
+                            })
+                          }
                           onKeyDown={(e) => nextColumn(e, i)}
                         />
                         <input
@@ -790,12 +759,19 @@ export function TableEditor({
                           onKeyDown={(e) => nextColumn(e, i)}
                         />
                       </div>
-                      <TypeControl
-                        enums={schemaDraft.enums ?? []}
-                        column={c}
-                        index={i}
-                        onChange={(value) => column(i, { type: value })}
-                      />
+                      <div className="column-type-control">
+                        <input
+                          aria-label={`カラム${i + 1}の型`}
+                          list="column-types"
+                          required
+                          maxLength={40}
+                          value={c.type}
+                          onChange={(e) => {
+                            automaticTypes.current.delete(c.id);
+                            column(i, { type: e.target.value });
+                          }}
+                        />
+                      </div>
                       <label className="column-check primary-check">
                         <span aria-hidden="true">PK</span>
                         <input
@@ -923,6 +899,7 @@ export function TableEditor({
                       </div>
                       {detailId === c.id && (
                         <ColumnDetails
+                          dialect={dialect}
                           column={c}
                           update={(patch) => column(i, patch)}
                         />
@@ -1087,6 +1064,10 @@ export function InferDialog({
       () => new Set(result.candidates.map((_, i) => i)),
     ),
     [error, setError] = useState("");
+  const choices: (Candidate & { type?: string; previousType?: string })[] = [
+    ...result.candidates,
+    ...result.mismatches,
+  ];
   return (
     <Modal id="infer-dialog" onClose={onClose}>
       <div className="dialog-heading">
@@ -1100,8 +1081,8 @@ export function InferDialog({
         のような名前と型から推測します。接続する候補を選んでください。
       </p>
       <div>
-        {result.candidates.length ? (
-          result.candidates.map((c, i) => (
+        {choices.length ? (
+          choices.map((c, i) => (
             <label className="candidate" key={i}>
               <input
                 type="checkbox"
@@ -1113,7 +1094,14 @@ export function InferDialog({
                   setChecked(next);
                 }}
               />
-              <span>{c.label}</span>
+              <span>
+                {c.label}
+                {c.type && (
+                  <small className="type-change">
+                    型を {c.previousType} から {c.type} に変更
+                  </small>
+                )}
+              </span>
             </label>
           ))
         ) : (
@@ -1123,7 +1111,7 @@ export function InferDialog({
         )}
       </div>
       {!!result.skipped.length && (
-        <details>
+        <details open={!result.candidates.length}>
           <summary>接続先を特定できなかったカラム</summary>
           <ul>
             {result.skipped.map((s) => (
@@ -1145,10 +1133,10 @@ export function InferDialog({
             try {
               const next = structuredClone(state);
               for (const i of checked) {
-                const candidate = result.candidates[i],
+                const candidate = choices[i],
                   column = next.tables.find((t) => t.id === candidate.to.table)!
                     .columns[candidate.to.row];
-                column.key = column.key.includes("PK") ? "PK,FK" : "FK";
+                if (candidate.type) column.type = candidate.type;
                 next.edges.push(makeEdge(next, candidate.from, candidate.to));
               }
               onApply(next);
@@ -1186,14 +1174,28 @@ export function HelpDialog({ onClose }: { onClose: () => void }) {
           ×
         </button>
       </div>
-      <dl>
-        {SHORTCUTS.map(([label, value]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
-          </div>
-        ))}
-      </dl>
+      <h3>よく使う操作</h3>
+      <p>
+        既存の DB から始めるときは「DDL
+        を読み込む」を開きます。論理名をまとめて入力するには、定義書を CSV
+        で保存し、編集後に「CSV の論理名と説明を反映」を選びます。
+      </p>
+      <p>
+        新しく設計するときは「ファイル」で DDL
+        の形式を選んでからテーブルを追加します。「全テーブルの DDL を保存」で
+        SQL を書き出せます。
+      </p>
+      <details>
+        <summary>キー一覧</summary>
+        <dl>
+          {SHORTCUTS.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </details>
       <p className="explanation">
         変更はこのブラウザに自動保存されます。ほかの端末で使うときは「ファイルに保存」してください。Windowsでは⌘をCtrlに読み替えてください。
       </p>

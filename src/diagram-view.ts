@@ -1,5 +1,11 @@
 import type { Diagram } from "./types.ts";
 
+export function hasMultipleSchemas(diagram: Diagram) {
+  return diagram.tables.some(
+    (t) => t.schemaName !== diagram.tables[0].schemaName,
+  );
+}
+
 export interface TableReveal {
   id: string;
   n: number;

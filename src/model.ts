@@ -11,6 +11,7 @@ import type {
   RoutePresentation,
 } from "./types.ts";
 import { ddlDialects, referenceActions } from "./types.ts";
+import { dialectColumns } from "./ddl-dialect.ts";
 import { serialBase } from "./column-attributes.ts";
 import {
   inlineEnumName,
@@ -41,7 +42,10 @@ export const MAX_CONNECTIONS = 400;
 export const MAX_COLUMNS = 60;
 // Allow large saved drawings (including formatted JSON and multibyte names) to reopen.
 export const MAX_JSON_BYTES = 16_000_000;
-export function createColumn(columns: Table["columns"]): RenderColumn {
+export function createColumn(
+  columns: Table["columns"],
+  dialect: Diagram["ddlDialect"] = "PostgreSQL",
+): RenderColumn {
   let i = 1;
   while (columns.some((c) => c.name.trim().toLowerCase() === `column_${i}`))
     i++;
@@ -49,7 +53,7 @@ export function createColumn(columns: Table["columns"]): RenderColumn {
     id: uid(),
     name: `column_${i}`,
     logicalName: "",
-    type: "text",
+    type: dialectColumns[dialect].column,
     key: "",
   };
 }
@@ -316,6 +320,7 @@ export function documentFromDiagram(diagram: Diagram): DiagramDocument {
     format: "er-sketch",
     version: 3,
     ...(valid.title && { title: valid.title }),
+    ...(valid.ddlAnnotations && { ddlAnnotations: true }),
     ...(valid.ddlDialect && { ddlDialect: valid.ddlDialect }),
     schema: {
       ...(valid.enums?.length && { enums: valid.enums }),
@@ -421,6 +426,7 @@ export function projectDocument(
     title: document.title,
     enums: document.schema.enums,
     ddlDialect: document.ddlDialect,
+    ddlAnnotations: document.ddlAnnotations,
     groups: document.presentation.groups,
     tables,
     edges: document.entityEdges ?? [],
@@ -664,13 +670,38 @@ const singular = (name: string) =>
       ? name.slice(0, -1)
       : name;
 
+function referenceParents(diagram: Diagram, tableId: string, name: string) {
+  const prefix = /^(.+)_id$/.exec(name.toLowerCase())?.[1];
+  if (!prefix) return [];
+  return diagram.tables.filter(
+    (t) =>
+      t.id !== tableId &&
+      [title(t).toLowerCase(), singular(title(t).toLowerCase())].includes(
+        prefix,
+      ),
+  );
+}
+
+export function newColumnType(diagram: Diagram, tableId: string, name: string) {
+  const parents = referenceParents(diagram, tableId, name);
+  const parent = parents.length === 1 ? parents[0] : undefined;
+  const key = parent?.keys.find((k) => k.kind === "primary");
+  const type =
+    key?.columnIds.length === 1
+      ? parent?.columns.find((c) => c.id === key.columnIds[0])?.type
+      : undefined;
+  return type
+    ? (serialBase(type) ?? type)
+    : dialectColumns[diagram.ddlDialect ?? "PostgreSQL"].column;
+}
+
 export function inferConnections(diagram: Diagram) {
   const candidates: Candidate[] = [],
+    mismatches: (Candidate & { type: string; previousType: string })[] = [],
     skipped: string[] = [];
   for (const child of diagram.tables)
     child.columns.forEach((column, row) => {
-      const match = column.name.toLowerCase().match(/^(.+)_id$/);
-      if (!match) return;
+      if (!/^.+_id$/i.test(column.name)) return;
       if (
         (child.foreignKeys ?? []).filter(
           (f) =>
@@ -691,13 +722,7 @@ export function inferConnections(diagram: Diagram) {
         )
       )
         return;
-      const parents = diagram.tables.filter(
-        (t) =>
-          t.id !== child.id &&
-          [title(t).toLowerCase(), singular(title(t).toLowerCase())].includes(
-            match[1],
-          ),
-      );
+      const parents = referenceParents(diagram, child.id, column.name);
       const label = `${qualifiedTitle(child)}.${column.name}`;
       if (parents.length !== 1) {
         skipped.push(
@@ -714,17 +739,18 @@ export function inferConnections(diagram: Diagram) {
         return;
       }
       const pk = pks[0];
-      if (typeFamily(column.type) !== typeFamily(parent.columns[pk].type)) {
-        skipped.push(`${label}：主キーと型が一致しません`);
-        return;
-      }
-      candidates.push({
+      const type =
+        serialBase(parent.columns[pk].type) ?? parent.columns[pk].type;
+      const candidate = {
         from: { table: parent.id, row: pk },
         to: endpoint,
         label: `${label} → ${qualifiedTitle(parent)}.${parent.columns[pk].name}`,
-      });
+      };
+      if (typeFamily(column.type) === typeFamily(type))
+        candidates.push(candidate);
+      else mismatches.push({ ...candidate, type, previousType: column.type });
     });
-  return { candidates, skipped };
+  return { candidates, mismatches, skipped };
 }
 
 function prepareRelations(diagram: Diagram) {
@@ -837,6 +863,7 @@ function normalizeRelations(diagram: Diagram): Diagram {
   return {
     schemaVersion: 2,
     ...(title && { title }),
+    ...(diagram.ddlAnnotations === true && { ddlAnnotations: true }),
     ...(diagram.ddlDialect &&
       ddlDialects.includes(diagram.ddlDialect) && {
         ddlDialect: diagram.ddlDialect,

@@ -3,6 +3,7 @@ import type { Diagram } from "./types.ts";
 import { Modal } from "./Dialogs.tsx";
 import { importDDL } from "./ddl-import.ts";
 import { importMermaid } from "./mermaid-import.ts";
+import { untitled } from "./library.ts";
 import { messageOf } from "./utils.ts";
 
 function skippedSummary(count?: number) {
@@ -27,11 +28,15 @@ export function SchemaImportDialog({
   onClose: () => void;
 }) {
   const mermaid = format === "Mermaid";
-  const parse = mermaid ? importMermaid : importDDL;
+  const hasSchema = !!(state.tables.length || state.enums?.length);
   const [source, setSource] = useState("");
   const [title, setTitle] = useState("");
-  const [separate, setSeparate] = useState(false);
-  type Result = ReturnType<typeof parse> & { ignoredCount?: number };
+  const [separate, setSeparate] = useState(!mermaid && hasSchema);
+  const [commentTarget, setCommentTarget] = useState<"logicalName" | "note">(
+    "logicalName",
+  );
+  type Result = ReturnType<typeof importMermaid> &
+    Partial<Pick<ReturnType<typeof importDDL>, "database" | "ignoredCount">>;
   const [preview, setPreview] = useState<Result | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -45,15 +50,25 @@ export function SchemaImportDialog({
     try {
       if (source.length > 2_000_000)
         throw new Error(`${format} は2MBまで読み込めます。`);
+      const base = separate ? undefined : state;
       const parsed: Result =
-        preview ?? parse(source, separate ? undefined : state);
+        preview ??
+        (mermaid
+          ? importMermaid(source, base)
+          : importDDL(source, base, commentTarget));
       const skipped = skippedSummary(parsed.ignoredCount);
       if (!preview && (parsed.issues.length || (!parsed.applied && skipped))) {
         setPreview(parsed);
         return;
       }
       if (!parsed.applied) throw new Error("読み込める定義がありません。");
-      onApply(parsed.diagram, separate, title, parsed.tableCount, skipped);
+      const diagram = parsed.diagram;
+      if (!mermaid && (separate || !hasSchema)) {
+        diagram.ddlDialect ??= state.ddlDialect;
+        if (separate || !diagram.title || diagram.title === untitled)
+          diagram.title = parsed.database || title || diagram.title;
+      }
+      onApply(diagram, separate, title, parsed.tableCount, skipped);
       onClose();
     } catch (e) {
       setError(messageOf(e));
@@ -127,6 +142,28 @@ export function SchemaImportDialog({
           reset();
         }}
       />
+      {!mermaid && (
+        <fieldset className="ddl-destination">
+          <legend>コメントの読み込み方</legend>
+          {(["logicalName", "note"] as const).map((target) => (
+            <label key={target}>
+              <input
+                type="radio"
+                name="ddl-comments"
+                checked={commentTarget === target}
+                onChange={() => {
+                  setCommentTarget(target);
+                  reset();
+                }}
+              />
+              {target === "logicalName"
+                ? "短いコメントを論理名にする"
+                : "すべて説明にする"}
+            </label>
+          ))}
+          <small>81文字以上、または改行を含むコメントは説明に入ります。</small>
+        </fieldset>
+      )}
       <fieldset className="ddl-destination">
         <legend>読み込み先</legend>
         {[false, true].map((value) => (

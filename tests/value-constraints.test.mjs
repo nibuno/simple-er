@@ -45,8 +45,8 @@ function assertSchema(actual, original) {
     original.tables.map((t) => t.checks),
   );
   assert.equal(
-    diagramDDL({ ...actual, enums: original.enums }),
-    diagramDDL(original),
+    diagramDDL({ ...actual, enums: original.enums }, "PostgreSQL"),
+    diagramDDL(original, "PostgreSQL"),
   );
 }
 for (const dialect of ["PostgreSQL", "MySQL", "SQLite"])
@@ -54,7 +54,7 @@ for (const dialect of ["PostgreSQL", "MySQL", "SQLite"])
     dialect + " preserves named shared ENUMs, checks and ordered keys",
     () => {
       const diagram = fixture();
-      const ddl = diagramDDL(diagram, dialect);
+      const ddl = diagramDDL({ ...diagram, ddlAnnotations: true }, dialect);
       const parsed = importDDL(ddl);
       assert.deepEqual(parsed.issues, []);
       assertSchema(parsed.diagram, diagram);
@@ -93,7 +93,8 @@ test("quoted CHECK identifiers and SQL literals retain their meaning across dial
   ]);
   for (const dialect of ["PostgreSQL", "MySQL", "SQLite"])
     assert.deepEqual(
-      importDDL(diagramDDL(diagram, dialect)).diagram.tables[0].checks,
+      importDDL(diagramDDL({ ...diagram, ddlAnnotations: true }, dialect))
+        .diagram.tables[0].checks,
       diagram.tables[0].checks,
     );
 });
@@ -115,10 +116,10 @@ test("native inline ENUMs retain labels beyond the old custom-type limit", () =>
 });
 test("an untagged SQLite IN condition and an edited tagged condition remain checks", () => {
   const original = fixture();
-  const sql = diagramDDL(original, "SQLite").replaceAll(
-    '"status" IN (',
-    'lower("status") IN (',
-  );
+  const sql = diagramDDL(
+    { ...original, ddlAnnotations: true },
+    "SQLite",
+  ).replaceAll('"status" IN (', 'lower("status") IN (');
   const edited = importDDL(sql);
   assert.deepEqual(edited.issues, []);
   assert.equal(edited.diagram.tables[0].columns[2].type, "TEXT");

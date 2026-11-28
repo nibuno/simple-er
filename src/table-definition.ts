@@ -9,12 +9,16 @@ import type {
   TableSchema,
 } from "./types.ts";
 
-const physicalName = (table: TableSchema) =>
+export const physicalName = (table: TableSchema) =>
   typeName(table.schemaName ? [table.schemaName, table.name] : [table.name]);
 const columnName = (table: TableSchema, id: string) =>
   typeName([table.columns.find((column) => column.id === id)!.name]);
 
-function autoNumber(column: Column) {
+function autoNumber(column: Column, dialect: DiagramDocument["ddlDialect"]) {
+  if (column.identity || serialBase(column.type)) {
+    if (dialect === "MySQL") return "AUTO_INCREMENT";
+    if (dialect === "SQLite") return "AUTOINCREMENT";
+  }
   if (!column.identity) return serialBase(column.type) ? "SERIAL" : "";
   const mode = column.identity === "always" ? "ALWAYS" : "BY DEFAULT";
   return `IDENTITY ${mode}${column.identityOptions ? ` (${column.identityOptions})` : ""}`;
@@ -112,7 +116,7 @@ function describeTable(
       isPrimary ? "○" : "",
       column.notNull ? "○" : impliedNotNull ? "主キー" : "",
       column.defaultValue ?? "",
-      autoNumber(column),
+      autoNumber(column, dialect),
       refs
         .map(({ fk, targets }) => targets[fk.columnIds.indexOf(column.id)])
         .join("\n"),

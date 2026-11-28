@@ -55,6 +55,7 @@ interface Props {
   adjustingLine?: boolean;
   onAdjustable?: (value: boolean) => void;
   pending: Endpoint | null;
+  showSchema: boolean;
   tableHeading: (t: Table) => string;
   displayTable: (t: Table) => string;
   displayColumn: (c: Column) => string;
@@ -854,14 +855,14 @@ export function DiagramCanvas(p: Props) {
                       CHECK {t.checks.length}
                     </text>
                   )}
-                  {t.schemaName && (
+                  {p.showSchema && t.schemaName && (
                     <text x={16} y={17} className="table-schema">
                       {t.schemaName}.
                     </text>
                   )}
                   <text
                     x={16}
-                    y={t.schemaName ? 38 : 31}
+                    y={p.showSchema && t.schemaName ? 38 : 31}
                     className="table-title"
                     onPointerDown={(e) => {
                       if (e.pointerType !== "touch") e.stopPropagation();
@@ -909,7 +910,9 @@ export function DiagramCanvas(p: Props) {
                     (e) => e.name === c.type,
                   );
                   const tooltip = [
-                    c.logicalName,
+                    p.logical && !c.logicalName
+                      ? "論理名未入力"
+                      : c.logicalName,
                     c.name + " · " + c.type,
                     c.key,
                     t.keys
@@ -990,7 +993,15 @@ export function DiagramCanvas(p: Props) {
                           </text>
                         </g>
                       )}
-                      <text x={41} y={y + 24} className="column-name">
+                      <text
+                        x={41}
+                        y={y + 24}
+                        className={
+                          p.logical && !c.logicalName
+                            ? "column-name missing-name"
+                            : "column-name"
+                        }
+                      >
                         {p.displayColumn(c)}
                       </text>
                       <text

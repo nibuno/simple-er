@@ -15,7 +15,7 @@ test("comments and defaults can contain escaped quotes, semicolons and SQL keywo
     'COMMENT ON TABLE people IS $msg$Names, "quoted"; -- example$msg$;';
   const { diagram, issues } = importDDL(source);
   assert.deepEqual(issues, []);
-  assert.equal(diagram.tables[0].columns[0].note, "姓; O'Brien");
+  assert.equal(diagram.tables[0].columns[0].logicalName, "姓; O'Brien");
   assert.equal(diagram.tables[0].columns[0].defaultValue, "'O''Brien'");
   const ddl = diagramDDL(diagram);
   assert.equal(diagramDDL(importDDL(ddl).diagram), ddl);
@@ -90,11 +90,15 @@ test("every bundled diagram round-trips the DDL written by SimpleER", async () =
     ]);
   for (const [file, original] of samples) {
     for (const dialect of ddlDialects) {
-      const ddl = diagramDDL(original, dialect);
+      const ddl = diagramDDL({ ...original, ddlAnnotations: true }, dialect);
       const { diagram, issues } = importDDL(ddl);
       const label = file + " / " + dialect;
       assert.deepEqual(issues, [], label);
-      assert.equal(diagramDDL(diagram, dialect), ddl, label);
+      assert.equal(
+        diagramDDL({ ...diagram, ddlAnnotations: true }, dialect),
+        ddl,
+        label,
+      );
       assert.deepEqual(schemaByName(diagram), schemaByName(original), label);
       assert.equal(diagram.edges.length, original.edges.length, label);
       assert.ok(
@@ -138,9 +142,9 @@ test("named composite keys, quoted names, defaults, comments, and cycles survive
   assert.equal(order.columns[1].type, "numeric(10, 2)");
   assert.equal(order.columns[1].defaultValue, "(COALESCE(1, 2))");
   assert.equal(order.columns[2].defaultValue, "'a,b;''c'");
-  assert.equal(order.columns[2].note, "it's a; comment, -- text");
-  assert.equal(people.note, "担当者");
-  const ddl = diagramDDL(decode(encode(diagram)));
+  assert.equal(order.columns[2].logicalName, "it's a; comment, -- text");
+  assert.equal(people.logicalName, "担当者");
+  const ddl = diagramDDL(decode(encode(diagram)), "PostgreSQL");
   assert.match(ddl, /ALTER TABLE sales\."Order" ADD FOREIGN KEY/);
   assert.equal(diagramDDL(importDDL(ddl).diagram), ddl);
 });
@@ -160,9 +164,9 @@ test("MySQL table options, inline references, named foreign keys and ALTER TABLE
     ALTER TABLE visits ADD CONSTRAINT another_fk FOREIGN KEY (another) REFERENCES member(id);`);
   assert.deepEqual(issues, []);
   assert.equal(diagram.edges.length, 3);
-  assert.equal(diagram.tables[0].note, "会員");
+  assert.equal(diagram.tables[0].logicalName, "会員");
   assert.equal(diagram.tables[0].columns[0].type, "BIGINT UNSIGNED");
-  assert.equal(diagram.tables[0].columns[1].note, "氏名");
+  assert.equal(diagram.tables[0].columns[1].logicalName, "氏名");
   assert.deepEqual(
     diagram.tables[1].foreignKeys.map((k) => k.name),
     ["", "backup_fk", "another_fk"],
@@ -239,7 +243,7 @@ test("column generation, multiline notes and composite reference actions survive
   assert.equal(child.columns[2].note, note);
   assert.equal(parent.logicalName, "");
   assert.equal(child.columns[2].logicalName, "");
-  const ddl = diagramDDL(decode(encode(diagram)));
+  const ddl = diagramDDL(decode(encode(diagram)), "PostgreSQL");
   assert.match(
     ddl,
     /ALTER TABLE child ADD FOREIGN KEY.*ON DELETE SET DEFAULT ON UPDATE NO ACTION/,
@@ -278,7 +282,7 @@ test("SERIAL, IDENTITY, MySQL and SQLite increments keep their generation behavi
     const { diagram, issues } = importDDL(`CREATE TABLE seq (id ${source});`);
     assert.deepEqual(issues, []);
     assert.equal(diagram.tables[0].columns[0].identity, identity);
-    const ddl = diagramDDL(decode(encode(diagram)));
+    const ddl = diagramDDL(decode(encode(diagram)), "PostgreSQL");
     assert.ok(ddl.includes(`id ${target}`));
     const again = importDDL(ddl);
     assert.deepEqual(again.issues, []);
@@ -314,8 +318,8 @@ test("native MySQL and SQLite options, comments and generation are readable", ()
   const [people] = mysql.diagram.tables;
   assert.equal(people.name, "a`b");
   assert.equal(people.columns[0].identity, "byDefault");
-  assert.equal(people.columns[1].note, "姓");
-  assert.equal(people.note, "会員");
+  assert.equal(people.columns[1].logicalName, "姓");
+  assert.equal(people.logicalName, "会員");
   const sqlite = importDDL(
     'CREATE TABLE "a""b" (id INTEGER PRIMARY KEY AUTOINCREMENT) STRICT; CREATE TABLE labels(name TEXT PRIMARY KEY) WITHOUT ROWID, STRICT;',
   );
@@ -334,10 +338,13 @@ test("generated keys, cyclic references, actions and multiline comments survive 
   const { diagram, issues } = importDDL(sql);
   assert.deepEqual(issues, []);
   for (const dialect of ddlDialects) {
-    const ddl = diagramDDL(diagram, dialect);
+    const ddl = diagramDDL({ ...diagram, ddlAnnotations: true }, dialect);
     const roundtrip = importDDL(ddl);
     assert.deepEqual(roundtrip.issues, []);
-    assert.equal(diagramDDL(roundtrip.diagram), diagramDDL(diagram));
+    assert.equal(
+      diagramDDL(roundtrip.diagram, "PostgreSQL"),
+      diagramDDL(diagram, "PostgreSQL"),
+    );
     if (dialect === "MySQL") {
       assert.match(ddl, /AUTO_INCREMENT/);
       assert.match(ddl, /ALTER TABLE .* ON DELETE SET NULL ON UPDATE CASCADE/);
@@ -382,7 +389,7 @@ test("native MySQL integer ranges and binary and date types translate to Postgre
   const source =
     "CREATE TABLE flags (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, n bigint unsigned, flag tinyint(1) DEFAULT 0, created datetime(3), data blob);";
   const { diagram } = importDDL(source);
-  const sql = diagramDDL(diagram);
+  const sql = diagramDDL({ ...diagram, ddlAnnotations: true }, "PostgreSQL");
   for (const fragment of [
     "bigint GENERATED BY DEFAULT AS IDENTITY",
     "numeric(20)",
@@ -409,7 +416,7 @@ test("schema-qualified tables, indexes and forward references round-trip in each
   COMMENT ON COLUMN "Sales DB"."Order".buyer IS '購入者';`);
   assert.deepEqual(issues, []);
   for (const dialect of ddlDialects) {
-    const ddl = diagramDDL(original, dialect);
+    const ddl = diagramDDL({ ...original, ddlAnnotations: true }, dialect);
     const restored = importDDL(ddl);
     assert.deepEqual(restored.issues, [], dialect);
     assert.deepEqual(
@@ -442,7 +449,9 @@ test("schema-qualified tables, indexes and forward references round-trip in each
   }
   original.tables[1].schemaName = "Customers";
   for (const dialect of ["PostgreSQL", "MySQL"]) {
-    const restored = importDDL(diagramDDL(original, dialect));
+    const restored = importDDL(
+      diagramDDL({ ...original, ddlAnnotations: true }, dialect),
+    );
     assert.deepEqual(restored.issues, [], dialect);
     assert.deepEqual(
       schemaByName(restored.diagram),
@@ -491,17 +500,19 @@ test("schema-qualified duplicates keep distinct IDs, comments, indexes and FK ta
     pub.foreignKeys.map((f) => f.target.tableId),
     [pub.id, auth.id],
   );
-  assert.equal(pub.note, "公開用");
+  assert.equal(pub.logicalName, "公開用");
   assert.equal(pub.keys[1].name, "by_manager");
   assert.deepEqual(decode(encode(diagram)).tables, diagram.tables);
   for (const dialect of ["PostgreSQL", "MySQL"]) {
-    const restored = importDDL(diagramDDL(diagram, dialect));
+    const restored = importDDL(
+      diagramDDL({ ...diagram, ddlAnnotations: true }, dialect),
+    );
     assert.deepEqual(restored.issues, []);
     assert.deepEqual(schemaByName(restored.diagram), schemaByName(diagram));
   }
   assert.throws(() => diagramDDL(diagram, "SQLite"), /別のデータベース/);
   const localOnly = removeForeignKey(diagram, pub.foreignKeys[1].id);
-  const sqlite = diagramDDL(localOnly, "SQLite");
+  const sqlite = diagramDDL({ ...localOnly, ddlAnnotations: true }, "SQLite");
   const restored = importDDL(sqlite);
   assert.deepEqual(restored.issues, []);
   assert.deepEqual(schemaByName(restored.diagram), schemaByName(localOnly));
@@ -538,7 +549,7 @@ test("adding a dump skips only the existing schema and reports ambiguous bare na
   );
   assert.match(issues[2].message, /スキーマ名/);
   assert.deepEqual(diagram.tables[0], base.tables[0]);
-  assert.equal(diagram.tables[1].note, "公開");
+  assert.equal(diagram.tables[1].logicalName, "公開");
 });
 
 test("DDL refuses targets that would resolve to another same-named table", () => {
@@ -553,7 +564,10 @@ test("DDL refuses targets that would resolve to another same-named table", () =>
     columnIds: [bare.columns[0].id],
   };
   for (const dialect of ["PostgreSQL", "MySQL"])
-    assert.throws(() => diagramDDL(diagram, dialect), /スキーマ名を付けて/);
+    assert.throws(
+      () => diagramDDL({ ...diagram, ddlAnnotations: true }, dialect),
+      /スキーマ名を付けて/,
+    );
   scoped.schemaName = "MAIN";
   assert.throws(() => diagramDDL(diagram, "SQLite"), /同じテーブル/);
 });
@@ -563,8 +577,77 @@ test("an unqualified SQLite child restores its explicitly named main parent amon
     "CREATE TABLE auth.users(id int PRIMARY KEY); CREATE TABLE main.users(id int PRIMARY KEY); CREATE TABLE child(p int REFERENCES main.users(id));",
   );
   const { diagram: restored, issues } = importDDL(
-    diagramDDL(diagram, "SQLite"),
+    diagramDDL({ ...diagram, ddlAnnotations: true }, "SQLite"),
   );
   assert.deepEqual(issues, []);
   assert.deepEqual(schemaByName(restored), schemaByName(diagram));
+});
+
+test("short comments can name a table or column, while long and multiline comments remain notes", () => {
+  const short = "名".repeat(80),
+    long = short + "前";
+  for (const sql of [
+    `USE shop; CREATE TABLE items (id int COMMENT '${short}', code text COMMENT '${long}', body text COMMENT 'first\nsecond') COMMENT='商品';`,
+    `CREATE TABLE items(id int, code text, body text); COMMENT ON TABLE items IS '商品';
+    COMMENT ON COLUMN items.id IS '${short}'; COMMENT ON COLUMN items.code IS '${long}'; COMMENT ON COLUMN items.body IS 'first\nsecond';`,
+  ]) {
+    const result = importDDL(sql, undefined, "logicalName");
+    const [t] = result.diagram.tables;
+    assert.deepEqual(result.issues, []);
+    assert.equal(t.logicalName, "商品");
+    assert.equal(t.note, undefined);
+    assert.equal(t.columns[0].logicalName, short);
+    assert.equal(t.columns[0].note, undefined);
+    assert.equal(t.columns[1].note, long);
+    assert.equal(t.columns[2].note, "first\nsecond");
+    const [noted] = importDDL(sql, undefined, "note").diagram.tables;
+    assert.equal(noted.note, "商品");
+    assert.equal(noted.columns[0].logicalName, "");
+    assert.equal(noted.columns[0].note, short);
+  }
+});
+
+test("detects dump syntax without interpreting literal comment text as SQL", () => {
+  for (const [sql, dialect] of [
+    ["USE shop; CREATE TABLE t(id int)", "MySQL"],
+    ["CREATE TABLE t(id int COMMENT 'PRAGMA AUTOINCREMENT')", "MySQL"],
+    ["CREATE TABLE t(id INTEGER PRIMARY KEY AUTOINCREMENT)", "SQLite"],
+    [
+      "PRAGMA foreign_keys=ON; CREATE TABLE t(id INTEGER PRIMARY KEY)",
+      "SQLite",
+    ],
+    ["CREATE TABLE t(id INTEGER) STRICT", "SQLite"],
+    [
+      "CREATE TYPE status AS ENUM ('a'); CREATE TABLE t(s status)",
+      "PostgreSQL",
+    ],
+    [
+      "CREATE TABLE t(id int); COMMENT ON TABLE t IS 'AUTO_INCREMENT'",
+      "PostgreSQL",
+    ],
+    ["-- MySQL\nCREATE TABLE t(v text DEFAULT 'USE shop;')", undefined],
+  ])
+    assert.equal(importDDL(sql).diagram.ddlDialect, dialect, sql);
+});
+
+test("default exports contain only native comments and annotated exports restore names and short notes", () => {
+  const original = importDDL("CREATE TABLE t (a text, b int, c text);").diagram;
+  original.enums = [{ name: "unused", values: ["x"] }];
+  const [t] = original.tables;
+  Object.assign(t, { logicalName: "商品", note: "目録" });
+  Object.assign(t.columns[0], { logicalName: "表示名", note: "帳票用" });
+  t.columns[1].note = "説明のみ";
+  t.columns[2].logicalName = "型式";
+  for (const dialect of ddlDialects) {
+    const clean = diagramDDL(original, dialect);
+    assert.doesNotMatch(clean, /(?:\/\* simple-er |-- simple-er-enums)/);
+    if (dialect !== "SQLite") assert.match(clean, /目録/);
+    const sql = diagramDDL({ ...original, ddlAnnotations: true }, dialect);
+    assert.match(sql, /\/\* simple-er /);
+    for (const mode of ["logicalName", "note"]) {
+      const restored = importDDL(sql, undefined, mode);
+      assert.deepEqual(restored.issues, []);
+      assert.deepEqual(schemaByName(restored.diagram), schemaByName(original));
+    }
+  }
 });

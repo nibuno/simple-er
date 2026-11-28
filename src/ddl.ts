@@ -2,7 +2,11 @@ import { serialBase } from "./column-attributes.ts";
 import { checkSql, defaultSql } from "./ddl-expression.ts";
 import { identifierPath } from "./schema-constraints.ts";
 import { qualifiedTitle, tableKey } from "./model.ts";
-import { ddlType, detailsComment } from "./ddl-dialect.ts";
+import {
+  ddlType,
+  detailsComment as encodeDetails,
+  supportsIdentity,
+} from "./ddl-dialect.ts";
 import type { DdlDialect, Diagram, Table } from "./types.ts";
 
 // PostgreSQL 19 pg_get_keywords() categories R and T, plus the previously quoted index and key.
@@ -48,6 +52,7 @@ export function tableDDL(
   dialect: DdlDialect = state.ddlDialect ?? "PostgreSQL",
   forwardReferences?: string[],
 ) {
+  const detailsComment = state.ddlAnnotations ? encodeDetails : () => "";
   const mysql = dialect === "MySQL",
     sqlite = dialect === "SQLite";
   const quote = (name: string) => identifier(name, dialect);
@@ -127,6 +132,10 @@ export function tableDDL(
       generation =
         " " + constraintName(primary.name) + "PRIMARY KEY AUTOINCREMENT";
     } else if (mysql && (serial || c.identity)) {
+      if (!supportsIdentity(type, dialect))
+        throw new Error(
+          `${label} の AUTO_INCREMENT には整数型を指定してください。`,
+        );
       if (mysqlIncrement || !keys.some((k) => k.columnIds[0] === c.id))
         throw new Error(
           `${tableName} の AUTO_INCREMENT はキーの先頭カラム1つに指定してください。`,
@@ -157,7 +166,7 @@ export function tableDDL(
       enumName: enumType && (mysql || sqlite) ? enumType.name : undefined,
       type: !enumType && original !== type ? original : undefined,
       logicalName: c.logicalName || undefined,
-      note: sqlite ? c.note : undefined,
+      note: sqlite || !c.logicalName ? c.note : undefined,
       identity:
         dialect !== "PostgreSQL" && c.identity === "always"
           ? c.identity
@@ -256,7 +265,7 @@ export function tableDDL(
   }
   const tableDetails = detailsComment({
     logicalName: table.logicalName || undefined,
-    note: sqlite ? table.note : undefined,
+    note: sqlite || !table.logicalName ? table.note : undefined,
   });
   let options = "";
   if (mysql)
@@ -301,7 +310,7 @@ export function diagramDDL(
       const values = e.values.map((v) => literal(v, dialect)).join(", ");
       preamble.push(`CREATE TYPE ${name} AS ENUM (${values});`);
     }
-  } else {
+  } else if (state.ddlAnnotations) {
     const unused = enums.filter(
       (e) =>
         !state.tables.some((t) => t.columns.some((c) => c.type === e.name)),

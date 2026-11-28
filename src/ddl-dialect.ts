@@ -1,5 +1,63 @@
-import { serialBase } from "./column-attributes.ts";
+import { serialBase, serialType } from "./column-attributes.ts";
 import type { Column, DdlDialect, ForeignKey } from "./types.ts";
+
+export const dialectColumns = {
+  PostgreSQL: {
+    primary: "uuid",
+    column: "text",
+    types: [
+      "uuid",
+      "integer",
+      "bigint",
+      "smallint",
+      "smallserial",
+      "serial",
+      "bigserial",
+      "text",
+      "varchar(255)",
+      "boolean",
+      "timestamp",
+      "date",
+      "decimal",
+      "json",
+      "jsonb",
+    ],
+  },
+  MySQL: {
+    primary: "bigint unsigned",
+    column: "varchar(255)",
+    types: [
+      "bigint unsigned",
+      "bigint",
+      "int",
+      "int unsigned",
+      "smallint",
+      "varchar(255)",
+      "text",
+      "boolean",
+      "datetime",
+      "timestamp",
+      "date",
+      "decimal",
+      "json",
+      "blob",
+    ],
+  },
+  SQLite: {
+    primary: "integer",
+    column: "text",
+    types: ["integer", "text", "real", "blob", "numeric"],
+  },
+};
+export function supportsIdentity(type: string, dialect: DdlDialect) {
+  if (dialect === "SQLite")
+    return ddlType(type, dialect, true).toLowerCase() === "integer";
+  if (dialect === "MySQL")
+    return /^(?:(?:tiny|small|medium|big)?int|integer)(?:\(\d+\))?(?: unsigned)?$/i.test(
+      ddlType(type, dialect, true),
+    );
+  return !!serialType(type) || !!serialBase(type);
+}
 
 export function ddlType(type: string, dialect: DdlDialect, indexed: boolean) {
   if (dialect === "PostgreSQL") {

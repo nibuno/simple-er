@@ -1,6 +1,5 @@
 import { erCatalog } from "../shared/diagram-catalog.ts";
 import { createDiagramLibrary } from "../shared/diagram-library.ts";
-import { initial } from "./initial.ts";
 import { decodeDocument, documentFromDiagram } from "./model.ts";
 import type { DiagramDocument } from "./types.ts";
 
@@ -27,7 +26,7 @@ export const library = createDiagramLibrary({
     return namedDocument(decodeDocument(raw), fallbackTitle(key));
   },
   emptyDocument,
-  firstDocument: () => documentFromDiagram({ ...initial, title: untitled }),
+  firstDocument: emptyDocument,
   backupBeforeEdit(key, raw) {
     // Only an edit to the original v1 slot needs a backup. Opening or listing
     // it works even if there isn't space for a second copy.

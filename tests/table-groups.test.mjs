@@ -191,7 +191,9 @@ test("migration, group placement and DDL keep same-named tables in their own sch
     assert.notDeepEqual(grouped.tables[1], loaded.tables[1]);
     const note = version === 2 ? undefined : "画面に出す情報";
     for (const dialect of ["PostgreSQL", "MySQL", "SQLite"]) {
-      const restored = importDDL(diagramDDL(grouped, dialect));
+      const restored = importDDL(
+        diagramDDL({ ...grouped, ddlAnnotations: true }, dialect),
+      );
       assert.deepEqual(restored.issues, []);
       const [a, p, l] = restored.diagram.tables;
       assert.deepEqual(

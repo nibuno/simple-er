@@ -71,6 +71,7 @@ export interface Presentation {
 /** The authoritative runtime state and version 3 file contract. */
 export interface DiagramDocument {
   ddlDialect?: DdlDialect;
+  ddlAnnotations?: boolean;
   format: "er-sketch";
   version: 3;
   title?: string;
@@ -116,6 +117,7 @@ export interface Edge {
 export interface Diagram {
   enums?: EnumType[];
   ddlDialect?: DdlDialect;
+  ddlAnnotations?: boolean;
   groups?: TableGroup[];
   schemaVersion?: 2;
   title?: string;

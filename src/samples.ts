@@ -1,6 +1,13 @@
 /** The diagrams in examples/, opened from 「サンプルを開く」. */
 export const samples = [
   {
+    name: "注文の基本",
+    description: "利用者、注文、注文明細の3テーブル",
+    load: async () => ({
+      default: (await import("./initial.ts")).initialDocument,
+    }),
+  },
+  {
     name: "複合キー",
     description: "複合主キー、複合外部キー、一意制約、自己参照",
     load: () => import("../examples/composite-keys.json"),
