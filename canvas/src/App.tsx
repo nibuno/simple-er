@@ -35,7 +35,6 @@ import {
   makeNode,
   MAX_EDGES,
   MAX_NODES,
-  MAX_TEXT,
   moveNodes,
   pasteDocument,
   placeInFreeSpace,
@@ -44,7 +43,7 @@ import {
   selectionDocument,
   uid,
 } from "./model";
-import { looksLikeFlowchart, parseFlowchart, toFlowchart } from "./flowchart";
+import { looksLikeFlowchart, toFlowchart } from "./flowchart";
 import { copyImage, downloadFile, exportPng, filename, toSvg } from "./export";
 import { viewerHtml } from "./html";
 import { Canvas } from "./Canvas";
@@ -52,6 +51,8 @@ import { DiagramList } from "../../shared/DiagramList.tsx";
 import { TextField } from "../../shared/TextField.tsx";
 import { HelpDialog } from "./HelpDialog";
 import { MemoList } from "./MemoList";
+import { ImportDialog, readInput, type ImportKind } from "./ImportDialog";
+import { VariantDialog, DecisionRecords } from "./VariantDialog";
 import { VariantComparison, type VariantPair } from "./VariantComparison";
 import {
   groupVariants,
@@ -94,6 +95,7 @@ export function App() {
     initial: library.restoreLinkedDiagram(),
     visit: 0,
     message: "",
+    imported: false,
   }));
   if (!session.initial) return <MissingDiagram app="SimpleCanvas" />;
   return (
@@ -101,9 +103,15 @@ export function App() {
       key={session.visit}
       initial={session.initial}
       message={session.message}
-      onOpen={(initial, message = "") => {
+      imported={session.imported}
+      onOpen={(initial, message = "", imported = false) => {
         clearLinkedUrl();
-        setSession((old) => ({ initial, message, visit: old.visit + 1 }));
+        setSession((old) => ({
+          initial,
+          message,
+          imported,
+          visit: old.visit + 1,
+        }));
       }}
     />
   );
@@ -112,11 +120,13 @@ export function App() {
 function Editor({
   initial,
   message,
+  imported,
   onOpen,
 }: {
   initial: OpenDiagram;
   message: string;
-  onOpen: (next: OpenDiagram, message?: string) => void;
+  imported: boolean;
+  onOpen: (next: OpenDiagram, message?: string, imported?: boolean) => void;
 }) {
   const [history, dispatch] = useReducer(historyReducer, {
     present: initial.doc,
@@ -177,6 +187,21 @@ function Editor({
     [error, setError] = useState(initial.error ?? "");
   const [listOpen, setListOpen] = useState<"diagrams" | "memos" | null>(null);
   const [comparison, setComparison] = useState<VariantPair | null>(null);
+  const [naming, setNaming] = useState<{
+    entry: DiagramEntry;
+    name: string;
+  } | null>(null);
+  const [family] = useState(() => {
+    try {
+      return (
+        groupVariants(library.listDiagrams()).find((g) =>
+          g.some((e) => e.key === initial.key),
+        ) ?? []
+      );
+    } catch {
+      return [];
+    }
+  });
   const [moreShapes, setMoreShapes] = useState(false);
   useEffect(() => {
     if (!moreShapes) return;
@@ -216,10 +241,8 @@ function Editor({
   const canvas = useRef<CanvasHandle>(null),
     file = useRef<HTMLInputElement>(null),
     menu = useRef<HTMLDetailsElement>(null),
-    pasteDialog = useRef<HTMLDialogElement>(null),
     help = useRef<HTMLDialogElement>(null);
-  const [pasteInput, setPasteInput] = useState("");
-  const [pasteError, setPasteError] = useState("");
+  const [pasteInput, setPasteInput] = useState<string | null>(null);
   const lastSaved = useRef(initial),
     actions = useRef({
       pasteText: (_text: string): boolean => false,
@@ -424,10 +447,6 @@ function Editor({
   }
   function connect(id: string, fromOverride?: string) {
     flushInput();
-    if (docRef.current.nodes.find((n) => n.id === id)?.kind === "group") {
-      notify("図形かテキストを選択してください");
-      return;
-    }
     const from = fromOverride ?? pendingRef.current;
     if (!from) {
       pendingRef.current = id;
@@ -469,53 +488,56 @@ function Editor({
     clearPending();
     notify("削除しました");
   }
-  function pasteText(text: string) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {}
-    const isCanvas =
-      parsed &&
-      typeof parsed === "object" &&
-      "format" in parsed &&
-      parsed.format === "simple-canvas";
-    if (
-      !isCanvas &&
-      text.length > MAX_TEXT &&
-      !/^\s*(?:flowchart|graph)\b/i.test(text)
-    )
-      throw new Error(`テキストは${MAX_TEXT}文字までです`);
-    if (!isCanvas && text.length > 2_000_000)
-      throw new Error("Mermaidの上限は200万文字です");
-    if (isCanvas || looksLikeFlowchart(text)) {
-      const fragment = isCanvas ? decode(text) : parseFlowchart(text);
-      const area = bounds(fragment.nodes);
-      const center = canvas.current?.center() || { x: 0, y: 0 };
-      const target = {
-        ...area,
-        x: center.x - area.w / 2 + 24,
-        y: center.y - area.h / 2 + 24,
-      };
-      if (!isCanvas) placeInFreeSpace(target, docRef.current);
-      const result = pasteDocument(docRef.current, fragment, {
-        x: target.x - area.x,
-        y: target.y - area.y,
-      });
-      if (!commit(result.doc)) return false;
-      select(result.ids);
-      if (!isCanvas) canvas.current?.centerOn(target);
-      notify(isCanvas ? "貼り付けました" : "図にしました");
-    } else {
-      if (docRef.current.nodes.length >= MAX_NODES)
-        throw new Error("追加できるのは150個までです");
-      const next = clone(docRef.current),
-        node = makeNode("note", canvas.current?.center() || { x: 100, y: 100 });
-      node.body = text;
-      next.nodes.push(node);
-      if (!commit(next)) return false;
-      select([node.id]);
-      notify("テキストとして貼り付けました");
+  function importFragment(
+    fragment: CanvasDocument,
+    kind: ImportKind,
+    newDiagram: boolean,
+  ) {
+    if (newDiagram) {
+      saveBeforeSwitch();
+      onOpen(
+        writeDiagram(
+          newDiagramKey(),
+          decode(encode({ ...fragment, id: uid() })),
+          null,
+        ),
+        "新しい図に読み込みました",
+        kind === "mermaid",
+      );
+      return;
     }
+    const area = bounds(fragment.nodes);
+    const center = canvas.current?.center() || { x: 0, y: 0 };
+    const target = {
+      ...area,
+      x: center.x - area.w / 2 + 24,
+      y: center.y - area.h / 2 + 24,
+    };
+    if (kind === "mermaid") placeInFreeSpace(target, docRef.current);
+    const result = pasteDocument(docRef.current, fragment, {
+      x: target.x - area.x,
+      y: target.y - area.y,
+    });
+    if (!commit(result.doc)) throw new Error("図に追加できませんでした");
+    select(kind === "mermaid" ? [] : result.ids);
+    if (kind === "mermaid") {
+      clearPending();
+      chooseTool("select");
+      canvas.current?.showImport(
+        result.doc.nodes.slice(-fragment.nodes.length),
+      );
+    }
+    notify(kind === "mermaid" ? "図に追加しました" : "貼り付けました");
+  }
+  function pasteText(text: string) {
+    if (text.length > 2_000_000)
+      throw new Error("読み込めるのは200万文字までです");
+    if (looksLikeFlowchart(text)) {
+      setPasteInput(text);
+      return true;
+    }
+    const { doc, kind } = readInput(text);
+    importFragment(doc, kind, false);
     return true;
   }
   function duplicate() {
@@ -584,13 +606,21 @@ function Editor({
   async function exportDiagram(format: "png" | "image" | "markdown" | "html") {
     flushInput();
     const current = docRef.current;
-    if (!current.nodes.length || exporting) return;
+    if (
+      exporting ||
+      (!current.nodes.length &&
+        !(
+          current.decisions?.length &&
+          (format === "markdown" || format === "html")
+        ))
+    )
+      return;
     const computed = canvas.current?.routesFor(current);
     setExporting(format);
     try {
       if (format === "png") {
         await exportPng(current, computed);
-        notify("PNGで保存しました");
+        notify("PNG で保存しました");
       } else if (format === "image") {
         await copyImage(current, selectionRef.current, computed);
         notify("画像をコピーしました");
@@ -601,19 +631,19 @@ function Editor({
           filename(current.title) + ".html",
           "text/html;charset=utf-8",
         );
-        notify("閲覧用HTMLを保存しました");
+        notify("閲覧用 HTML を保存しました");
       } else {
         const { markdownArchive } = await import("./markdown");
         downloadFile(
           markdownArchive(current, computed),
           filename(current.title) + ".zip",
         );
-        notify("Markdownと図を保存しました");
+        notify("Markdown と画像を保存しました");
       }
     } catch (e) {
       setError(
         format === "image"
-          ? "画像をコピーできません。メニューの「PNGで保存」を使ってください。"
+          ? "画像をコピーできません。メニューの「PNG で保存」を使ってください。"
           : errorMessage(e),
       );
     } finally {
@@ -630,15 +660,15 @@ function Editor({
         filename(current.title) + ".mmd",
         "text/plain;charset=utf-8",
       );
-      notify("Mermaidで保存しました");
+      notify("Mermaid で保存しました");
       return;
     }
     try {
       await navigator.clipboard.writeText(text);
-      notify("Mermaidでコピーしました");
+      notify("Mermaid をコピーしました");
     } catch {
       setError(
-        "コピーできません。メニューの「Mermaidで保存」を使ってください。",
+        "コピーできません。メニューの「Mermaid で保存」を使ってください。",
       );
     }
   }
@@ -739,10 +769,10 @@ function Editor({
     const names = new Set(group.map((e) => e.title));
     let number = 1;
     while (names.has("案" + number)) number++;
-    onOpen(createVariant(entry, "案" + number), "案を作りました");
+    setNaming({ entry, name: "案" + number });
   }
   function newCanvas() {
-    createDiagram(emptyDocument(), "新しいキャンバスを作成しました");
+    createDiagram(emptyDocument(), "新しい図を作成しました");
   }
   function runMenu(action: () => void) {
     try {
@@ -750,6 +780,11 @@ function Editor({
     } catch (e) {
       setError(errorMessage(e));
     }
+  }
+  function toggleMemos() {
+    flushInput();
+    if (listOpen === "memos") closeList();
+    else setListOpen("memos");
   }
   function showList() {
     flushInput();
@@ -841,6 +876,11 @@ function Editor({
         e.preventDefault();
         (document.activeElement as HTMLElement)?.blur();
         actions.current.save();
+        return;
+      }
+      if (e.key === "Escape" && menu.current?.open) {
+        menu.current.open = false;
+        menu.current.querySelector("summary")?.focus();
         return;
       }
       if (keepNativeKeys(e.target)) return;
@@ -940,6 +980,15 @@ function Editor({
         setError(errorMessage(error));
       }
     };
+    const closeMenuOutside = (event: PointerEvent) => {
+      if (
+        menu.current?.open &&
+        event.target instanceof Node &&
+        !menu.current.contains(event.target)
+      )
+        menu.current.open = false;
+    };
+    window.addEventListener("pointerdown", closeMenuOutside, true);
     window.addEventListener("keydown", key);
     window.addEventListener("copy", copy);
     window.addEventListener("cut", copy);
@@ -957,6 +1006,7 @@ function Editor({
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => {
+      window.removeEventListener("pointerdown", closeMenuOutside, true);
       window.removeEventListener("keydown", key);
       window.removeEventListener("copy", copy);
       window.removeEventListener("cut", copy);
@@ -994,6 +1044,7 @@ function Editor({
     <div className="app">
       <main className="workspace">
         <Canvas
+          imported={imported}
           ref={canvas}
           doc={arrows.preview?.diagram ?? doc}
           arrowBase={arrows.preview?.base}
@@ -1097,6 +1148,15 @@ function Editor({
           }
           onStatus={notify}
         />
+        <button
+          className="floating memo-shortcut"
+          aria-label="メモの一覧を表示"
+          aria-expanded={listOpen === "memos"}
+          onClick={toggleMemos}
+        >
+          <Icon name="note" />
+          メモ
+        </button>
         <div className="floating doc-bar">
           <details
             className="file-menu"
@@ -1119,32 +1179,19 @@ function Editor({
               </button>
               <button
                 aria-expanded={listOpen === "memos"}
-                onClick={() => {
-                  flushInput();
-                  if (listOpen === "memos") closeList();
-                  else setListOpen("memos");
-                }}
+                onClick={toggleMemos}
               >
                 メモの一覧
               </button>
-              <button onClick={() => runMenu(newCanvas)}>
-                新しいキャンバス
-              </button>
+              <button onClick={() => runMenu(newCanvas)}>新しい図</button>
               <button onClick={() => file.current?.click()}>
                 ファイルを開く…
               </button>
-              <button
-                onClick={() => {
-                  setPasteInput("");
-                  setPasteError("");
-                  pasteDialog.current?.showModal();
-                  pasteDialog.current?.querySelector("textarea")?.focus();
-                }}
-              >
-                テキストを貼り付け…
+              <button onClick={() => setPasteInput("")}>
+                Mermaid を読み込む…
               </button>
               <button onClick={save}>
-                ファイルに保存 <kbd>⌘ S</kbd>
+                ファイルに保存 <kbd>⌘S</kbd>
               </button>
               <hr />
               <button
@@ -1159,50 +1206,54 @@ function Editor({
                     filename(docRef.current.title) + ".svg",
                     "image/svg+xml",
                   );
-                  notify("SVGで保存しました");
+                  notify("SVG で保存しました");
                 }}
               >
-                SVGで保存
+                SVG で保存
               </button>
               <button
                 disabled={!doc.nodes.length || !!exporting}
                 onClick={() => exportDiagram("png")}
               >
-                {exporting === "png" ? "PNGに変換中…" : "PNGで保存"}
+                {exporting === "png" ? "PNGに変換中…" : "PNG で保存"}
               </button>
               <button
                 disabled={!doc.nodes.length || !!exporting}
                 onClick={() => exportDiagram("image")}
               >
-                画像をコピー <kbd>⌘⇧C</kbd>
+                画像をコピー <kbd>⇧⌘C</kbd>
               </button>
               <button
-                disabled={!doc.nodes.length || !!exporting}
+                disabled={
+                  (!doc.nodes.length && !doc.decisions?.length) || !!exporting
+                }
                 onClick={() => exportDiagram("markdown")}
               >
-                Markdownで保存（図付き）
+                Markdown と画像を保存（zip）
               </button>
               <button
-                disabled={!doc.nodes.length || !!exporting}
+                disabled={
+                  (!doc.nodes.length && !doc.decisions?.length) || !!exporting
+                }
                 onClick={() => exportDiagram("html")}
               >
-                閲覧用HTMLで保存
+                閲覧用 HTML で保存
               </button>
               <button
                 disabled={!canExportMermaid}
                 onClick={() => exportMermaid("copy")}
               >
-                Mermaidでコピー
+                Mermaid をコピー
               </button>
               <button
                 disabled={!canExportMermaid}
                 onClick={() => exportMermaid("save")}
               >
-                Mermaidで保存
+                Mermaid で保存
               </button>
               {doc.nodes.some((n) => n.kind === "note" || n.body.trim()) && (
                 <small className="mermaid-note">
-                  Mermaidにはメモとテキストは含まれません。
+                  Mermaid にはメモとテキストは含まれません。
                 </small>
               )}
               <hr />
@@ -1224,11 +1275,20 @@ function Editor({
               </button>
             </div>
           </details>
+          {family.length > 1 && (
+            <button
+              className="family-link"
+              onClick={showList}
+              aria-label="図と案を切り替える"
+            >
+              {family[0].key === initial.key ? "案" : family[0].title} ›
+            </button>
+          )}
           <TextField
             className="document-title"
-            label="キャンバス名"
+            label="図の名前"
             cancelOnEscape
-            emptyValue="無題のキャンバス"
+            emptyValue="無題の図"
             value={doc.title}
             onCommit={(title) =>
               commit({
@@ -1281,7 +1341,12 @@ function Editor({
           <span className="rail-anchor">
             {shapeButton(RAIL_SHAPES[0])}
             {!doc.nodes.length && !placing && (
-              <span className="rail-hint">← ここから図形を置きます</span>
+              <span className="rail-hint">
+                ← ここから図形を置きます
+                <button onClick={() => setPasteInput("")}>
+                  Mermaid を貼り付け
+                </button>
+              </span>
             )}
           </span>
           {RAIL_SHAPES.slice(1).map(shapeButton)}
@@ -1366,7 +1431,7 @@ function Editor({
           <button
             className="icon-button"
             aria-label="元に戻す"
-            title="元に戻す (⌘ Z)"
+            title="元に戻す (⌘Z)"
             disabled={!history.past.length}
             onClick={undo}
           >
@@ -1375,7 +1440,7 @@ function Editor({
           <button
             className="icon-button"
             aria-label="やり直す"
-            title="やり直す (⌘ Shift Z)"
+            title="やり直す (⇧⌘Z)"
             disabled={!history.future.length}
             onClick={redo}
           >
@@ -1497,10 +1562,13 @@ function Editor({
         <VariantComparison
           pair={comparison}
           onClose={() => setComparison(null)}
-          onChoose={(primary, selected, other) => {
+          onChoose={(primary, selected, other, reason) => {
             saveBeforeSwitch();
             checkDiagram(other.key, other.raw);
-            onOpen(chooseVariant(primary, selected), "元の図にしました");
+            onOpen(
+              chooseVariant(primary, selected, reason),
+              "この案に決めました",
+            );
           }}
         />
       )}
@@ -1510,6 +1578,7 @@ function Editor({
           Icon={Icon}
           variants={{
             group: groupVariants,
+            records: (entry) => <DecisionRecords entry={entry} />,
             isChoiceKey,
             create: makeVariant,
             compare: (group, entry) => {
@@ -1520,12 +1589,12 @@ function Editor({
               setComparison({ group, rightKey: right.key });
             },
           }}
-          emptyName="空のキャンバス"
+          emptyName="空の図"
           activeKey={initial.key}
           paused={
             paused && !initial.error
               ? {
-                  title: doc.title || "無題のキャンバス",
+                  title: doc.title || "無題の図",
                   saveCopy,
                   resume: resumeSave,
                 }
@@ -1543,57 +1612,30 @@ function Editor({
             const source = active ? lastSaved.current : openDiagram(entry.key);
             if (source.error) throw new Error(source.error);
             const doc = active ? docRef.current : source.doc;
-            const title =
-              (doc.title || "無題のキャンバス").slice(0, 196) + "のコピー";
+            const title = (doc.title || "無題の図").slice(0, 196) + "のコピー";
             createDiagram({ ...doc, id: uid(), title }, "図を複製しました");
           }}
           onRename={renameDiagram}
           onDelete={deleteDiagram}
         />
       )}
-      <dialog
-        ref={pasteDialog}
-        className="help-dialog paste-dialog"
-        aria-labelledby="paste-heading"
-        onClose={() => menu.current?.querySelector("summary")?.focus()}
-      >
-        <div className="dialog-heading">
-          <h2 id="paste-heading">テキストを貼り付け</h2>
-          <button
-            className="icon-button"
-            aria-label="閉じる"
-            onClick={() => pasteDialog.current?.close()}
-          >
-            <Icon name="close" />
-          </button>
-        </div>
-        <label>
-          テキストまたは Mermaid
-          <textarea
-            rows={6}
-            value={pasteInput}
-            onChange={(e) => {
-              setPasteInput(e.target.value);
-              setPasteError("");
-            }}
-          />
-        </label>
-        {pasteError && <p role="alert">{pasteError}</p>}
-        <button
-          className="primary"
-          disabled={!pasteInput.trim()}
-          onClick={() => {
-            try {
-              if (pasteText(pasteInput)) pasteDialog.current?.close();
-              else setPasteError("貼り付けられませんでした");
-            } catch (error) {
-              setPasteError(errorMessage(error));
-            }
+      {naming && (
+        <VariantDialog
+          defaultName={naming.name}
+          onCancel={() => setNaming(null)}
+          onSubmit={(name) => {
+            saveBeforeSwitch();
+            onOpen(createVariant(naming.entry, name), "案を作りました");
           }}
-        >
-          貼り付け
-        </button>
-      </dialog>
+        />
+      )}
+      {pasteInput !== null && (
+        <ImportDialog
+          initialText={pasteInput}
+          onImport={importFragment}
+          onClose={() => setPasteInput(null)}
+        />
+      )}
       <HelpDialog dialog={help} />
     </div>
   );

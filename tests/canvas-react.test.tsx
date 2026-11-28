@@ -148,7 +148,7 @@ async function pointer(el, event, x, y, id = 1, pointerType = "mouse") {
 // The toolbar asks where the figure goes; jsdom has no pointer resting on
 // the canvas, so every addition is answered with a click.
 async function placeAt(x = 400, y = 300) {
-  const stage = label("設計キャンバス");
+  const stage = label("作図エリア");
   await pointer(stage, "pointerdown", x, y);
   await pointer(stage, "click", x, y);
 }
@@ -370,27 +370,27 @@ test("the toolbar asks where to put the figure, and Esc gives up", async () => {
   await click(label("箱を追加"));
   assert.equal(document.querySelector("form"), null, "nothing placed yet");
   assert.deepEqual(saved(), before);
-  assert.ok(label("設計キャンバス").className.includes("tool-place"));
+  assert.ok(label("作図エリア").className.includes("tool-place"));
   await placeAt(520, 360);
   await type(label("名前を直接編集"), "監視");
   await submit();
   const added = saved().nodes.find((n) => n.title === "監視");
   assert.equal(added.x, snap((520 - view.x) / view.zoom - added.w / 2));
   assert.equal(added.y, snap((360 - view.y) / view.zoom - added.h / 2));
-  assert.ok(!label("設計キャンバス").className.includes("tool-place"));
+  assert.ok(!label("作図エリア").className.includes("tool-place"));
 
   const placed = saved();
   await click(label("箱を追加"));
-  await key(label("設計キャンバス"), "Escape");
-  assert.ok(!label("設計キャンバス").className.includes("tool-place"));
+  await key(label("作図エリア"), "Escape");
+  assert.ok(!label("作図エリア").className.includes("tool-place"));
   await placeAt(520, 360);
   assert.equal(document.querySelector("form"), null);
   assert.deepEqual(saved(), placed);
 });
 test("with the pointer over the canvas the figure appears under it at once", async () => {
   const view = currentView();
-  await pointer(label("設計キャンバス"), "pointermove", 640, 420);
-  await key(label("設計キャンバス"), "b");
+  await pointer(label("作図エリア"), "pointermove", 640, 420);
+  await key(label("作図エリア"), "b");
   await type(label("名前を直接編集"), "通知ログ");
   await submit();
   const added = saved().nodes.find((n) => n.title === "通知ログ");
@@ -398,10 +398,10 @@ test("with the pointer over the canvas the figure appears under it at once", asy
   assert.equal(added.y, snap((420 - view.y) / view.zoom - added.h / 2));
 });
 test("the empty canvas points to the rail until text placement begins", async () => {
-  await click(button("新しいキャンバス"));
+  await click(button("新しい図"));
   assert.equal(document.querySelector(".empty-canvas"), null);
   assert.equal(
-    document.querySelector(".rail-anchor .rail-hint").textContent,
+    document.querySelector(".rail-anchor .rail-hint").firstChild.textContent,
     "← ここから図形を置きます",
   );
   const action = label("テキストを追加");
@@ -595,7 +595,7 @@ test("a color change applies to selected figures and connectors as one undo step
 });
 test("a click on a figure's text selects it; clicking it again edits that field and commits both fields as one undo step", async () => {
   const before = saved(),
-    stage = label("設計キャンバス");
+    stage = label("作図エリア");
   const text = () => label("Workerを選択").querySelector(".node-description");
   await pointer(text(), "pointerdown", 300, 200);
   await pointer(stage, "pointerup", 300, 200);
@@ -621,7 +621,7 @@ test("a click on a figure's text selects it; clicking it again edits that field 
 test("IME confirmation stays in the figure editor; Escape then keeps its text and undo restores the size", async () => {
   const before = saved();
   await click(label("Workerを選択"));
-  await key(label("設計キャンバス"), "Enter");
+  await key(label("作図エリア"), "Enter");
   const title = label("名前を直接編集");
   await act(() =>
     title.dispatchEvent(
@@ -658,7 +658,7 @@ test("IME confirmation stays in the figure editor; Escape then keeps its text an
 });
 test("dragging text moves its figure without opening an editor or losing its text", async () => {
   const before = saved(),
-    stage = label("設計キャンバス");
+    stage = label("作図エリア");
   const text = label("Workerを選択").querySelector(".node-title");
   await pointer(text, "pointerdown", 300, 200);
   await pointer(stage, "pointermove", 332, 224);
@@ -680,7 +680,7 @@ test("double-clicking a figure's text edits that field", async () => {
   assert.equal(document.activeElement, label("名前を直接編集"));
 });
 test("clicking another figure's text commits the current input and selects that figure", async () => {
-  const stage = label("設計キャンバス");
+  const stage = label("作図エリア");
   await dblclick(label("Workerを選択").querySelector(".node-title"));
   await type(label("名前を直接編集"), "通知処理");
   const next = () => label("DBを選択").querySelector(".node-description");
@@ -719,7 +719,7 @@ test("figure editing keeps the current view at reduced and enlarged scales, incl
   await open();
   const view = JSON.parse(localStorage.getItem(VIEW_KEY));
   await act(() =>
-    label("設計キャンバス").dispatchEvent(
+    label("作図エリア").dispatchEvent(
       new dom.window.WheelEvent("wheel", {
         bubbles: true,
         cancelable: true,
@@ -741,7 +741,7 @@ test("dragging immediately after memo input keeps the text and undoes only the m
   const before = saved().nodes.find((n) => n.id === "worker");
   await panel("メモを開く");
   await type(label("メモ"), "ドラッグ直前に入力したメモ");
-  const stage = label("設計キャンバス");
+  const stage = label("作図エリア");
   await pointer(label("Workerを選択"), "pointerdown", 300, 200);
   await pointer(stage, "pointermove", 332, 224);
   await pointer(stage, "pointerup", 332, 224);
@@ -761,7 +761,7 @@ test("starting another connection commits the active line label before changing 
   await type(label("線のラベル"), "入力中の接続名");
   await pointer(label("ブラウザから接続"), "pointerdown", 100, 200);
   document.elementFromPoint = () => label("ブラウザを選択");
-  await pointer(label("設計キャンバス"), "pointerup", 100, 200);
+  await pointer(label("作図エリア"), "pointerup", 100, 200);
   assert.equal(
     saved().edges.find((e) => e.from === "worker" && e.to === "db").label,
     "入力中の接続名",
@@ -870,7 +870,7 @@ test("choosing an off-screen memo centers and selects its figure without editing
   assert.equal(row.querySelector(".memo-body").textContent, api.body);
   await click(row);
   assert.equal(label("箱を追加").getAttribute("aria-pressed"), "false");
-  assert.ok(label("設計キャンバス").classList.contains("tool-select"));
+  assert.ok(label("作図エリア").classList.contains("tool-select"));
   assert.equal(label("APIを選択").getAttribute("aria-pressed"), "true");
   assert.equal(row.getAttribute("aria-current"), "true");
   const view = JSON.parse(localStorage.getItem(VIEW_KEY));
@@ -990,16 +990,18 @@ test("the list creates, copies, renames and deletes drawings, including the last
   await mount();
   assert.deepEqual(
     listDiagrams().map((row) => row.title),
-    ["無題のキャンバス"],
+    ["無題の図"],
   );
 });
 test("variants keep the original, compare either pair in sync, and remember the chosen drawing", async () => {
   const original = saved();
   await click(button("案を作る"));
+  await click(button("作る"));
   const first = restoreDiagram();
   assert.notEqual(first.doc.id, original.id);
   assert.deepEqual(first.doc.nodes, original.nodes);
   await click(button("案を作る"));
+  await click(button("作る"));
   const second = restoreDiagram();
   assert.equal(second.doc.title, "案2");
   await addFigure("箱を追加");
@@ -1029,7 +1031,15 @@ test("variants keep the original, compare either pair in sync, and remember the 
   assert.notEqual(image.getAttribute("href"), colored);
   await choose(label("左の案"), second.key);
   assert.equal(label("右の案").value, first.key);
+  const before = listDiagrams();
   await click(label("案2を元の図にする"));
+  await click(button("キャンセル"));
+  assert.deepEqual(listDiagrams(), before);
+  await click(label("案2を元の図にする"));
+  await type(document.querySelector(".variant-form input"), "再試行できるため");
+  await click(button("決定する"));
+  assert.equal(saved().decisions[0].reason, "再試行できるため");
+  assert.equal(saved().decisions[0].variant, "案2");
   assert.equal(saved().id, second.doc.id);
   assert.equal(saved().title, original.title);
   await act(() => root.unmount());
@@ -1039,9 +1049,19 @@ test("variants keep the original, compare either pair in sync, and remember the 
     document.querySelector(".diagram-link strong").textContent,
     original.title,
   );
-  assert.match(label("案2を開く").textContent, /案 ·/);
-  await click(label("案2を開く"));
-  assert.deepEqual(saved(), { ...original, title: "案2" });
+  assert.match(label("以前の元の図を開く").textContent, /案 ·/);
+  await click(label("以前の元の図を開く"));
+  assert.deepEqual(saved(), { ...original, title: "以前の元の図" });
+  await click(button("図の一覧"));
+  assert.match(
+    document.querySelector(".decision-records").textContent,
+    /案2 — 再試行できるため/,
+  );
+  await click(button("案を比べる"));
+  await click(label("以前の元の図を元の図にする"));
+  await click(button("決定する"));
+  assert.deepEqual(saved().nodes, original.nodes);
+  assert.equal(saved().decisions.length, 2);
 });
 
 test("repeated arrow keys move the selection in one undo step", async () => {
@@ -1061,6 +1081,7 @@ test("repeated arrow keys move the selection in one undo step", async () => {
 
 test("pinching either comparison pane moves and scales both views together", async () => {
   await click(button("案を作る"));
+  await click(button("作る"));
   await click(button("図の一覧"));
   await click(button("案を比べる"));
   const panes = [...document.querySelectorAll(".variant-paper")];
@@ -1144,7 +1165,7 @@ test("a failed choice restores both names and the current primary", async () => 
 
 test("quota errors keep saved drawings and pending edits until another drawing is removed", async () => {
   const original = saved();
-  await click(button("新しいキャンバス"));
+  await click(button("新しい図"));
   const active = restoreDiagram();
   const proto = Object.getPrototypeOf(localStorage),
     setItem = proto.setItem;
@@ -1157,8 +1178,8 @@ test("quota errors keep saved drawings and pending edits until another drawing i
     await click(button("サンプルを開く"));
     assert.equal(listDiagrams().length, 2);
     assert.equal(restoreDiagram().key, active.key);
-    await type(label("キャンバス名"), "保存待ちの図");
-    await blur(label("キャンバス名"));
+    await type(label("図の名前"), "保存待ちの図");
+    await blur(label("図の名前"));
     assert.equal(localStorage.getItem(active.key), active.raw);
     assert.equal(
       document.querySelector(".save-long").textContent,
@@ -1174,7 +1195,7 @@ test("quota errors keep saved drawings and pending edits until another drawing i
     await click(button("図の一覧"));
     await click(label(original.title + "を開く"));
     assert.ok(document.querySelector(".diagram-list[open]"));
-    assert.equal(label("キャンバス名").value, "保存待ちの図");
+    assert.equal(label("図の名前").value, "保存待ちの図");
     await click(label(original.title + "の操作"));
     await click(button("削除"));
     await click(button("削除する"));
@@ -1194,8 +1215,8 @@ test("corrupt stored data is not overwritten by mounting or editing", async () =
       .querySelector('[role="alert"]')
       .textContent.includes("上書きしていません"),
   );
-  await type(label("キャンバス名"), "新しく検討");
-  await blur(label("キャンバス名"));
+  await type(label("図の名前"), "新しく検討");
+  await blur(label("図の名前"));
   assert.equal(localStorage.getItem(STORAGE_KEY), "broken-original");
 });
 test("another tab's write pauses autosave until the user explicitly resolves it", async () => {
@@ -1211,8 +1232,8 @@ test("another tab's write pauses autosave until the user explicitly resolves it"
       }),
     ),
   );
-  await type(label("キャンバス名"), "こちらの作業");
-  await blur(label("キャンバス名"));
+  await type(label("図の名前"), "こちらの作業");
+  await blur(label("図の名前"));
   assert.equal(localStorage.getItem(STORAGE_KEY), encode(other));
   assert.ok(document.body.textContent.includes("自動保存を停止中"));
   await click(button("最新の内容を開く"));
@@ -1233,8 +1254,8 @@ for (const resume of [true, false]) {
           new StorageEvent("storage", { key: STORAGE_KEY, newValue: remote }),
         ),
       );
-      await type(label("キャンバス名"), "こちらの作業");
-      await blur(label("キャンバス名"));
+      await type(label("図の名前"), "こちらの作業");
+      await blur(label("図の名前"));
       await click(button("図の一覧"));
       const dialog = document.querySelector(".diagram-list");
       assert.match(
@@ -1266,7 +1287,7 @@ for (const resume of [true, false]) {
 
 test("a change to a different drawing refreshes the list and prevents a stale deletion", async () => {
   const original = saved();
-  await click(button("新しいキャンバス"));
+  await click(button("新しい図"));
   await click(button("図の一覧"));
   await click(label(original.title + "の操作"));
   await click(button("削除"));
@@ -1287,18 +1308,18 @@ test("a change to a different drawing refreshes the list and prevents a stale de
 });
 
 test("edits in a tab with a remotely deleted drawing never recreate it on unload", async () => {
-  await click(button("新しいキャンバス"));
+  await click(button("新しい図"));
   const { key } = restoreDiagram();
   localStorage.removeItem(key);
   await act(() =>
     window.dispatchEvent(new StorageEvent("storage", { key, newValue: null })),
   );
-  await type(label("キャンバス名"), "手元に残す案");
+  await type(label("図の名前"), "手元に残す案");
   const unloading = new Event("beforeunload", { cancelable: true });
   await act(() => window.dispatchEvent(unloading));
   assert.ok(unloading.defaultPrevented);
   assert.equal(localStorage.getItem(key), null);
-  assert.equal(label("キャンバス名").value, "手元に残す案");
+  assert.equal(label("図の名前").value, "手元に残す案");
 });
 
 test("reload flushes the active editor rather than losing its unblurred text", async () => {
@@ -1407,7 +1428,7 @@ test("a figure being added does not reroute existing lines until it is confirmed
     );
   const before = paths();
   await act(() =>
-    label("設計キャンバス").dispatchEvent(
+    label("作図エリア").dispatchEvent(
       new MouseEvent("dblclick", { bubbles: true, clientX: 460, clientY: 230 }),
     ),
   );
@@ -1416,7 +1437,7 @@ test("a figure being added does not reroute existing lines until it is confirmed
 });
 test("dropping a line on empty space adds a connected figure as one undo step, empty name or not", async () => {
   const before = saved(),
-    stage = label("設計キャンバス");
+    stage = label("作図エリア");
   const drop = async () => {
     await pointer(label("Workerから接続"), "pointerdown", 300, 200);
     document.elementFromPoint = () => stage;
@@ -1448,7 +1469,7 @@ test("dropping a line on empty space adds a connected figure as one undo step, e
 test("resizing from the top-left corner keeps the opposite corner in place", async () => {
   await click(label("Workerを選択"));
   const before = saved().nodes.find((n) => n.id === "worker"),
-    stage = label("設計キャンバス"),
+    stage = label("作図エリア"),
     handle = document.querySelector(
       '[data-node-id="worker"] .resize-handle.nw',
     );
@@ -1464,7 +1485,7 @@ test("moving a figure near another's edge aligns it and shows a guide until the 
   await act(() => root.unmount());
   localStorage.setItem(VIEW_KEY, JSON.stringify({ x: 0, y: 0, zoom: 1 }));
   await mount();
-  const stage = label("設計キャンバス"),
+  const stage = label("作図エリア"),
     worker = saved().nodes.find((n) => n.id === "worker"),
     db = saved().nodes.find((n) => n.id === "db");
   await pointer(label("Workerを選択"), "pointerdown", 300, 200);
@@ -1476,7 +1497,7 @@ test("moving a figure near another's edge aligns it and shows a guide until the 
   assert.equal(saved().nodes.find((n) => n.id === "worker").x, db.x);
 });
 test("the canvas records whether the last input was a pointer or the keyboard", async () => {
-  const stage = label("設計キャンバス");
+  const stage = label("作図エリア");
   await pointer(label("Workerを選択"), "pointerdown", 300, 200);
   await pointer(stage, "pointerup", 300, 200);
   assert.equal(stage.dataset.input, "pointer");
@@ -1543,11 +1564,11 @@ test("the selection bar appears over a selection and steps aside while editing o
   assert.ok(label("塗り：赤"));
   await key(label("塗り：赤"), "Escape");
   assert.equal(document.querySelector(".bar-panel"), null);
-  await key(label("設計キャンバス"), "Enter");
+  await key(label("作図エリア"), "Enter");
   assert.equal(bar(), null);
   await key(label("名前を直接編集"), "Escape");
   assert.ok(bar(), "finishing the text brings the bar back");
-  const stage = label("設計キャンバス");
+  const stage = label("作図エリア");
   await pointer(label("Workerを選択"), "pointerdown", 300, 200);
   await pointer(stage, "pointermove", 340, 230);
   assert.equal(bar(), null);
@@ -1557,7 +1578,7 @@ test("the selection bar appears over a selection and steps aside while editing o
 });
 test("double-clicking empty space writes text in place, and existing text keeps its heading", async () => {
   const before = saved(),
-    stage = label("設計キャンバス"),
+    stage = label("作図エリア"),
     view = localStorage.getItem(VIEW_KEY);
   await act(() =>
     stage.dispatchEvent(
@@ -1592,7 +1613,7 @@ test("double-clicking empty space writes text in place, and existing text keeps 
   );
 });
 test("a double-click that reaches the canvas through pointer capture edits the memo under the pointer", async () => {
-  const stage = label("設計キャンバス"),
+  const stage = label("作図エリア"),
     memo = label("Worker のメモを選択"),
     before = saved().nodes.length;
   document.elementFromPoint = () => memo.querySelector(".note-body");
@@ -1627,7 +1648,7 @@ test("pointing at a memo lights up its figure, and the other way round", async (
   assert.ok(lit("worker-note"));
 });
 test("a visible memo link follows the dragged note and is removed with its owner", async () => {
-  const stage = label("設計キャンバス"),
+  const stage = label("作図エリア"),
     path = () => document.querySelector(".attachment-wire")?.getAttribute("d"),
     before = path();
   assert.ok(before);
@@ -1647,7 +1668,7 @@ test("a visible memo link follows the dragged note and is removed with its owner
   assert.equal(path(), undefined);
 });
 test("clicking a port adds a connected figure on that side, clear of others", async () => {
-  const stage = label("設計キャンバス"),
+  const stage = label("作図エリア"),
     worker = saved().nodes.find((n) => n.id === "worker");
   const port = document.querySelector(
     '[data-node-id="worker"] .connection-port.bottom',
@@ -1697,7 +1718,7 @@ test("double-clicking a line opens its label for writing", async () => {
   assert.equal(document.querySelector(".bar-panel"), null);
 });
 test("typing does not bring back the canvas focus ring; only Tab does", async () => {
-  const stage = label("設計キャンバス");
+  const stage = label("作図エリア");
   await pointer(label("Workerを選択"), "pointerdown", 300, 200);
   await pointer(stage, "pointerup", 300, 200);
   await key(stage, "Enter");
@@ -1737,7 +1758,7 @@ test("a circle stays round when resized from a side or a corner", async () => {
   await key(label("名前を直接編集"), "Enter", { metaKey: true });
   const id = saved().nodes.find((n) => n.title === "注文確定").id,
     circle = () => saved().nodes.find((n) => n.id === id),
-    stage = label("設計キャンバス");
+    stage = label("作図エリア");
   assert.equal(circle().w, circle().h);
   await click(label("注文確定を選択"));
   for (const [dir, dx, dy] of [
@@ -1757,7 +1778,7 @@ test("a circle stays round when resized from a side or a corner", async () => {
 });
 
 test("touch pans blank space and a pinch cancels an in-progress shape drag", async () => {
-  const stage = label("設計キャンバス");
+  const stage = label("作図エリア");
   const before = saved();
   const pos = () =>
     document
@@ -1795,28 +1816,38 @@ test("touch pans blank space and a pinch cancels an in-progress shape drag", asy
   assert.equal(label("元に戻す").disabled, true);
 });
 
+test("メニューはフォーカス中の Esc と外側のクリックで閉じる", async () => {
+  const menu = document.querySelector(".file-menu");
+  await click(menu.querySelector("summary"));
+  button("使い方 ?").focus();
+  await key(button("使い方 ?"), "Escape");
+  assert.equal(menu.open, false);
+  await click(menu.querySelector("summary"));
+  await pointer(label("作図エリア"), "pointerdown", 100, 100);
+  assert.equal(menu.open, false);
+});
 test("the paste dialog keeps invalid input and imports a corrected Mermaid graph in one undo step", async () => {
   const before = saved();
-  await click(button("テキストを貼り付け…"));
+  await click(button("Mermaid を読み込む…"));
   const dialog = document.querySelector(".paste-dialog");
   const input = dialog.querySelector("textarea");
   assert.ok(dialog.open);
-  assert.ok(button("貼り付け").disabled);
+  assert.ok(button("読み込む").disabled);
   await type(input, "flowchart LR\na -->");
-  await click(button("貼り付け"));
+  await click(button("読み込む"));
   assert.ok(dialog.open);
   assert.ok(dialog.querySelector('[role="alert"]').textContent);
   assert.equal(input.value, "flowchart LR\na -->");
   await type(input, "flowchart LR\na --> b");
-  await click(button("貼り付け"));
-  assert.equal(dialog.open, false);
+  await click(button("読み込む"));
+  assert.equal(document.querySelector(".paste-dialog"), null);
   assert.equal(saved().nodes.length, before.nodes.length + 2);
   assert.equal(saved().edges.length, before.edges.length + 1);
   await click(label("元に戻す"));
   assert.deepEqual(saved(), before);
 });
 
-async function paste(text, target = label("設計キャンバス")) {
+async function paste(text, target = label("作図エリア")) {
   const event = new Event("paste", { bubbles: true, cancelable: true });
   Object.defineProperty(event, "clipboardData", {
     value: { getData: (format) => (format === "text/plain" ? text : "") },
@@ -1826,22 +1857,22 @@ async function paste(text, target = label("設計キャンバス")) {
 }
 
 test("画像コピーが使えないときはメニューとショートカットからPNG保存を案内する", async () => {
-  await key(label("キャンバス名"), "C", { metaKey: true, shiftKey: true });
+  await key(label("図の名前"), "C", { metaKey: true, shiftKey: true });
   assert.equal(document.querySelector('[role="alert"]'), null);
   await key(window, "C", { metaKey: true, shiftKey: true });
   assert.match(
     document.querySelector('[role="alert"]').textContent,
-    /PNGで保存/,
+    /PNG で保存/,
   );
   await click(label("通知を閉じる"));
-  await click(button("画像をコピー ⌘⇧C"));
+  await click(button("画像をコピー ⇧⌘C"));
   assert.match(
     document.querySelector('[role="alert"]').textContent,
-    /PNGで保存/,
+    /PNG で保存/,
   );
 });
 
-test("Mermaidでコピーした図は選択にかかわらず図全体を貼り付けられる", async (t) => {
+test("Mermaid をコピーした図は選択にかかわらず図全体を貼り付けられる", async (t) => {
   let text;
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
@@ -1857,9 +1888,10 @@ test("Mermaidでコピーした図は選択にかかわらず図全体を貼り�
     document.querySelector(".file-popover")!.textContent!,
     /メモとテキストは含まれません/,
   );
-  await click(button("Mermaidでコピー"));
+  await click(button("Mermaid をコピー"));
   const before = saved();
   await paste(text);
+  await click(button("読み込む"));
   assert.equal(
     saved().nodes.length - before.nodes.length,
     before.nodes.filter((n) => n.kind === "box").length,
@@ -1876,6 +1908,7 @@ test("長いMermaidを貼り付けても、自由なテキストだけは6000文
         (_, i) => "n" + i + '["' + "あ".repeat(190) + '"]',
       ).join("\n"),
   );
+  await click(button("読み込む"));
   assert.equal(saved().nodes.length, before.nodes.length + 35);
   await paste("あ".repeat(6001));
   assert.match(
@@ -1890,6 +1923,7 @@ test("pasting a flowchart appends one undoable edit to the open diagram", async 
   const source = before.nodes.find((n) => n.kind === "box").id;
   const text = `graph TD\nsubgraph 注文\n${source}[受付] -->|保存| db[(注文DB)] & cache\nend`;
   await paste(text);
+  await click(button("読み込む"));
   const after = saved();
   assert.equal(after.id, before.id);
   assert.deepEqual(after.nodes.slice(0, before.nodes.length), before.nodes);
@@ -1915,9 +1949,15 @@ test("pasting a flowchart appends one undoable edit to the open diagram", async 
 test("an invalid flowchart reports its line and leaves the saved diagram and history intact", async () => {
   const before = saved();
   await paste("flowchart LR\na --> b\nb -->");
-  assert.match(document.querySelector('[role="alert"]').textContent, /3行目/);
+  await click(button("読み込む"));
+  assert.match(document.querySelector(".import-issues").textContent, /3行目/);
   assert.deepEqual(saved(), before);
   assert.ok(label("元に戻す").disabled);
+  await click(document.querySelectorAll('input[name="import-target"]')[1]);
+  await click(button("読めた分を読み込む"));
+  assert.equal(saved().nodes.length, 2);
+  assert.ok(listDiagrams().some((entry) => entry.title === before.title));
+  assert.equal(document.querySelector(".selection-bar"), null);
 });
 
 test("canvas JSON and plain text keep their paste behavior, and inputs handle paste natively", async () => {
@@ -1931,7 +1971,7 @@ test("canvas JSON and plain text keep their paste behavior, and inputs handle pa
   await paste("次の注文を確認する");
   assert.equal(saved().nodes.at(-1).body, "次の注文を確認する");
   const current = saved();
-  assert.equal(await paste("a --> b", label("キャンバス名")), false);
+  assert.equal(await paste("a --> b", label("図の名前")), false);
   assert.deepEqual(saved(), current);
 });
 
@@ -1940,6 +1980,7 @@ test("an import that exceeds the open diagram's edge limit adds nothing", async 
   const remaining = 400 - before.edges.length;
   const text = "flowchart LR\n" + "a --> b\n".repeat(remaining + 1);
   await paste(text);
+  await click(button("読み込む"));
   assert.match(document.querySelector('[role="alert"]').textContent, /400本/);
   assert.deepEqual(saved(), before);
   assert.ok(label("元に戻す").disabled);
@@ -1947,7 +1988,7 @@ test("an import that exceeds the open diagram's edge limit adds nothing", async 
 
 for (const engine of ["Chrome", "Safari"]) {
   test(`${engine} composition keeps canvas drafts and closing the panel saves them`, async () => {
-    const title = label("キャンバス名"),
+    const title = label("図の名前"),
       original = title.value;
     await type(title, "通知の設計");
     await imeKey(title, "Enter", engine);
@@ -2003,7 +2044,7 @@ for (const engine of ["Chrome", "Safari"]) {
     assert.equal(document.activeElement, label("説明を直接編集"));
     await key(document.activeElement, "Escape");
     await click(label("囲む"));
-    await key(label("設計キャンバス"), "Enter");
+    await key(label("作図エリア"), "Enter");
     const heading = label("見出しを直接編集");
     await type(heading, "非同期処理");
     await imeKey(heading, "Enter", engine);
@@ -2035,7 +2076,7 @@ test("無関係な線の上に図形をドラッグすると、確定時に迂�
   await mount();
   const path = () => document.querySelector(".edge-visible").getAttribute("d"),
     original = path(),
-    stage = label("設計キャンバス");
+    stage = label("作図エリア");
   await pointer(label("blockを選択"), "pointerdown", 420, 380);
   await pointer(stage, "pointermove", 420, 130);
   assert.equal(path(), original);
@@ -2065,10 +2106,10 @@ test("使い方は初めの3手から始まり、メニューと ? から開け�
     "SimpleER",
     "双方向",
     "Mermaid",
-    "⌘ Shift C",
+    "⇧⌘C",
     "PNG",
     "SVG",
-    "閲覧用HTML",
+    "閲覧用 HTML",
     "Markdown",
   ])
     assert.ok(help.querySelector("dl").textContent.includes(term), term);

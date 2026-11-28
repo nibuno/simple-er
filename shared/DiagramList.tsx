@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { DiagramEntry } from "./diagram-library.ts";
 
 const dateFormat = new Intl.DateTimeFormat("ja-JP", {
@@ -13,6 +13,7 @@ interface Props {
   };
   Icon: ComponentType<{ name: "plus" | "close" }>;
   variants?: {
+    records: (entry: DiagramEntry) => ReactNode;
     group: (entries: DiagramEntry[]) => DiagramEntry[][];
     isChoiceKey: (key: string | null) => boolean;
     create: (entry: DiagramEntry) => void;
@@ -183,6 +184,7 @@ export function DiagramList(props: Props) {
                   操作 <span aria-hidden="true">{selected ? "▴" : "▾"}</span>
                 </button>
               </div>
+              {index === 0 && props.variants?.records(entry)}
               {selected?.kind === "menu" && (
                 <div className="row-actions">
                   {props.variants && (

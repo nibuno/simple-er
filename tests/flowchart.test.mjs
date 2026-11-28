@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   looksLikeFlowchart,
   parseFlowchart,
+  readFlowchart,
   toFlowchart,
 } from "../canvas/src/flowchart.ts";
 import {
@@ -189,14 +190,14 @@ test("subgraph が囲みになる", () => {
   assert.equal(group.title, "AWS");
   assert.deepEqual(
     doc.nodes.filter((n) => n.groupId === "aws").map((n) => n.id),
-    ["api", "db"],
+    ["web", "api", "db"],
   );
   const inside = doc.nodes.filter((n) => n.groupId === "aws");
   for (const node of inside) {
     assert.ok(group.x <= node.x && node.x + node.w <= group.x + group.w);
     assert.ok(group.y <= node.y && node.y + node.h <= group.y + group.h);
   }
-  assert.ok(!doc.nodes.some((n) => n.id === "web" && n.groupId));
+  assert.equal(box(doc, "web").groupId, "aws");
   valid(doc);
 });
 
@@ -242,7 +243,7 @@ test("RL は向きを逆にする", () => {
   assert.ok(box(doc, "a").x > box(doc, "b").x);
 });
 
-test("コメントと見た目の指定は読み飛ばす", () => {
+test("コメントを読み飛ばし、色を反映する", () => {
   const doc = parseFlowchart(`flowchart LR
     %% これはコメント
     classDef big fill:#f00
@@ -265,11 +266,35 @@ test("読み取れないときは行番号を伝える", () => {
   assert.throws(() => parseFlowchart("a[A] -->"), /つなぎ先/);
 });
 
-test("囲みにはつなげない", () => {
-  assert.throws(
-    () => parseFlowchart("subgraph aws[AWS]\n a[A]\nend\n b[B] --> aws"),
-    /囲み/,
+test("先に定義した図形と囲みへの線を、入れ子をまとめても保持する", () => {
+  const { doc, warnings } = readFlowchart(`flowchart LR
+  user --> vpc
+  api[API]:::service
+  db[(DB)]
+  subgraph aws[AWS]
+    subgraph vpc[VPC]
+      direction TB
+      api --> db
+    end
+  end
+  classDef service fill:#def,stroke:#468
+  class db service
+  style db fill:#fff,color:#000
+  broken -->`);
+  valid(doc);
+  assert.deepEqual(
+    warnings.map((w) => parseInt(w)),
+    [6, 13, 14],
   );
+  assert.equal(doc.nodes.length, 4);
+  assert.equal(box(doc, "api").groupId, "aws");
+  assert.ok(box(doc, "db").y > box(doc, "api").y);
+  assert.equal(box(doc, "api").fillColor, "#ddeeff");
+  assert.equal(box(doc, "db").fillColor, "#ffffff");
+  assert.equal(box(doc, "db").strokeColor, "#446688");
+  assert.equal(doc.edges[0].to, "aws");
+  const roundTrip = valid(parseFlowchart(toFlowchart(doc)));
+  assert.equal(box(roundTrip, roundTrip.edges[0].to).kind, "group");
 });
 
 test("end のない subgraph は読み取れない", () => {
@@ -333,7 +358,7 @@ test("複数の囲みが同じ段にあっても枠が重ならない", () => {
   );
   const g1 = box(doc, "g1"),
     g2 = box(doc, "g2");
-  assert.ok(g1.y + g1.h < g2.y);
+  assert.ok(g1.x + g1.w < g2.x || g1.y + g1.h < g2.y);
 });
 
 test("Mermaid と HTML の参照は一度だけ戻す", () => {

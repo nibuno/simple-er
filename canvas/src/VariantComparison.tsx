@@ -1,12 +1,17 @@
 import { useTouchNavigation } from "../../shared/useTouchNavigation.ts";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { VariantDialog } from "./VariantDialog";
 import { Icon } from "./Icons";
 import { toSvg, svgFrame } from "./export";
 import { sceneRoutes } from "./geometry";
 import { openDiagram, type DiagramEntry } from "./library";
 import { bounds } from "./spatial";
 import { memoStatusLabels, type CanvasDocument, type Point } from "./types";
-import { compareDiagrams, type Difference } from "./variants";
+import {
+  compareDiagrams,
+  previousVariantName,
+  type Difference,
+} from "./variants";
 
 const styles = {
   added: { label: "追加", color: "#18845c", dash: "" },
@@ -323,11 +328,12 @@ export function VariantComparison({
     primary: DiagramEntry,
     selected: DiagramEntry,
     other: DiagramEntry,
+    reason: string,
   ) => void;
 }) {
   const { group } = pair;
   const [keys, setKeys] = useState([group[0].key, pair.rightKey]);
-  const [error, setError] = useState("");
+  const [choosing, setChoosing] = useState<number | null>(null);
   const entries = keys.map((key) => group.find((e) => e.key === key)!);
   const [left, right] = useMemo(
     () =>
@@ -370,7 +376,6 @@ export function VariantComparison({
                 if (value === keys[1 - i]) next[1 - i] = keys[i];
                 next[i] = value;
                 setKeys(next);
-                setError("");
               }}
             >
               {group.map((item, index) => (
@@ -385,13 +390,7 @@ export function VariantComparison({
                 className="secondary"
                 disabled={!!left.error || !!right.error}
                 aria-label={entry.title + "を元の図にする"}
-                onClick={() => {
-                  try {
-                    onChoose(group[0], entry, entries[1 - i]);
-                  } catch (e) {
-                    setError(e instanceof Error ? e.message : String(e));
-                  }
-                }}
+                onClick={() => setChoosing(i)}
               >
                 この案に決める
               </button>
@@ -399,11 +398,17 @@ export function VariantComparison({
           </div>
         ))}
       </div>
-      {error && (
-        <p className="list-error" role="alert">
-          {error}
-        </p>
+      {choosing !== null && (
+        <VariantDialog
+          archiveName={previousVariantName(group)}
+          defaultName={entries[choosing].title}
+          onCancel={() => setChoosing(null)}
+          onSubmit={(reason) =>
+            onChoose(group[0], entries[choosing], entries[1 - choosing], reason)
+          }
+        />
       )}
+
       {left.error || right.error ? (
         <p role="alert">
           保存データを読み込めません。図の一覧から確認してください。
