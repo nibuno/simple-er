@@ -49,6 +49,11 @@ test("SVG includes complete self references and labels outside the table with a 
     root.querySelector(":scope > rect").getAttribute("fill"),
     "#fff",
   );
+  assert.equal(
+    root.querySelector(":scope > g").getAttribute("fill"),
+    "#18181b",
+  );
+  assert.doesNotMatch(svg, /var\(--|prefers-color-scheme|currentColor/i);
   const [x, y, w, h] = root.getAttribute("viewBox").split(" ").map(Number);
   const routes = routeEdges(state.edges, state.tables);
   const label = relationshipLabels(state, routes).values().next().value;
