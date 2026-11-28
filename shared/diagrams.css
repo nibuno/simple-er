@@ -28,6 +28,22 @@
 .diagram-list h2 {
   margin-right: auto;
 }
+.list-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+.list-recovery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.list-recovery p {
+  width: 100%;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .diagram-list ul {
   list-style: none;
   padding: 0;

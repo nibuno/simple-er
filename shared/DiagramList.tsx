@@ -14,6 +14,11 @@ interface Props {
   Icon: ComponentType<{ name: "plus" | "close" }>;
   emptyName: string;
   activeKey: string;
+  paused?: {
+    title: string;
+    saveCopy: () => void;
+    resume?: () => void;
+  };
   onClose: () => void;
   onCreate: () => void;
   onOpen: (entry: DiagramEntry) => void;
@@ -23,7 +28,7 @@ interface Props {
 }
 
 export function DiagramList(props: Props) {
-  const { library, Icon } = props;
+  const { library, Icon, paused } = props;
   const dialog = useRef<HTMLDialogElement>(null);
   const [entries, setEntries] = useState<DiagramEntry[]>([]);
   const [action, setAction] = useState<{
@@ -82,6 +87,22 @@ export function DiagramList(props: Props) {
           <Icon name="close" />
         </button>
       </div>
+      <p className="list-hint">
+        図を切り替えると「元に戻す」の履歴が消えます。
+      </p>
+      {paused && (
+        <div className="list-recovery">
+          <p>表示中の「{paused.title}」は自動保存を停止しています。</p>
+          <button className="secondary" onClick={() => run(paused.saveCopy)}>
+            別の図として保存
+          </button>
+          {paused.resume && (
+            <button onClick={() => run(() => paused.resume?.())}>
+              この画面の内容で保存を再開
+            </button>
+          )}
+        </div>
+      )}
       {error && (
         <p className="list-error" role="alert">
           {error}
@@ -89,7 +110,10 @@ export function DiagramList(props: Props) {
       )}
       <ul>
         {entries.map((entry) => {
-          const selected = action?.entry.key === entry.key ? action : null;
+          const active = entry.key === props.activeKey;
+          const pausedEntry = active && !!paused;
+          const selected =
+            !pausedEntry && action?.entry.key === entry.key ? action : null;
           return (
             <li key={entry.key}>
               <div className="diagram-row">
@@ -97,9 +121,8 @@ export function DiagramList(props: Props) {
                   className="diagram-link"
                   aria-label={entry.title + "を開く"}
                   aria-describedby={"updated-" + entry.key}
-                  aria-current={
-                    entry.key === props.activeKey ? "true" : undefined
-                  }
+                  aria-current={active && !pausedEntry ? "true" : undefined}
+                  disabled={pausedEntry}
                   onClick={() => run(() => props.onOpen(entry))}
                 >
                   <strong>{entry.title}</strong>
@@ -111,13 +134,14 @@ export function DiagramList(props: Props) {
                         更新 {dateFormat.format(entry.updatedAt)}
                       </time>
                     )}
-                    {entry.key === props.activeKey && (
+                    {active && !pausedEntry && (
                       <span className="current-diagram"> · 表示中</span>
                     )}
                   </span>
                 </button>
                 <button
                   className="row-toggle"
+                  disabled={pausedEntry}
                   aria-label={entry.title + "の操作"}
                   aria-expanded={!!selected}
                   onClick={() => {

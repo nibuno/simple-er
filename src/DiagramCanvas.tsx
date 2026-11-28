@@ -187,7 +187,7 @@ export function DiagramCanvas(p: Props) {
       h = (size.h * 100) / percent;
     setView({ x: cx - w / 2, y: cy - h / 2, w, h, zoom: percent });
   }
-  function fit(reset = false) {
+  function fit() {
     const tables = latest.current.state.tables;
     if (!tables.length) {
       zoom(100, 0, 0);
@@ -200,19 +200,17 @@ export function DiagramCanvas(p: Props) {
     );
     const size = viewport();
     zoom(
-      reset
-        ? 100
-        : Math.min(
-            1,
-            size.w / (bounds.width + 140),
-            size.h / (bounds.height + 180),
-          ) * 100,
+      Math.min(
+        1,
+        size.w / (bounds.width + 140),
+        size.h / (bounds.height + 180),
+      ) * 100,
       bounds.x + bounds.width / 2,
       bounds.y + bounds.height / 2 + 10,
     );
   }
   useLayoutEffect(() => {
-    fit(true);
+    fit();
     const observer = new ResizeObserver(() => {
       const size = viewport();
       setView((v) => {

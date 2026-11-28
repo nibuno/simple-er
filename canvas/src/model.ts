@@ -207,13 +207,10 @@ export function decode(raw: string): CanvasDocument {
     typeof value === "string" && value.length <= max;
   if (!str(d.id, 120) || !d.id || !str(d.title, 200))
     fail("キャンバス名またはIDが不正です。");
-  if (
-    !Array.isArray(d.nodes) ||
-    d.nodes.length > MAX_NODES ||
-    !Array.isArray(d.edges) ||
-    d.edges.length > MAX_EDGES
-  )
-    fail("要素数の上限を超えています。");
+  if (!Array.isArray(d.nodes) || !Array.isArray(d.edges))
+    fail("要素と線のデータが不正です。");
+  if (d.nodes.length > MAX_NODES || d.edges.length > MAX_EDGES)
+    fail(`要素は${MAX_NODES}個、線は${MAX_EDGES}本までです。`);
   const ids = new Set<string>();
   for (const n of d.nodes) {
     if (!n || !str(n.id, 120) || !n.id || ids.has(n.id))

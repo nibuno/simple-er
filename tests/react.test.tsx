@@ -41,8 +41,9 @@ dom.window.HTMLDialogElement.prototype.close = function () {
 const React = await import("react");
 const { act } = React;
 // jsdom has no SVG layout or pointer capture; provide deterministic geometry.
+let viewportWidth = 1200;
 Object.defineProperty(dom.window.SVGSVGElement.prototype, "clientWidth", {
-  get: () => 1200,
+  get: () => viewportWidth,
 });
 Object.defineProperty(dom.window.SVGSVGElement.prototype, "clientHeight", {
   get: () => 720,
@@ -212,6 +213,34 @@ test("undo and redo stay within the open diagram", async () => {
   assert.equal(localStorage.getItem(storageKey), original);
 });
 
+test("new drawings have distinct names in the list", async () => {
+  await click(byText("新しい図"));
+  assert.equal(saved().title, "無題の図 2");
+  await click(byText("図の一覧"));
+  assert.match(
+    document.querySelector(".diagram-list").textContent,
+    /「元に戻す」の履歴が消えます/,
+  );
+  await click(byText("新しく作る"));
+  assert.equal(saved().title, "無題の図 3");
+});
+
+test("the initial view fits the sample on a 768px viewport", async () => {
+  await act(() => root.unmount());
+  viewportWidth = 768;
+  try {
+    await mount();
+    const [x, , w] = currentView();
+    assert.ok(x <= Math.min(...initial.tables.map((t) => t.x)));
+    assert.ok(w > viewportWidth);
+    const fitted = currentView();
+    await click(document.querySelector("#fit"));
+    assert.deepEqual(currentView(), fitted);
+  } finally {
+    viewportWidth = 1200;
+  }
+});
+
 test("the original and #37 backup keep their bytes and open independently after a reload", async () => {
   await act(() => root.unmount());
   const original = localStorage.getItem(storageKey);
@@ -362,6 +391,25 @@ test("another tab can delete the open diagram without losing this tab's edits", 
   assert.equal(library.listDiagrams().length, 1);
   assert.equal(saved().title, "このタブの注文");
   assert.ok(byLabel("usersを編集"));
+});
+
+test("a paused drawing can be saved from the list without replacing the other tab's version", async () => {
+  const remote = encode({ ...initial, title: "別のタブ" });
+  localStorage.setItem(storageKey, remote);
+  await act(() => byLabel("図の名前").focus());
+  await type(byLabel("図の名前"), "こちらの作業");
+  await key(byLabel("図の名前"), "Enter");
+  await click(byText("図の一覧"));
+  const dialog = document.querySelector(".diagram-list");
+  assert.match(
+    dialog.querySelector(".list-recovery").textContent,
+    /表示中の「こちらの作業」/,
+  );
+  assert.equal(dialog.querySelector("[aria-current]"), null);
+  await click(dialog.querySelector(".list-recovery button"));
+  assert.equal(document.querySelector(".diagram-list"), null);
+  assert.equal(localStorage.getItem(storageKey), remote);
+  assert.equal(saved().title, "こちらの作業");
 });
 
 test("confirming deletion of the last v1 drawing needs no space for a backup", async (t) => {

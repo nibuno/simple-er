@@ -140,7 +140,7 @@ function Editor({
   const [help, setHelp] = useState(false);
   const [sampleList, setSampleList] = useState(false);
   const [exportingPng, setExportingPng] = useState(false);
-  const [fitRequest, setFitRequest] = useState(visit > 0 ? 1 : 0);
+  const [fitRequest, setFitRequest] = useState(0);
   const view = useRef<View>({ x: 0, y: 0, w: 1200, h: 720, zoom: 100 });
   const file = useRef<HTMLInputElement>(null);
   const options = useRef<HTMLDetailsElement>(null);
@@ -250,7 +250,20 @@ function Editor({
     );
   }
   function newDiagram() {
-    createDiagram(emptyDocument(), "新しい図を作成しました");
+    const names = new Set(library.listDiagrams().map((entry) => entry.title));
+    let title = untitled;
+    for (let number = 2; names.has(title); number++)
+      title = untitled + " " + number;
+    createDiagram({ ...emptyDocument(), title }, "新しい図を作成しました");
+  }
+  function saveCopy() {
+    flushTitle();
+    const next = library.writeDiagram(
+      library.newDiagramKey(),
+      currentDoc.current,
+      null,
+    );
+    onOpen(next, "別の図として保存しました");
   }
   function runMenu(action: () => void) {
     try {
@@ -902,20 +915,7 @@ function Editor({
                 元データをファイルに保存
               </button>
             )}
-            <button
-              onClick={() =>
-                runMenu(() => {
-                  const next = library.writeDiagram(
-                    library.newDiagramKey(),
-                    currentDoc.current,
-                    null,
-                  );
-                  onOpen(next, "別の図として保存しました");
-                })
-              }
-            >
-              別の図として保存
-            </button>
+            <button onClick={() => runMenu(saveCopy)}>別の図として保存</button>
           </div>
         )}
         {pendingForeignKeys.length + (state.unresolvedEdges?.length ?? 0) >
@@ -1217,6 +1217,11 @@ function Editor({
           Icon={Icon}
           emptyName="空の図"
           activeKey={initial.key}
+          paused={
+            conflict
+              ? { title: history.present.title || untitled, saveCopy }
+              : undefined
+          }
           onClose={closeList}
           onCreate={newDiagram}
           onOpen={(entry) => {

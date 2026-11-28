@@ -293,6 +293,9 @@ kbd {
   border-radius: 10px;
   box-shadow: var(--chip-shadow);
 }
+.rail-popover [data-rail-shortcut] {
+  display: none;
+}
 .rail-divider {
   width: 22px;
   margin: 3px 0;
@@ -341,14 +344,29 @@ kbd {
   bottom: 12px;
 }
 .selection-anchor {
+  /* Percentages in translate use the actual toolbar width. Leave space for
+     the vertical rail on the left and for a centered panel below the bar. */
+  --bar-inset: 64px;
+  --bar-x: clamp(
+    var(--bar-inset),
+    calc(var(--selection-x) - 50%),
+    calc(100cqw - 100% - 8px)
+  );
   position: absolute;
+  left: 0;
+  width: max-content;
+  min-width: 280px;
+  display: grid;
+  justify-items: center;
+  pointer-events: none;
   z-index: 18;
-  transform: translate(-50%, -100%);
+  transform: translate(var(--bar-x), -100%);
 }
 .selection-anchor.below {
-  transform: translate(-50%, 0);
+  transform: translate(var(--bar-x), 0);
 }
 .selection-bar {
+  pointer-events: auto;
   position: relative;
   font-size: 12px;
 }
@@ -503,6 +521,7 @@ kbd {
   box-shadow: var(--chip-shadow);
 }
 .canvas-stage {
+  container-type: inline-size;
   position: relative;
   flex: 1;
   min-width: 0;
@@ -546,7 +565,7 @@ kbd {
 /* While placing, the canvas receives clicks over figures and lines. */
 .tool-place .canvas-node,
 .tool-place .edge-control,
-.tool-place .selection-anchor {
+.tool-place .selection-bar {
   pointer-events: none;
 }
 .world {
@@ -1450,9 +1469,11 @@ kbd {
 .doc-bar:has(.save-status) ~ .notice {
   top: 64px;
 }
-.notice > span {
+.notice:has(.icon-button:only-of-type) > span {
   flex: 1;
-  min-width: 170px;
+}
+.notice > span {
+  flex-basis: 100%;
   line-height: 1.7;
 }
 .notice button {
@@ -1603,8 +1624,16 @@ kbd {
     top: 60px;
     flex-direction: row;
     max-width: calc(100% - 24px);
-    overflow-x: auto;
-    scrollbar-width: none;
+  }
+  .selection-anchor {
+    --bar-inset: 8px;
+  }
+  .rail-more {
+    position: static;
+  }
+  .rail-popover {
+    top: calc(100% + 6px);
+    left: 0;
   }
   .doc-bar:has(.save-status) ~ .notice {
     top: 112px;
@@ -1631,6 +1660,18 @@ kbd {
   }
   .color-expand {
     min-height: 22px;
+  }
+}
+@media (max-width: 450px) {
+  .tool-rail > [data-rail-shortcut] {
+    display: none;
+  }
+  .rail-popover [data-rail-shortcut] {
+    display: inline-flex;
+  }
+  .tool-rail,
+  .rail-popover {
+    gap: 0;
   }
 }
 @media (max-width: 430px) {
