@@ -34,6 +34,26 @@ test("ER リンクは編集用 JSON で復元し、閲覧用 HTML・SVG・Markdo
   assert.throws(() => decode(encode(linked)), /リンク/);
 });
 
+test("決定の履歴が閲覧用 HTML と Markdown の図・メモより前に出る", async () => {
+  const doc = sampleDocument();
+  doc.decisions = [
+    { at: "2026-11-28T10:00:00Z", variant: "案<2>", reason: "変更 & 確認" },
+  ];
+  const page = new JSDOM(render(decode(encode(doc)))).window.document;
+  assert.match(
+    page.querySelector("aside").textContent,
+    /決定の記録[\s\S]*2026[\s\S]*案<2> — 変更 & 確認[\s\S]*メモの一覧/,
+  );
+  const md = new TextDecoder().decode(
+    unzipSync(new Uint8Array(await markdownArchive(doc).arrayBuffer()))[
+      "README.md"
+    ],
+  );
+  assert.match(md, /決定の記録[\s\S]*2026[\s\S]*変更 & 確認[\s\S]*diagram.svg/);
+  assert.doesNotMatch(md, /未設定/);
+  doc.decisions[0].at = "invalid";
+  assert.throws(() => decode(encode(doc)), /決定の記録/);
+});
 test("閲覧用HTMLに図と状態付きメモを一覧順で埋め込み、入力した文字をそのまま表示する", () => {
   const doc = sampleDocument();
   doc.title = "通知 <設計> & {{memos}}";
@@ -54,7 +74,7 @@ test("閲覧用HTMLに図と状態付きメモを一覧順で埋め込み、入�
   );
   assert.deepEqual(
     [...page.querySelectorAll("[data-status]")].map((el) => el.textContent),
-    ["決定", "未設定"],
+    ["決定"],
   );
   assert.deepEqual(
     [...page.querySelectorAll(".memo-body")].map((el) => el.textContent),

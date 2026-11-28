@@ -51,7 +51,25 @@ export interface CanvasEdge {
   arrowheads?: keyof typeof arrowheadLabels;
   strokeColor?: string;
 }
+export interface Decision {
+  at: string;
+  variant: string;
+  reason: string;
+}
+const decisionDate = new Intl.DateTimeFormat("ja-JP", {
+  dateStyle: "short",
+  timeStyle: "short",
+});
+export function decisionSummary(d: Decision) {
+  return (
+    decisionDate.format(new Date(d.at)) +
+    "　" +
+    d.variant +
+    (d.reason ? " — " + d.reason : "")
+  );
+}
 export interface CanvasDocument {
+  decisions?: Decision[];
   format: "simple-canvas";
   version: 1;
   id: string;

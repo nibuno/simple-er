@@ -140,9 +140,7 @@ test("the Markdown archive links its SVG and includes each figure's complete mem
   assert.deepEqual(Object.keys(files).sort(), ["README.md", "diagram.svg"]);
   const md = strFromU8(files["README.md"]);
   assert.ok(md.includes("# 通知処理の設計\n\n![図](./diagram.svg)"));
-  assert.ok(
-    md.includes("## 箱（未設定）\n\n先に保存する。  \n\\# 理由  \n\\<受付>"),
-  );
+  assert.ok(md.includes("## 箱\n\n先に保存する。  \n\\# 理由  \n\\<受付>"));
   assert.ok(md.includes("## Worker（決定）"));
   assert.ok(md.includes(worker.body.split("\n").at(-1)));
   assert.equal(md.match(/^## /gm).length, 2);

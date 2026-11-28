@@ -2,7 +2,7 @@ import type { SceneRoutes } from "./geometry";
 import { strToU8, zipSync } from "fflate";
 import { toSvg } from "./export";
 import { memoNodes, memoOwnerName } from "./model";
-import { memoStatusLabels } from "./types";
+import { decisionSummary, memoStatusLabels } from "./types";
 import type { CanvasDocument } from "./types";
 
 // Names and memos are plain text in the editor. Keep them literal in Markdown.
@@ -34,17 +34,22 @@ const heading = (text: string) =>
   literal(text.replace(/\s+/g, " ").trim()).replace(/(\s)(#+)$/, "$1\\$2");
 
 export function markdownArchive(doc: CanvasDocument, computed?: SceneRoutes) {
-  const sections = [
-    "# " + (heading(doc.title) || "無題のキャンバス"),
-    "![図](./diagram.svg)",
-  ];
+  const sections = ["# " + (heading(doc.title) || "無題の図")];
+  if (doc.decisions?.length)
+    sections.push(
+      "## 決定の記録",
+      ...doc.decisions.map((d) =>
+        literal(decisionSummary(d).replace(/\s*\n\s*/g, " ")),
+      ),
+    );
+  sections.push("![図](./diagram.svg)");
   const memos = memoNodes(doc);
   for (const node of memos) {
     const status = node.memoStatus
-      ? memoStatusLabels[node.memoStatus]
-      : "未設定";
+      ? "（" + memoStatusLabels[node.memoStatus] + "）"
+      : "";
     sections.push(
-      "## " + heading(memoOwnerName(node)) + "（" + status + "）",
+      "## " + heading(memoOwnerName(node)) + status,
       node.body
         .split(/\r\n?|\n/)
         .map(

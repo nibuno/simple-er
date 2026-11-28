@@ -39,7 +39,7 @@ export const emptyDocument = (): CanvasDocument => ({
   format: "simple-canvas",
   version: 1,
   id: uid(),
-  title: "無題のキャンバス",
+  title: "無題の図",
   nodes: [],
   edges: [],
 });
@@ -208,7 +208,20 @@ export function decode(raw: string): CanvasDocument {
   const str = (value: unknown, max: number) =>
     typeof value === "string" && value.length <= max;
   if (!str(d.id, 120) || !d.id || !str(d.title, 200))
-    fail("キャンバス名またはIDが不正です。");
+    fail("図の名前またはIDが不正です。");
+  if (
+    d.decisions !== undefined &&
+    (!Array.isArray(d.decisions) ||
+      d.decisions.some(
+        (record: NonNullable<CanvasDocument["decisions"]>[number]) =>
+          !record ||
+          !str(record.at, 32) ||
+          !Number.isFinite(Date.parse(record.at)) ||
+          !str(record.variant, 200) ||
+          !str(record.reason, 500),
+      ))
+  )
+    fail("決定の記録が不正です。");
   if (!Array.isArray(d.nodes) || !Array.isArray(d.edges))
     fail("要素と線のデータが不正です。");
   if (d.nodes.length > MAX_NODES || d.edges.length > MAX_EDGES)
@@ -289,7 +302,7 @@ export function decode(raw: string): CanvasDocument {
     ids.add(e.id);
     if (
       ![e.from, e.to].every((id) =>
-        d.nodes.some((n: CanvasNode) => n.id === id && n.kind !== "group"),
+        d.nodes.some((n: CanvasNode) => n.id === id),
       )
     )
       fail("接続先の要素がありません。");
@@ -472,6 +485,7 @@ export function selectionDocument(doc: CanvasDocument, ids: string[]) {
       doc.edges.filter((e) => expanded.has(e.from) && expanded.has(e.to)),
     ),
   };
+  delete next.decisions;
   next.nodes.forEach((n) => {
     if (n.groupId && !expanded.has(n.groupId)) delete n.groupId;
     if (n.attachedTo && !expanded.has(n.attachedTo)) detachNote(n, doc);

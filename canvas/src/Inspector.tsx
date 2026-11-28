@@ -265,7 +265,9 @@ export function SelectionBar({
         >
           <Icon name="trash" />
         </button>
-        {node && panelButton("more", "その他", <Icon name="more" />)}
+        {node &&
+          (node.kind !== "box" || hasGroups) &&
+          panelButton("more", "その他", <Icon name="more" />)}
       </div>
       {open && (
         <div
@@ -487,6 +489,11 @@ export function SelectionBar({
                   </select>
                 </label>
               )}
+            </>
+          )}
+          {node &&
+            ((open === "more" && node.kind !== "box") ||
+              (open === "shape" && node.kind === "box")) && (
               <div className="size-fields">
                 {(["w", "h"] as const).map((key, i) => (
                   <label key={key}>
@@ -518,8 +525,7 @@ export function SelectionBar({
                   </label>
                 ))}
               </div>
-            </>
-          )}
+            )}
         </div>
       )}
     </div>
