@@ -1,3 +1,5 @@
+import { serialBase } from "./column-attributes.ts";
+import { physicalName } from "./table-definition.ts";
 import { statements, Tokens } from "./ddl-tokens.ts";
 import { tidyDiagram } from "./layout.ts";
 import { documentFromDiagram, uid } from "./model.ts";
@@ -268,10 +270,18 @@ export function importTableDefinition(text: string) {
       checks: record.checks,
       columns: record.columns.map((r) => {
         const generation = r["自動採番"];
+        const dialect =
+          generation === "AUTO_INCREMENT"
+            ? "MySQL"
+            : generation === "AUTOINCREMENT"
+              ? "SQLite"
+              : undefined;
+        if (dialect) diagram.ddlDialect = dialect;
         const mode = /^IDENTITY (ALWAYS|BY DEFAULT)(?: \(([\s\S]*)\))?$/.exec(
           generation,
         );
-        if (generation && generation !== "SERIAL" && !mode) invalid();
+        if (generation && generation !== "SERIAL" && !dialect && !mode)
+          invalid();
         return {
           id: uid(),
           name: r["物理名"],
@@ -281,11 +291,12 @@ export function importTableDefinition(text: string) {
           note: r["説明"],
           defaultValue: r["既定値"] || undefined,
           notNull: r["NN"] === "○",
-          identity: mode
-            ? mode[1] === "ALWAYS"
+          identity:
+            mode?.[1] === "ALWAYS"
               ? "always"
-              : "byDefault"
-            : undefined,
+              : mode || (dialect && !serialBase(r["型"]))
+                ? "byDefault"
+                : undefined,
           identityOptions: mode?.[2],
         };
       }),
@@ -356,4 +367,58 @@ export function importTableDefinition(text: string) {
     tableIds,
   }));
   return documentFromDiagram(tidyDiagram(diagram));
+}
+
+/** Apply only documentation cells, keyed by the physical names in our CSV. */
+export function applyDefinitionCsv(text: string, diagram: Diagram) {
+  const records = csvRows(text.replace(/^\uFEFF/, ""));
+  if (!records.length) invalid();
+  const next = structuredClone(diagram);
+  const byName = new Map(next.tables.map((t) => [physicalName(t), t]));
+  const tableChanges = new Map<
+    Table,
+    { logicalName?: string; note?: string }
+  >();
+  const seenColumns = new Set<string>();
+  for (const r of records) {
+    if (
+      [
+        "テーブル物理名",
+        "テーブル論理名",
+        "テーブル説明",
+        "カラム物理名",
+        "カラム論理名",
+        "カラム説明",
+      ].some((key) => !(key in r))
+    )
+      invalid();
+    const name = r["テーブル物理名"];
+    const table = byName.get(name);
+    if (!table) throw new Error(`テーブル ${name} が今の図にありません。`);
+    const changes = tableChanges.get(table) ?? {};
+    // The table fields repeat for each column. One edited row is enough.
+    for (const [field, value] of [
+      ["logicalName", r["テーブル論理名"]],
+      ["note", r["テーブル説明"]],
+    ] as const) {
+      if (value === (table[field] ?? "")) continue;
+      if (changes[field] !== undefined && changes[field] !== value)
+        throw new Error(`${name} の論理名または説明が行によって異なります。`);
+      changes[field] = value;
+    }
+    tableChanges.set(table, changes);
+    const colName = r["カラム物理名"];
+    if (!colName && !table.columns.length) continue;
+    const column = table.columns.find((c) => c.name === colName);
+    if (!column)
+      throw new Error(`カラム ${name}.${colName} が今の図にありません。`);
+    const key = JSON.stringify([name, colName]);
+    if (seenColumns.has(key))
+      throw new Error(`${name}.${colName} が重複しています。`);
+    seenColumns.add(key);
+    column.logicalName = r["カラム論理名"];
+    column.note = r["カラム説明"];
+  }
+  for (const [table, changes] of tableChanges) Object.assign(table, changes);
+  return next;
 }

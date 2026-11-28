@@ -30,7 +30,7 @@ COPY sales.items (id, code, amount) FROM stdin;
   assert.equal(ignoredCount, 11);
   const [table] = diagram.tables;
   assert.equal(table.columns[0].type, "serial");
-  assert.equal(table.columns[1].note, "商品");
+  assert.equal(table.columns[1].logicalName, "商品");
   assert.equal(table.columns[2].identityOptions, "START WITH 5");
   assert.deepEqual(
     table.keys.map((k) => [k.kind, k.name]),
@@ -82,8 +82,8 @@ test("defaults and CHECK operands translate and round-trip without modifying lit
   const { diagram } = importDDL(
     "CREATE TABLE results (rank INT CHECK (rank BETWEEN 1 AND 5), note VARCHAR(40) CHECK (lower(note) <> 'rank'), created TIMESTAMP DEFAULT now(), n INT DEFAULT abs(-4));",
   );
-  const sqlite = diagramDDL(diagram, "SQLite");
-  const mysql = diagramDDL(diagram, "MySQL");
+  const sqlite = diagramDDL({ ...diagram, ddlAnnotations: true }, "SQLite");
+  const mysql = diagramDDL({ ...diagram, ddlAnnotations: true }, "MySQL");
   assert.match(mysql, /CHECK \(`rank` BETWEEN 1 AND 5\)/);
   assert.match(mysql, /lower\(`note`\) <> 'rank'/);
   assert.match(sqlite, /DEFAULT CURRENT_TIMESTAMP/);
@@ -101,7 +101,10 @@ test("defaults and CHECK operands translate and round-trip without modifying lit
     db.close();
   }
   for (const sql of [mysql, sqlite])
-    assert.equal(diagramDDL(importDDL(sql).diagram), diagramDDL(diagram));
+    assert.equal(
+      diagramDDL(importDDL(sql).diagram, "PostgreSQL"),
+      diagramDDL(diagram, "PostgreSQL"),
+    );
   const edited = sqlite.replace(
     "DEFAULT CURRENT_TIMESTAMP",
     "DEFAULT CURRENT_DATE",
@@ -142,7 +145,7 @@ test("a database switch keeps same-name tables and existing groups distinct", ()
   assert.deepEqual(issues, []);
   const restored = decode(encode(diagram));
   const [accounts, sales] = restored.tables;
-  assert.equal(accounts.note, "会員");
+  assert.equal(accounts.logicalName, "会員");
   assert.deepEqual(restored.groups[0].tableIds, [accounts.id]);
   assert.equal(sales.foreignKeys[0].target.tableId, accounts.id);
   assert.deepEqual(
@@ -156,6 +159,6 @@ test("a database switch keeps same-name tables and existing groups distinct", ()
     const [a, s] = again.diagram.tables;
     assert.equal(s.foreignKeys[0].target.tableId, a.id);
     assert.equal(s.keys[1].name, "sales_account");
-    assert.equal(a.note, "会員");
+    assert.equal(a.logicalName, "会員");
   }
 });

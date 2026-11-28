@@ -6,7 +6,13 @@ import {
 } from "./schema-constraints.ts";
 import { ddlType, readDetails } from "./ddl-dialect.ts";
 import { serialBase, serialType } from "./column-attributes.ts";
-import { expression, SqlError, statements, Tokens } from "./ddl-tokens.ts";
+import {
+  expression,
+  SqlError,
+  statements,
+  type Token,
+  Tokens,
+} from "./ddl-tokens.ts";
 import { layoutImportedTables } from "./import-layout.ts";
 import {
   MAX_COLUMNS,
@@ -18,6 +24,7 @@ import {
 } from "./model.ts";
 import { ddlDialects, referenceActions } from "./types.ts";
 import type {
+  DdlDialect,
   Diagram,
   EnumType,
   ForeignKey,
@@ -298,9 +305,15 @@ function parseColumn(tokens: Tokens, sql: string, issues: DdlIssue[]) {
     if (details.identityOptions)
       column.identityOptions = details.identityOptions;
   }
-  if (details.note !== undefined) column.note = details.note;
+  if (details.note !== undefined) column.note ??= details.note;
   if (details.logicalName) column.logicalName = details.logicalName;
-  return { column, keys, enumValues, enumName: details.enumName };
+  return {
+    column,
+    keys,
+    enumValues,
+    enumName: details.enumName,
+    taggedComment: !!details.logicalName || details.note !== undefined,
+  };
 }
 
 function parseOptions(tokens: Tokens, table: Table) {
@@ -339,9 +352,52 @@ function parseOptions(tokens: Tokens, table: Table) {
   }
 }
 
+// Inspect SQL tokens, so names of engines inside a string or a comment do not count.
+function statementDialect(tokens: Token[]): DdlDialect | undefined {
+  const words = tokens.map((t) => t.raw.toUpperCase());
+  const head = words.slice(0, 3).join(" ");
+  if (
+    words[0] === "PRAGMA" ||
+    words.includes("AUTOINCREMENT") ||
+    words.at(-1) === "STRICT" ||
+    words.slice(-2).join(" ") === "WITHOUT ROWID"
+  )
+    return "SQLite";
+  if (
+    words[0] === "USE" ||
+    words[0].startsWith("/*!") ||
+    words.some(
+      (w, i) =>
+        w.startsWith("`") ||
+        w === "AUTO_INCREMENT" ||
+        (w === "ENGINE" && words[i + 1] === "=") ||
+        (w === "ENUM" && words[i + 1] === "(" && words[i - 1] !== "AS") ||
+        (w === "COMMENT" &&
+          (words[i + 1] === "=" || words[i + 1]?.startsWith("'"))) ||
+        (w === "UNSIGNED" &&
+          /^(?:BIGINT|INT|INTEGER|SMALLINT|MEDIUMINT|TINYINT|\))$/.test(
+            words[i - 1],
+          )),
+    )
+  )
+    return "MySQL";
+  if (
+    /^(?:COMMENT ON|CREATE TYPE|ALTER TABLE ONLY|CREATE SEQUENCE|SET SEARCH_PATH)\b/.test(
+      head,
+    ) ||
+    words.some((w) =>
+      /^(?:SMALLSERIAL|BIGSERIAL|SERIAL|JSONB|PG_CATALOG|IDENTITY|BYTEA)$/.test(
+        w,
+      ),
+    )
+  )
+    return "PostgreSQL";
+}
+
 export function importDDL(
   sql: string,
   base: Diagram = { tables: [], edges: [] },
+  commentTarget: "logicalName" | "note" = "logicalName",
 ) {
   const next = structuredClone(base);
   const enums = (next.enums ??= []);
@@ -359,6 +415,8 @@ export function importDDL(
   const added: Table[] = [];
   const skipped = new Set<string>();
   let ignoredCount = 0;
+  const commentTargets = new Set<Table | Table["columns"][number]>();
+  let detectedDialect: DdlDialect | undefined;
   let database: string | undefined;
   const qualified = (path: Name) =>
     database && path.length === 1 ? [database, ...path] : path;
@@ -429,6 +487,7 @@ export function importDDL(
             keys: inline,
             enumValues,
             enumName,
+            taggedComment,
           } = parseColumn(part, sql, issues);
           if (table.columns.length >= MAX_COLUMNS)
             part.fail("カラムは60個までです。");
@@ -438,6 +497,7 @@ export function importDDL(
             column.type = enumName ?? inlineEnumName(name, column.name, enums);
             registerEnum(enums, { name: column.type, values: enumValues });
           }
+          if (!taggedComment) commentTargets.add(column);
           table.columns.push(column);
           keys = inline;
         }
@@ -447,6 +507,7 @@ export function importDDL(
     }
     t.need(")");
     const { note, logicalName } = readDetails(t.items[t.index - 1].details);
+    if (!logicalName && note === undefined) commentTargets.add(table);
     if (logicalName) table.logicalName = logicalName;
     if (note !== undefined) table.note = note;
     if (!table.columns.length)
@@ -459,6 +520,7 @@ export function importDDL(
   for (const statement of statements(sql)) {
     const t = new Tokens(statement);
     const line = t.line;
+    detectedDialect ??= statementDialect(statement);
     attempt(
       line,
       () => {
@@ -687,11 +749,13 @@ export function importDDL(
           `既存の ${qualifiedTitle(table)} への変更は省きました。`,
         );
       if (op.kind === "comment") {
-        if (!op.column) table.note = op.text;
-        else {
-          const [id] = columnIds(table, [op.column], op.line);
-          table.columns.find((c) => c.id === id)!.note = op.text;
-        }
+        const id = op.column
+          ? columnIds(table, [op.column], op.line)[0]
+          : undefined;
+        const target = id ? table.columns.find((c) => c.id === id)! : table;
+        target.note = op.text;
+        if (!added.includes(table) && !target.logicalName)
+          commentTargets.add(target);
       } else if (op.kind === "identity" || op.kind === "default") {
         const [id] = columnIds(table, [op.column], op.line);
         const column = table.columns.find((c) => c.id === id)!;
@@ -786,7 +850,20 @@ export function importDDL(
       applied++;
     });
   }
+  if (commentTarget === "logicalName") {
+    for (const target of commentTargets) {
+      const comment = target.note;
+      if (comment && !/[\r\n]/.test(comment) && comment.length <= 80) {
+        target.logicalName = comment.trim();
+        delete target.note;
+      }
+    }
+  }
+  if (!base.tables.length && !base.enums?.length && detectedDialect)
+    next.ddlDialect = detectedDialect;
+  const schemas = new Set(added.map((table) => table.schemaName));
   return {
+    database: database && schemas.size === 1 ? added[0]?.schemaName : undefined,
     diagram: layoutImportedTables(next, added, base),
     tableCount: added.length,
     applied,

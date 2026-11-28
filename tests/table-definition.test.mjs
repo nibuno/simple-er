@@ -1,8 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { decodeDocument } from "../src/model.ts";
-import { importTableDefinition } from "../src/table-definition-import.ts";
+import {
+  decodeDocument,
+  projectDocument,
+  documentFromDiagram,
+} from "../src/model.ts";
+import {
+  applyDefinitionCsv,
+  importTableDefinition,
+} from "../src/table-definition-import.ts";
 import { tableDefinition } from "../src/table-definition.ts";
 
 const examples = new URL("../examples/", import.meta.url);
@@ -156,4 +163,75 @@ test("Markdown shows ordinary ENUM values as a list and keeps punctuation unambi
   assert.deepEqual(importTableDefinition(old).schema.enums, doc.schema.enums);
   doc.ddlDialect = "SQLite";
   assert.doesNotMatch(tableDefinition(doc, "md"), /uuid \| ○ \| 主キー/);
+});
+
+test("CSV updates matched documentation in place and preserves routes, IDs and definitions", () => {
+  const diagram = projectDocument(orders());
+  const [accounts, order] = diagram.tables;
+  accounts.x = 321;
+  order.y = 456;
+  diagram.edges[0].manual = true;
+  diagram.edges[0].trunk = 162;
+  accounts.columns[0].logicalName = "更新前";
+  const csv = tableDefinition(documentFromDiagram(diagram), "csv", true);
+  const patched = applyDefinitionCsv(
+    csv
+      .replace("更新前", "新しい名前")
+      .replaceAll('受注, ""履歴""', '商品, ""一覧""')
+      .replaceAll(",uuid,", ",ignored_type,"),
+    diagram,
+  );
+  const expected = structuredClone(diagram);
+  expected.tables[0].columns[0].logicalName = "新しい名前";
+  expected.tables[1].note = '商品, "一覧"';
+  assert.deepEqual(documentFromDiagram(patched), documentFromDiagram(expected));
+  assert.equal(diagram.tables[0].columns[0].logicalName, "更新前");
+  const header =
+    "テーブル物理名,カラム物理名,テーブル論理名,カラム論理名,テーブル説明,カラム説明\r\n";
+  const row = `sales.accounts,${accounts.columns[0].name},利用者,,補足,\r\n`;
+  const partial = applyDefinitionCsv(header + row, diagram);
+  assert.equal(partial.tables[0].logicalName, "利用者");
+  assert.equal(partial.tables[0].columns[0].logicalName, "");
+  assert.throws(() => applyDefinitionCsv(header + row + row, diagram), /重複/);
+  assert.throws(
+    () =>
+      applyDefinitionCsv(
+        header + row + row.replace("sales.accounts", "missing"),
+        diagram,
+      ),
+    /今の図にありません/,
+  );
+  assert.throws(
+    () =>
+      applyDefinitionCsv(
+        header +
+          row +
+          row
+            .replace(accounts.columns[0].name, accounts.columns[1].name)
+            .replace("利用者", "別名"),
+        diagram,
+      ),
+    /行によって異なります/,
+  );
+});
+
+test("definitions use the database's auto-number term and open again in both formats", () => {
+  for (const [dialect, term] of [
+    ["MySQL", "AUTO_INCREMENT"],
+    ["SQLite", "AUTOINCREMENT"],
+  ]) {
+    const doc = orders();
+    doc.ddlDialect = dialect;
+    Object.assign(doc.schema.tables[0].columns[0], {
+      type: "integer",
+      identity: "byDefault",
+    });
+    for (const format of ["csv", "md"]) {
+      const content = tableDefinition(doc, format);
+      assert.ok(content.includes(term));
+      const read = importTableDefinition(content);
+      assert.equal(read.schema.tables[0].columns[0].identity, "byDefault");
+      assert.equal(read.ddlDialect, dialect);
+    }
+  }
 });

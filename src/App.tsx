@@ -12,10 +12,14 @@ import { TextField } from "../shared/TextField.tsx";
 import { library, emptyDocument, namedDocument, untitled } from "./library.ts";
 import { downloadFile, downloadPng } from "../shared/export.ts";
 import { diagramSvg, exportFilename, titleFromFile } from "./export.ts";
-import { importTableDefinition } from "./table-definition-import.ts";
+import {
+  applyDefinitionCsv,
+  importTableDefinition,
+} from "./table-definition-import.ts";
 import { tableDefinition } from "./table-definition.ts";
 import { SchemaImportDialog } from "./SchemaImportDialog.tsx";
 import { diagramMermaid } from "./mermaid.ts";
+import { dialectColumns } from "./ddl-dialect.ts";
 import { diagramDDL } from "./ddl.ts";
 import { messageOf, overlaps } from "./utils.ts";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -34,6 +38,7 @@ import {
   MAX_CONNECTIONS,
   canConnect,
   createColumn,
+  newColumnType,
   removeForeignKey,
   removeTable,
   editTable,
@@ -231,13 +236,17 @@ function Editor({
   const [exportingPng, setExportingPng] = useState(false);
   const [fitRequest, setFitRequest] = useState(0);
   const view = useRef<View>({ x: 0, y: 0, w: 1200, h: 720, zoom: 100 });
+  const csvFile = useRef<HTMLInputElement>(null);
   const file = useRef<HTMLInputElement>(null);
   const options = useRef<HTMLDetailsElement>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
   const tableHeading = (t: Table) =>
     logical && t.logicalName ? t.logicalName : title(t);
-  const displayTable = (t: Table) => qualifiedTitle(t, tableHeading(t));
+  const showSchema =
+    new Set(state.tables.map((t) => t.schemaName ?? "")).size > 1;
+  const displayTable = (t: Table) =>
+    showSchema ? qualifiedTitle(t, tableHeading(t)) : tableHeading(t);
   const displayColumn = (c: Column) =>
     logical && c.logicalName ? c.logicalName : c.name;
   function pause(raw: string | null) {
@@ -396,7 +405,7 @@ function Editor({
     try {
       const doc = decodeDocument(await loadSample(index));
       createDiagram(
-        namedDocument(doc, samples[index].name),
+        namedDocument({ ...doc, title: `サンプル：${samples[index].name}` }),
         "サンプルを開きました",
       );
     } catch (error) {
@@ -552,7 +561,16 @@ function Editor({
       x: Math.round(view.current.x + 80),
       y: Math.round(view.current.y + 100),
       columns: [
-        { name: "id", type: "uuid", key: "PK", id: uid(), logicalName: "" },
+        {
+          name: "id",
+          type: dialectColumns[state.ddlDialect ?? "PostgreSQL"].primary,
+          ...(state.ddlDialect === "MySQL" && {
+            identity: "byDefault" as const,
+          }),
+          key: "PK",
+          id: uid(),
+          logicalName: "",
+        },
       ],
       keys: [],
       foreignKeys: [],
@@ -929,6 +947,16 @@ function Editor({
                   ))}
                 </select>
               </label>
+              <label className="ddl-dialect">
+                <input
+                  type="checkbox"
+                  checked={!!state.ddlAnnotations}
+                  onChange={(e) =>
+                    commit({ ...state, ddlAnnotations: e.target.checked })
+                  }
+                />
+                読み直し用の注釈を含める
+              </label>
               <button
                 disabled={!state.tables.length}
                 onClick={() => copySchema("DDL")}
@@ -965,6 +993,12 @@ function Editor({
               >
                 定義書を保存（CSV）
               </button>
+              <button
+                disabled={!state.tables.length}
+                onClick={() => csvFile.current?.click()}
+              >
+                CSV の論理名と説明を反映
+              </button>
               <hr />
               <button onClick={() => setSampleList(true)}>
                 サンプルを開く
@@ -979,6 +1013,33 @@ function Editor({
               自動保存停止中
             </span>
           )}
+          <input
+            type="file"
+            ref={csvFile}
+            aria-label="論理名と説明の CSV"
+            accept=".csv,text/csv"
+            hidden
+            onChange={async (e) => {
+              const file = e.currentTarget.files?.[0];
+              e.currentTarget.value = "";
+              if (!file) return;
+              try {
+                if (file.size > MAX_JSON_BYTES)
+                  throw new Error("ファイルの上限は16MBです。");
+                const text = await file.text();
+                if (mounted.current)
+                  replace(
+                    applyDefinitionCsv(
+                      text,
+                      projectDocument(currentDoc.current),
+                    ),
+                    "論理名と説明を反映しました。",
+                  );
+              } catch (error) {
+                if (mounted.current) setHint(messageOf(error));
+              }
+            }}
+          />
           <input
             ref={file}
             type="file"
@@ -1264,6 +1325,7 @@ function Editor({
         <div className="workspace">
           {showSidebar && (
             <Sidebar
+              logical={logical}
               state={committed}
               visible={visibleCommitted}
               searchRef={search}
@@ -1308,6 +1370,7 @@ function Editor({
             adjustingLine={adjustingLine}
             onAdjustable={setAdjustable}
             pending={pending}
+            showSchema={showSchema}
             tableHeading={tableHeading}
             displayTable={displayTable}
             displayColumn={displayColumn}
@@ -1317,7 +1380,9 @@ function Editor({
               const table = structuredClone(original);
               const field = logical ? "logicalName" : "name";
               if (target.kind === "add") {
-                const column = createColumn(table.columns);
+                const column = createColumn(table.columns, state.ddlDialect);
+                if (!logical)
+                  column.type = newColumnType(state, table.id, value);
                 column[field] = value;
                 table.columns.push(column);
               } else if (target.kind === "column") {

@@ -43,6 +43,7 @@ function foreignKeyLabel(
 }
 
 export function Sidebar({
+  logical,
   state,
   visible,
   searchRef,
@@ -53,6 +54,7 @@ export function Sidebar({
   onAdd,
   ...names
 }: Names & {
+  logical: boolean;
   state: Diagram;
   visible: Diagram;
   searchRef: RefObject<HTMLInputElement | null>;
@@ -147,6 +149,16 @@ export function Sidebar({
           <Icon name="plus" size={14} />
         </button>
       </div>
+      {logical && (
+        <p className="missing-count">
+          論理名が未入力のカラム{" "}
+          {state.tables.reduce(
+            (sum, t) => sum + t.columns.filter((c) => !c.logicalName).length,
+            0,
+          )}{" "}
+          件
+        </p>
+      )}
       <ul className="sidebar-list">
         {tables.map(({ table: t, detail, columnIds }) => (
           <li key={t.id}>

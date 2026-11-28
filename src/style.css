@@ -2901,7 +2901,7 @@ dialog::backdrop {
 @media (min-width: 761px) {
   #table-editor {
     --column-grid: 20px minmax(76px, 1fr) minmax(76px, 1fr) minmax(95px, 0.85fr)
-      32px 30px 28px minmax(76px, 1fr) 70px;
+      40px 30px 28px minmax(76px, 1fr) 70px;
   }
 }
 @media (max-width: 760px) {
@@ -3061,4 +3061,26 @@ dialog::backdrop {
 .canvas-sources a {
   color: var(--accent);
   text-underline-offset: 2px;
+}
+
+.column-name.missing-name {
+  fill: var(--muted);
+  font-style: italic;
+}
+.missing-count {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0 12px 8px;
+}
+#table-editor .column-labels {
+  white-space: nowrap;
+}
+.ddl-destination small {
+  color: var(--muted);
+  flex-basis: 100%;
+}
+
+.candidate .type-change {
+  display: block;
+  color: var(--muted);
 }
