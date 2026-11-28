@@ -1,7 +1,9 @@
+import { ddlType, readDetails } from "./ddl-dialect.ts";
+import { serialBase } from "./column-attributes.ts";
 import { expression, SqlError, statements, Tokens } from "./ddl-tokens.ts";
 import { layoutImportedTables } from "./import-layout.ts";
 import { MAX_COLUMNS, MAX_TABLES, MAX_CONNECTIONS, uid } from "./model.ts";
-import { referenceActions } from "./types.ts";
+import { ddlDialects, referenceActions } from "./types.ts";
 import type { Diagram, ForeignKey, KeyDefinition, Table } from "./types.ts";
 
 type Name = string[];
@@ -177,10 +179,38 @@ function parseColumn(tokens: Tokens, sql: string, issues: DdlIssue[]) {
     if (!(error instanceof SqlError)) throw error;
     issues.push({ line: error.line, message: `${name}：${error.message}` });
   }
+  const details = readDetails(tokens.items.at(-1)?.details);
+  // If the native type has since been edited, keep the SQL declaration.
+  if (
+    details.type &&
+    ddlDialects.some(
+      (dialect) =>
+        ddlType(details.type!, dialect, true).toLowerCase() ===
+        type.toLowerCase(),
+    )
+  ) {
+    column.type = details.type;
+    if (serialBase(column.type)) delete column.identity;
+  }
+  if (column.identity) {
+    if (details.identity) column.identity = details.identity;
+    if (details.identityOptions)
+      column.identityOptions = details.identityOptions;
+  }
+  if (details.note !== undefined) column.note = details.note;
   return { column, keys };
 }
 
 function parseOptions(tokens: Tokens, table: Table) {
+  if (tokens.keyword === "STRICT" || tokens.keyword === "WITHOUT") {
+    do {
+      if (!tokens.eat("STRICT")) {
+        tokens.need("WITHOUT");
+        tokens.need("ROWID");
+      }
+    } while (tokens.eat(","));
+    return tokens.end();
+  }
   while (tokens.current) {
     if (tokens.eat("COMMENT")) {
       tokens.eat("=");
@@ -203,6 +233,7 @@ function parseOptions(tokens: Tokens, table: Table) {
       if (!tokens.current) tokens.fail("テーブルオプションの値がありません。");
       tokens.index++;
     }
+    tokens.eat(",");
   }
 }
 
@@ -275,6 +306,8 @@ export function importDDL(
       if (!t.eat(",")) break;
     }
     t.need(")");
+    const { note } = readDetails(t.items[t.index - 1].details);
+    if (note !== undefined) table.note = note;
     if (!table.columns.length)
       t.fail(`${name} に読み込めるカラムがありません。`);
     attempt(t.line, () => parseOptions(t, table));
@@ -293,7 +326,8 @@ export function importDDL(
         } else {
           const unique = t.eat("UNIQUE");
           t.need("INDEX");
-          const name = t.name();
+          const index = t.qualifiedName();
+          const name = index.at(-1)!;
           t.need("ON");
           const table = t.qualifiedName(),
             columns = t.names();
@@ -301,7 +335,10 @@ export function importDDL(
           changes.push({
             kind: unique ? "unique" : "index",
             name,
-            table,
+            table:
+              index.length === 2 && table.length === 1
+                ? [index[0], ...table]
+                : table,
             columns,
             line,
           });

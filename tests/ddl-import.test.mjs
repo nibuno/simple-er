@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
+import { ddlDialects } from "../src/types.ts";
+import { initialDocument } from "../src/initial.ts";
 import { importDDL } from "../src/ddl-import.ts";
 import { diagramDDL } from "../src/ddl.ts";
 import { decode, encode } from "../src/model.ts";
@@ -47,24 +50,40 @@ test("column modifiers retain a primary key after IDENTITY and the default befor
 });
 
 test("every bundled diagram round-trips the DDL written by SimpleER", async () => {
-  for (const file of [
-    "composite-keys",
-    "live-streams",
-    "event-reservations",
-    "layout-branches",
-  ]) {
-    const original = decode(
-      await readFile(
-        new URL(`../examples/${file}.json`, import.meta.url),
-        "utf8",
-      ),
-    );
-    const ddl = diagramDDL(original);
-    const { diagram, issues } = importDDL(ddl);
-    assert.deepEqual(issues, [], file);
-    assert.equal(diagramDDL(diagram), ddl, file);
-    assert.equal(diagram.edges.length, original.edges.length);
-    assert.ok(diagram.tables.every((t) => !overlaps(t, diagram.tables)));
+  const directory = new URL("../examples/", import.meta.url);
+  const files = (await readdir(directory)).filter((file) =>
+    file.endsWith(".json"),
+  );
+  const samples = [["初期の図", decode(JSON.stringify(initialDocument))]];
+  for (const file of files)
+    samples.push([
+      file,
+      decode(await readFile(new URL(file, directory), "utf8")),
+    ]);
+  for (const [file, original] of samples) {
+    for (const dialect of ddlDialects) {
+      const ddl = diagramDDL(original, dialect);
+      const { diagram, issues } = importDDL(ddl);
+      const label = file + " / " + dialect;
+      assert.deepEqual(issues, [], label);
+      assert.equal(diagramDDL(diagram, dialect), ddl, label);
+      // Compare to the original schema in one spelling, including notes and keys.
+      assert.equal(diagramDDL(diagram), diagramDDL(original), label);
+      assert.equal(diagram.edges.length, original.edges.length, label);
+      assert.ok(
+        diagram.tables.every((t) => !overlaps(t, diagram.tables)),
+        label,
+      );
+      if (dialect === "SQLite") {
+        const db = new DatabaseSync(":memory:");
+        try {
+          db.exec(ddl);
+          assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+        } finally {
+          db.close();
+        }
+      }
+    }
   }
 });
 
@@ -258,4 +277,97 @@ test("inline foreign key actions preserve all explicit options and leave omitted
     assert.equal(fk.onUpdate, action);
     assert.equal(fk.onDelete, undefined);
   }
+});
+
+test("native MySQL and SQLite options, comments and generation are readable", () => {
+  const sql =
+    "CREATE TABLE `a``b` (`key` INT NOT NULL AUTO_INCREMENT, name VARCHAR(40) COMMENT '姓', PRIMARY KEY (`key`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 AUTO_INCREMENT=7 COMMENT '会員';";
+  const mysql = importDDL(sql);
+  assert.deepEqual(mysql.issues, []);
+  const [people] = mysql.diagram.tables;
+  assert.equal(people.name, "a`b");
+  assert.equal(people.columns[0].identity, "byDefault");
+  assert.equal(people.columns[1].note, "姓");
+  assert.equal(people.note, "会員");
+  const sqlite = importDDL(
+    'CREATE TABLE "a""b" (id INTEGER PRIMARY KEY AUTOINCREMENT) STRICT; CREATE TABLE labels(name TEXT PRIMARY KEY) WITHOUT ROWID, STRICT;',
+  );
+  assert.deepEqual(sqlite.issues, []);
+  assert.equal(sqlite.diagram.tables[0].name, 'a"b');
+  assert.equal(sqlite.diagram.tables[0].columns[0].identity, "byDefault");
+  assert.equal(sqlite.diagram.tables[1].columns[0].key, "PK");
+});
+
+test("generated keys, cyclic references, actions and multiline comments survive conversion", () => {
+  const sql = `CREATE TABLE child (id bigserial CONSTRAINT child_pk PRIMARY KEY, p int REFERENCES parent(id) ON DELETE SET NULL ON UPDATE CASCADE);
+    CREATE TABLE parent (id int GENERATED ALWAYS AS IDENTITY (START WITH 3) PRIMARY KEY, c bigint REFERENCES child(id), tag varchar(32) DEFAULT 'a\\b''c');
+    COMMENT ON COLUMN parent.tag IS '/* 説明 */; \\foo
+    ''引用''';
+    COMMENT ON TABLE parent IS '/*親*/';`;
+  const { diagram, issues } = importDDL(sql);
+  assert.deepEqual(issues, []);
+  for (const dialect of ddlDialects) {
+    const ddl = diagramDDL(diagram, dialect);
+    const roundtrip = importDDL(ddl);
+    assert.deepEqual(roundtrip.issues, []);
+    assert.equal(diagramDDL(roundtrip.diagram), diagramDDL(diagram));
+    if (dialect === "MySQL") {
+      assert.match(ddl, /AUTO_INCREMENT/);
+      assert.match(ddl, /ALTER TABLE .* ON DELETE SET NULL ON UPDATE CASCADE/);
+    }
+    if (dialect === "SQLite") {
+      assert.match(
+        ddl,
+        /INTEGER CONSTRAINT "child_pk" PRIMARY KEY AUTOINCREMENT/,
+      );
+      assert.doesNotMatch(ddl, /ALTER TABLE/);
+      const db = new DatabaseSync(":memory:");
+      try {
+        db.exec(ddl);
+        db.exec(
+          "INSERT INTO parent DEFAULT VALUES; INSERT INTO child(p) VALUES(1); UPDATE parent SET id=2; DELETE FROM parent;",
+        );
+        assert.deepEqual(
+          { ...db.prepare("SELECT id,p FROM child").get() },
+          { id: 1, p: null },
+        );
+      } finally {
+        db.close();
+      }
+    }
+  }
+});
+
+test("export identifies unrepresentable keys and referential actions", () => {
+  const { diagram } = importDDL(
+    "CREATE TABLE t (tenant int, id serial, PRIMARY KEY (tenant,id));",
+  );
+  assert.throws(() => diagramDDL(diagram, "SQLite"), /単独の主キー/);
+  assert.throws(() => diagramDDL(diagram, "MySQL"), /キーの先頭/);
+  const actions = importDDL(
+    "CREATE TABLE t (id int PRIMARY KEY, parent int REFERENCES t ON DELETE SET DEFAULT);",
+  );
+  assert.throws(() => diagramDDL(actions.diagram, "MySQL"), /SET DEFAULT/);
+  assert.match(diagramDDL(actions.diagram, "SQLite"), /ON DELETE SET DEFAULT/);
+});
+
+test("native MySQL integer ranges and binary and date types translate to PostgreSQL", () => {
+  const source =
+    "CREATE TABLE flags (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, n bigint unsigned, flag tinyint(1), created datetime(3), data blob);";
+  const { diagram } = importDDL(source);
+  const sql = diagramDDL(diagram);
+  for (const fragment of [
+    "bigint GENERATED BY DEFAULT AS IDENTITY",
+    "numeric(20)",
+    "boolean",
+    "timestamp(3)",
+    "bytea",
+  ])
+    assert.ok(sql.includes(fragment));
+  const restored = importDDL(sql);
+  assert.deepEqual(restored.issues, []);
+  assert.deepEqual(
+    restored.diagram.tables[0].columns.map((c) => c.type),
+    diagram.tables[0].columns.map((c) => c.type),
+  );
 });

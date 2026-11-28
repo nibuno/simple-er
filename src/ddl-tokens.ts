@@ -1,9 +1,12 @@
+import { detailsPrefix } from "./ddl-dialect.ts";
+
 // Keep source positions so types and default expressions retain their SQL spelling.
 export interface Token {
   raw: string;
   line: number;
   offset: number;
   mysqlString?: string;
+  details?: string;
 }
 
 export function* statements(sql: string): Generator<Token[]> {
@@ -36,6 +39,12 @@ export function* statements(sql: string): Generator<Token[]> {
       if (statement.length) yield statement;
       statement = [];
       mysql = false;
+    } else if (
+      previous &&
+      raw.startsWith(detailsPrefix) &&
+      raw.endsWith("*/")
+    ) {
+      previous.details = raw;
     } else if (
       !/^(?:\s|--|#(?![>#])|\/\*)/u.test(raw) ||
       (raw.startsWith("/*") && !raw.endsWith("*/"))

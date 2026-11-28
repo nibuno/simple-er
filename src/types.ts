@@ -1,3 +1,5 @@
+export const ddlDialects = ["PostgreSQL", "MySQL", "SQLite"] as const;
+export type DdlDialect = (typeof ddlDialects)[number];
 export type Key = "" | "PK" | "FK" | "PK,FK";
 /** Schema data: no key badges, row numbers or coordinates. */
 export interface Column {
@@ -43,6 +45,7 @@ export interface Presentation {
 }
 /** The authoritative runtime state and version 3 file contract. */
 export interface DiagramDocument {
+  ddlDialect?: DdlDialect;
   format: "er-sketch";
   version: 3;
   title?: string;
@@ -85,6 +88,7 @@ export interface Edge {
 }
 /** Derived editing/rendering projection; never the history or storage source of truth. */
 export interface Diagram {
+  ddlDialect?: DdlDialect;
   schemaVersion?: 2;
   title?: string;
   unresolvedEdges?: Edge[];

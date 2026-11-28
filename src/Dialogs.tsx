@@ -267,6 +267,13 @@ export function TableEditor({
       : null;
   });
   const [detailId, setDetailId] = useState<string | null>(null);
+  function ddlPreview() {
+    try {
+      return tableDDL(draft, state);
+    } catch (error) {
+      return messageOf(error);
+    }
+  }
   const impacts = referenceImpacts(state, draft);
   const removedForeignKeys = (initial.foreignKeys ?? []).filter(
     (f) => !draft.foreignKeys?.some((next) => next.id === f.id),
@@ -891,9 +898,9 @@ export function TableEditor({
               )}
               <details className="ddl-section">
                 <summary>
-                  DDL プレビュー <span>PostgreSQL</span>
+                  DDL プレビュー <span>{state.ddlDialect ?? "PostgreSQL"}</span>
                 </summary>
-                <pre className="ddl">{tableDDL(draft, state)}</pre>
+                <pre className="ddl">{ddlPreview()}</pre>
               </details>
             </div>
           </div>

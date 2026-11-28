@@ -797,6 +797,21 @@ test("file menu copies and saves the same DDL and Mermaid text and disables expo
   await click(byText("全テーブルの DDL を保存"));
   assert.equal(await blob.text(), copied);
   assert.equal(filename, "注文_管理.sql");
+  for (const [dialect, marker] of [
+    ["MySQL", "ENGINE=InnoDB"],
+    ["SQLite", '"id"'],
+  ]) {
+    await act(() => {
+      const select = document.querySelector(".ddl-dialect select");
+      select.value = dialect;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    assert.equal(saved().ddlDialect, dialect);
+    await click(byText("全テーブルの DDL をコピー"));
+    assert.ok(copied.includes(marker));
+    await click(byText("全テーブルの DDL を保存"));
+    assert.equal(await blob.text(), copied);
+  }
   await click(byText("Mermaid をコピー"));
   assert.match(copied, /^erDiagram\n/);
   await click(byText("Mermaid を保存"));
