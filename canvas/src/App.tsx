@@ -40,6 +40,14 @@ import { Canvas } from "./Canvas";
 import { DiagramList } from "../../shared/DiagramList.tsx";
 import { TextField } from "../../shared/TextField.tsx";
 import { MemoList } from "./MemoList";
+import { VariantComparison, type VariantPair } from "./VariantComparison";
+import {
+  groupVariants,
+  isChoiceKey,
+  createVariant,
+  chooseVariant,
+  clearVariantChoice,
+} from "./variants";
 import {
   checkDiagram,
   DiagramChanged,
@@ -142,6 +150,7 @@ function Editor({
     [status, setStatus] = useState(message),
     [error, setError] = useState(initial.error ?? "");
   const [listOpen, setListOpen] = useState<"diagrams" | "memos" | null>(null);
+  const [comparison, setComparison] = useState<VariantPair | null>(null);
   const [moreShapes, setMoreShapes] = useState(false);
   useEffect(() => {
     if (!moreShapes) return;
@@ -624,6 +633,23 @@ function Editor({
     saveBeforeSwitch();
     onOpen(writeDiagram(newDiagramKey(), decode(encode(doc)), null), message);
   }
+  function makeVariant(source?: DiagramEntry) {
+    saveBeforeSwitch();
+    const groups = groupVariants(library.listDiagrams());
+    const sourceKey = source?.key ?? initial.key;
+    const group = groups.find((g) => g.some((e) => e.key === sourceKey));
+    const entry = group?.find((e) => e.key === sourceKey);
+    if (!group || !entry)
+      throw new Error("元の図を保存してから案を作ってください。");
+    if (source && source.key !== initial.key)
+      checkDiagram(source.key, source.raw);
+    if (sourceKey === initial.key && pausedRef.current)
+      throw new Error("自動保存を再開してから案を作ってください。");
+    const names = new Set(group.map((e) => e.title));
+    let number = 1;
+    while (names.has("案" + number)) number++;
+    onOpen(createVariant(entry, "案" + number), "案を作りました");
+  }
   function newCanvas() {
     createDiagram(emptyDocument(), "新しいキャンバスを作成しました");
   }
@@ -663,6 +689,7 @@ function Editor({
   }
   function deleteDiagram(entry: DiagramEntry) {
     const next = library.deleteDiagram(entry, initial.key);
+    clearVariantChoice(entry.key);
     if (next) onOpen(next, "図を削除しました");
     else {
       if (!pausedRef.current) setError("");
@@ -1007,6 +1034,12 @@ function Editor({
             </summary>
             <div className="file-popover">
               <button onClick={showList}>図の一覧</button>
+              <button
+                disabled={paused}
+                onClick={() => runMenu(() => makeVariant())}
+              >
+                案を作る
+              </button>
               <button
                 aria-expanded={listOpen === "memos"}
                 onClick={() => {
@@ -1368,10 +1401,33 @@ function Editor({
           }}
         />
       )}
-      {listOpen === "diagrams" && (
+      {comparison && (
+        <VariantComparison
+          pair={comparison}
+          onClose={() => setComparison(null)}
+          onChoose={(primary, selected, other) => {
+            saveBeforeSwitch();
+            checkDiagram(other.key, other.raw);
+            onOpen(chooseVariant(primary, selected), "元の図にしました");
+          }}
+        />
+      )}
+      {listOpen === "diagrams" && !comparison && (
         <DiagramList
           library={library}
           Icon={Icon}
+          variants={{
+            group: groupVariants,
+            isChoiceKey,
+            create: makeVariant,
+            compare: (group, entry) => {
+              const current = group
+                .slice(1)
+                .find((item) => item.key === initial.key);
+              const right = entry === group[0] ? (current ?? group[1]) : entry;
+              setComparison({ group, rightKey: right.key });
+            },
+          }}
           emptyName="空のキャンバス"
           activeKey={initial.key}
           paused={

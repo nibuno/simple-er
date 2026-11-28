@@ -1,4 +1,4 @@
-import type { CanvasDocument, CanvasNode } from "./types";
+import type { CanvasDocument, CanvasEdge, CanvasNode } from "./types";
 import { memoStatusLabels } from "./types";
 import { expandedIds, noteContent, wrapText } from "./model";
 import { sceneRoutes, sceneBounds, type SceneRoutes } from "./geometry";
@@ -47,11 +47,26 @@ function textBlock(
     )
     .join("");
 }
+export function svgFrame(doc: CanvasDocument, routes: SceneRoutes) {
+  const b = sceneBounds(doc, routes.routes, routes.memos);
+  const pad = 48;
+  return {
+    x: b.x - pad,
+    y: b.y - pad,
+    w: Math.ceil(b.w + pad * 2),
+    h: Math.ceil(b.h + pad * 2),
+  };
+}
+
 export function toSvg(
   doc: CanvasDocument,
   selection: string[] = [],
   computed = sceneRoutes(doc),
   wrapNode?: (node: CanvasNode, svg: string) => string,
+  options?: {
+    transparent?: boolean;
+    wrapEdge?: (edge: CanvasEdge, svg: string, path: string) => string;
+  },
 ) {
   const routes = selection.length ? new Map(computed.routes) : computed.routes,
     memos = selection.length ? new Map(computed.memos) : computed.memos;
@@ -71,10 +86,12 @@ export function toSvg(
       if (!ids.has(note.id) || !note.attachedTo || !ids.has(note.attachedTo))
         memos.delete(note.id);
   }
-  const b = sceneBounds({ ...doc, nodes, edges }, routes, memos),
-    pad = 48;
-  const width = Math.ceil(b.w + pad * 2),
-    height = Math.ceil(b.h + pad * 2);
+  const {
+    x,
+    y,
+    w: width,
+    h: height,
+  } = svgFrame({ ...doc, nodes, edges }, { routes, memos });
   const nodeSvg = (n: CanvasNode) => {
     const colors = nodeAppearance(n, doc);
     if (n.kind === "group")
@@ -191,9 +208,13 @@ export function toSvg(
       )
     );
   };
+  const renderNode = (node: CanvasNode) => {
+    const svg = nodeSvg(node);
+    return wrapNode ? wrapNode(node, svg) : svg;
+  };
   const frames = nodes
     .filter((n) => n.kind === "group")
-    .map(nodeSvg)
+    .map(renderNode)
     .join("");
   const memoLinks = [...memos.values()]
     .map(
@@ -217,7 +238,7 @@ export function toSvg(
             "</text>",
         )
         .join("");
-      return (
+      const svg =
         '<path d="' +
         r.path +
         `" fill="none" stroke="${color}" stroke-width="1.7"` +
@@ -225,16 +246,13 @@ export function toSvg(
         (e.arrowheads !== "none" ? ` marker-end="url(#arrow-${i})"` : "") +
         (e.dashed ? ' stroke-dasharray="7 5"' : "") +
         "/>" +
-        label
-      );
+        label;
+      return options?.wrapEdge ? options.wrapEdge(e, svg, r.path) : svg;
     })
     .join("");
   const content = nodes
     .filter((n) => n.kind !== "group")
-    .map((node) => {
-      const svg = nodeSvg(node);
-      return wrapNode ? wrapNode(node, svg) : svg;
-    })
+    .map(renderNode)
     .join("");
   const markers = edges
     .map(
@@ -248,9 +266,9 @@ export function toSvg(
     '" height="' +
     height +
     '" viewBox="' +
-    (b.x - pad) +
+    x +
     " " +
-    (b.y - pad) +
+    y +
     " " +
     width +
     " " +
@@ -260,14 +278,14 @@ export function toSvg(
     "</title><defs>" +
     markers +
     '</defs><rect x="' +
-    (b.x - pad) +
+    x +
     '" y="' +
-    (b.y - pad) +
+    y +
     '" width="' +
     width +
     '" height="' +
     height +
-    '" fill="#f8faf9"/><g font-family="system-ui,-apple-system,BlinkMacSystemFont,Noto Sans JP,sans-serif">' +
+    `" fill="${options?.transparent ? "none" : "#f8faf9"}"/><g font-family="system-ui,-apple-system,BlinkMacSystemFont,Noto Sans JP,sans-serif">` +
     frames +
     memoLinks +
     wires +

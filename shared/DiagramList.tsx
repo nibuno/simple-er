@@ -12,6 +12,12 @@ interface Props {
     isDiagramKey: (key: string | null) => boolean;
   };
   Icon: ComponentType<{ name: "plus" | "close" }>;
+  variants?: {
+    group: (entries: DiagramEntry[]) => DiagramEntry[][];
+    isChoiceKey: (key: string | null) => boolean;
+    create: (entry: DiagramEntry) => void;
+    compare: (group: DiagramEntry[], entry: DiagramEntry) => void;
+  };
   emptyName: string;
   activeKey: string;
   paused?: {
@@ -30,7 +36,7 @@ interface Props {
 export function DiagramList(props: Props) {
   const { library, Icon, paused } = props;
   const dialog = useRef<HTMLDialogElement>(null);
-  const [entries, setEntries] = useState<DiagramEntry[]>([]);
+  const [groups, setGroups] = useState<DiagramEntry[][]>([]);
   const [action, setAction] = useState<{
     entry: DiagramEntry;
     kind: "menu" | "rename" | "delete";
@@ -39,7 +45,10 @@ export function DiagramList(props: Props) {
   const [error, setError] = useState("");
   function refresh() {
     try {
-      setEntries(library.listDiagrams());
+      const entries = library.listDiagrams();
+      setGroups(
+        props.variants?.group(entries) ?? entries.map((entry) => [entry]),
+      );
     } catch {
       setError("ブラウザの保存データを読み込めませんでした。");
     }
@@ -48,7 +57,12 @@ export function DiagramList(props: Props) {
     dialog.current?.showModal();
     refresh();
     const changed = (e: StorageEvent) => {
-      if (e.key === null || library.isDiagramKey(e.key)) refresh();
+      if (
+        e.key === null ||
+        library.isDiagramKey(e.key) ||
+        props.variants?.isChoiceKey(e.key)
+      )
+        refresh();
     };
     window.addEventListener("storage", changed);
     return () => window.removeEventListener("storage", changed);
@@ -63,6 +77,9 @@ export function DiagramList(props: Props) {
     }
     refresh();
   }
+  const rows = groups.flatMap((group) =>
+    group.map((entry, index) => ({ entry, group, index })),
+  );
   return (
     <dialog
       className="help-dialog diagram-list"
@@ -109,13 +126,16 @@ export function DiagramList(props: Props) {
         </p>
       )}
       <ul>
-        {entries.map((entry) => {
+        {rows.map(({ group, entry, index }) => {
           const active = entry.key === props.activeKey;
           const pausedEntry = active && !!paused;
           const selected =
             !pausedEntry && action?.entry.key === entry.key ? action : null;
           return (
-            <li key={entry.key}>
+            <li
+              key={entry.key}
+              className={index > 0 ? "variant-row" : undefined}
+            >
               <div className="diagram-row">
                 <button
                   className="diagram-link"
@@ -127,6 +147,7 @@ export function DiagramList(props: Props) {
                 >
                   <strong>{entry.title}</strong>
                   <span id={"updated-" + entry.key}>
+                    {group.length > 1 && (index === 0 ? "元の図 · " : "案 · ")}
                     {entry.updatedAt === null ? (
                       "更新日時不明"
                     ) : (
@@ -139,6 +160,16 @@ export function DiagramList(props: Props) {
                     )}
                   </span>
                 </button>
+                {props.variants && group.length > 1 && index === 0 && (
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      run(() => props.variants!.compare(group, entry))
+                    }
+                  >
+                    案を比べる
+                  </button>
+                )}
                 <button
                   className="row-toggle"
                   disabled={pausedEntry}
@@ -154,6 +185,22 @@ export function DiagramList(props: Props) {
               </div>
               {selected?.kind === "menu" && (
                 <div className="row-actions">
+                  {props.variants && (
+                    <button
+                      onClick={() => run(() => props.variants!.create(entry))}
+                    >
+                      案を作る
+                    </button>
+                  )}
+                  {props.variants && index > 0 && (
+                    <button
+                      onClick={() =>
+                        run(() => props.variants!.compare(group, entry))
+                      }
+                    >
+                      案を比べる
+                    </button>
+                  )}
                   <button onClick={() => run(() => props.onDuplicate(entry))}>
                     複製
                   </button>
@@ -203,7 +250,7 @@ export function DiagramList(props: Props) {
                 <div className="row-actions">
                   <p>
                     「{selected.entry.title}」を削除しますか？
-                    {entries.length === 1 &&
+                    {rows.length === 1 &&
                       ` 削除すると${props.emptyName}が開きます。`}
                   </p>
                   <button autoFocus onClick={() => setAction(null)}>
@@ -221,7 +268,7 @@ export function DiagramList(props: Props) {
           );
         })}
       </ul>
-      {!entries.length && !error && <p>保存した図はありません。</p>}
+      {!groups.length && !error && <p>保存した図はありません。</p>}
     </dialog>
   );
 }
