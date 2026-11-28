@@ -1,3 +1,4 @@
+import { useTouchNavigation } from "../../shared/useTouchNavigation.ts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./Icons";
 import { toSvg, svgFrame } from "./export";
@@ -114,6 +115,27 @@ function Drawing({
     scale: number;
     start: Point;
   } | null>(null);
+  const panes = useRef<HTMLDivElement>(null);
+  useTouchNavigation(panes, null, (start) => {
+    drag.current = null;
+    const rect = panes.current!.getBoundingClientRect();
+    const pane = panes.current!.children[
+      start.x < rect.width / 2 ? 0 : 1
+    ] as SVGSVGElement;
+    const bounds = pane.getBoundingClientRect();
+    const cx = bounds.left + bounds.width / 2 - rect.left;
+    const cy = bounds.top + bounds.height / 2 - rect.top;
+    const scale = pane.getScreenCTM()?.a || 1;
+    return (center, factor) => {
+      const zoom = Math.max(0.25, Math.min(32, camera.zoom * factor));
+      const nextScale = (scale * zoom) / camera.zoom;
+      setCamera({
+        x: camera.x + (start.x - cx) / scale - (center.x - cx) / nextScale,
+        y: camera.y + (start.y - cy) / scale - (center.y - cy) / nextScale,
+        zoom,
+      });
+    };
+  });
   const changes = useMemo(() => compareDiagrams(left, right), [left, right]);
   const rows = useMemo(
     () => differences(left, right, changes),
@@ -151,7 +173,7 @@ function Drawing({
   }
   return (
     <>
-      <div className="variant-panes">
+      <div className="variant-panes" ref={panes}>
         {scenes.map(({ doc, frame: f }, i) => (
           <svg
             key={i}

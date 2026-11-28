@@ -1,3 +1,4 @@
+import { useTouchNavigation } from "../../shared/useTouchNavigation.ts";
 import { isImeKey } from "../../shared/ime.ts";
 import {
   forwardRef,
@@ -89,6 +90,7 @@ type Drag =
       moved: boolean;
       editField?: ShapeTextField;
     }
+  | { kind: "connect-tap"; pointer: number; id: string }
   | { kind: "pan"; pointer: number; start: Point; view: View }
   | { kind: "marquee"; pointer: number; start: Point; add: string[] }
   | {
@@ -454,6 +456,22 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       previous.focused = next;
     setView(next);
   }, [p.editing, editedSize, view.zoom]);
+  useTouchNavigation(
+    stage,
+    "input,textarea,select,.canvas-controls,.selection-anchor",
+    (start) => {
+      cancel();
+      const initial = viewRef.current;
+      return (center, scale) => {
+        const zoom = Math.max(0.05, Math.min(3, initial.zoom * scale));
+        setView({
+          zoom,
+          x: center.x - ((start.x - initial.x) * zoom) / initial.zoom,
+          y: center.y - ((start.y - initial.y) * zoom) / initial.zoom,
+        });
+      };
+    },
+  );
   function zoomTo(zoom: number, cx?: number, cy?: number) {
     if (!stage.current) return;
     const old = viewRef.current,
@@ -589,7 +607,15 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     }
     if (!resize && (p.tool === "connect" || p.pending)) {
       e.preventDefault();
-      p.onConnect(node.id);
+      // On touch the second finger may still turn this press into a pinch.
+      if (e.pointerType === "touch") {
+        drag.current = {
+          kind: "connect-tap",
+          pointer: e.pointerId,
+          id: node.id,
+        };
+        capture(e);
+      } else p.onConnect(node.id);
       return;
     }
     if (p.editing === node.id) return;
@@ -668,6 +694,11 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
     const d = drag.current;
     if (!d || d.pointer !== e.pointerId) return;
     drag.current = null;
+    if (d.kind === "connect-tap") {
+      const hit = document.elementFromPoint(e.clientX, e.clientY);
+      if (hit?.closest<HTMLElement>("[data-node-id]")?.dataset.nodeId === d.id)
+        latest.current.onConnect(d.id);
+    }
     if ((d.kind === "move" || d.kind === "resize") && d.moved)
       latest.current.onCommit(latest.current.doc, d.before);
     if (d.kind === "move" && !d.moved && d.editField) {
@@ -718,6 +749,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   function move(e: ReactPointerEvent) {
     const d = drag.current;
     if (!d || d.pointer !== e.pointerId) return;
+    if (d.kind === "connect-tap") return;
     const point = toWorld(e.clientX, e.clientY);
     if (d.kind === "pan") {
       setView({
@@ -1120,7 +1152,13 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         // While placing, the press does nothing; the click that follows
         // puts the figure down. Placing on the press would lose the new
         // text editor's focus to the browser's own focus handling.
-        if (p.tool === "place" && e.button === 0 && !space.current) return;
+        if (
+          p.tool === "place" &&
+          e.pointerType !== "touch" &&
+          e.button === 0 &&
+          !space.current
+        )
+          return;
         if (
           (e.target as Element).closest(
             ".canvas-node,.edge-control,.canvas-controls,.selection-anchor",
@@ -1128,6 +1166,11 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         )
           return;
         if (e.button === 1 || space.current || p.tool === "pan") {
+          startPan(e);
+          return;
+        }
+        if (e.pointerType === "touch") {
+          if (p.tool === "select") p.onSelect([]);
           startPan(e);
           return;
         }
@@ -1165,8 +1208,12 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       }}
       onPointerUp={end}
       onPointerCancel={cancel}
-      onLostPointerCapture={() => {
-        if (drag.current) cancel();
+      onLostPointerCapture={(e) => {
+        if (
+          drag.current?.pointer === e.pointerId &&
+          !stage.current?.hasPointerCapture(e.pointerId)
+        )
+          cancel();
       }}
       onDoubleClick={(e) => {
         if (
