@@ -735,7 +735,7 @@ test("経路の折れ点とラベルが従来の配置と一致する", () => {
   ]);
 });
 
-test("ドラッグ中は無関係な経路を再利用し、一緒に動く両端とメモは同じ距離だけ移動する", () => {
+test("ドラッグ中は無関係な経路を再利用し、全体を動かすと線とメモも同じ距離だけ移動する", () => {
   const doc = growNodes(sampleDocument()),
     base = sceneRoutes(doc),
     moved = moveNodes(doc, ["queue", "worker"], 48, 24),
@@ -745,9 +745,16 @@ test("ドラッグ中は無関係な経路を再利用し、一緒に動く両�
     preview.routes.get("edge-2").points,
     base.routes.get("edge-2").points,
   );
+  const all = moveNodes(
+      doc,
+      doc.nodes.map((n) => n.id),
+      48,
+      24,
+    ),
+    translated = previewRoutes(all, doc, base);
   for (const [before, after] of [
-    [base.routes.get("edge-3"), preview.routes.get("edge-3")],
-    [base.memos.get("worker-note"), preview.memos.get("worker-note")],
+    [base.routes.get("edge-3"), translated.routes.get("edge-3")],
+    [base.memos.get("worker-note"), translated.memos.get("worker-note")],
   ]) {
     const translate = (p) => ({ x: p.x + 48, y: p.y + 24 });
     assert.deepEqual(after.points, before.points.map(translate));
@@ -757,4 +764,18 @@ test("ドラッグ中は無関係な経路を再利用し、一緒に動く両�
   assert.equal(toSvg(doc, ["edge-1"], base), toSvg(doc, ["edge-1"]));
   assert.equal(toSvg(doc, [], base), toSvg(doc));
   assert.deepEqual(base, cacheBefore);
+});
+
+test("両端をまとめて動かすと、動いていない図形をドラッグ中も迂回する", () => {
+  const doc = place(graph([["a"], ["b"], ["block"]], [["a", "b"]]), [
+    ["a", 0, 0],
+    ["b", 700, 0],
+    ["block", 340, 200],
+  ]);
+  const next = moveNodes(doc, ["a", "b"], 0, 200),
+    preview = previewRoutes(next, doc, sceneRoutes(doc));
+  assert.deepEqual(
+    preview.routes.get("link-0").points,
+    checkRoutes(next).get("link-0").points,
+  );
 });

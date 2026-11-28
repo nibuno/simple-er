@@ -331,30 +331,22 @@ export interface SceneRoutes {
 
 interface Preview {
   base: SceneRoutes;
-  // No entry means unchanged. null means resized or newly added.
-  changes: Map<string, Point | null>;
+  changed: Set<string>;
 }
 
-function previewRoute(
-  route: Route | undefined,
-  preview: Preview,
-  from: string,
-  to: string,
-) {
-  if (!route) return;
-  const a = preview.changes.get(from),
-    b = preview.changes.get(to);
-  if (a === undefined && b === undefined) return route;
-  if (a && b && a.x === b.x && a.y === b.y) {
-    const translate = (p: Point) => ({ x: p.x + a.x, y: p.y + a.y });
-    const points = route.points.map(translate);
-    return {
-      ...route,
+function translatedRoutes(routes: Map<string, Route>, dx: number, dy: number) {
+  const translate = (p: Point) => ({ x: p.x + dx, y: p.y + dy });
+  const moved = new Map<string, Route>();
+  for (const [id, r] of routes) {
+    const points = r.points.map(translate);
+    moved.set(id, {
+      ...r,
       points,
       path: rounded(points),
-      label: translate(route.label),
-    };
+      label: translate(r.label),
+    });
   }
+  return moved;
 }
 
 export function sceneRoutes(doc: CanvasDocument): SceneRoutes {
@@ -370,14 +362,30 @@ export function previewRoutes(
   base: SceneRoutes,
 ): SceneRoutes {
   const previous = new Map(before.nodes.map((n) => [n.id, n]));
-  const changes: Preview["changes"] = new Map();
+  const changed = new Set<string>();
+  const first = doc.nodes[0],
+    oldFirst = first && previous.get(first.id);
+  const dx = oldFirst ? first.x - oldFirst.x : 0,
+    dy = oldFirst ? first.y - oldFirst.y : 0;
+  let rigidMove = !!oldFirst && before.nodes.length === doc.nodes.length;
   for (const n of doc.nodes) {
     const old = previous.get(n.id);
-    if (!old || n.w !== old.w || n.h !== old.h) changes.set(n.id, null);
-    else if (n.x !== old.x || n.y !== old.y)
-      changes.set(n.id, { x: n.x - old.x, y: n.y - old.y });
+    if (!old || n.w !== old.w || n.h !== old.h) {
+      changed.add(n.id);
+      rigidMove = false;
+    } else {
+      if (old.x !== n.x || old.y !== n.y) changed.add(n.id);
+      if (n.x - old.x !== dx || n.y - old.y !== dy) rigidMove = false;
+    }
   }
-  const preview = { base, changes };
+  if (rigidMove) {
+    if (!dx && !dy) return base;
+    return {
+      routes: translatedRoutes(base.routes, dx, dy),
+      memos: translatedRoutes(base.memos, dx, dy),
+    };
+  }
+  const preview = { base, changed };
   const routes = documentRoutes(doc, preview);
   return { routes, memos: memoRoutes(doc, routes, preview) };
 }
@@ -407,12 +415,10 @@ export function documentRoutes(doc: CanvasDocument, preview?: Preview) {
   for (const edge of edges) {
     const fixed =
       preview &&
-      previewRoute(
-        preview.base.routes.get(edge.id),
-        preview,
-        edge.from,
-        edge.to,
-      );
+      !preview.changed.has(edge.from) &&
+      !preview.changed.has(edge.to)
+        ? preview.base.routes.get(edge.id)
+        : undefined;
     let route: Route;
     if (fixed) {
       route = fixed;
@@ -480,12 +486,10 @@ export function memoRoutes(
     if (!note.attachedTo) continue;
     const fixed =
       preview &&
-      previewRoute(
-        preview.base.memos.get(note.id),
-        preview,
-        note.attachedTo,
-        note.id,
-      );
+      !preview.changed.has(note.id) &&
+      !preview.changed.has(note.attachedTo)
+        ? preview.base.memos.get(note.id)
+        : undefined;
     if (fixed) {
       memos.set(note.id, fixed);
       occupied.add(segments(fixed.points));

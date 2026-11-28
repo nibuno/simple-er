@@ -211,14 +211,13 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
         ? p.doc
         : undefined;
   const computed = useMemo(() => {
-    const original = before && committed.get(before);
-    if (before && original) return previewRoutes(routingDoc, before, original);
-    let result = committed.get(routingDoc);
+    const base = before ?? routingDoc;
+    let result = committed.get(base);
     if (!result) {
-      result = sceneRoutes(routingDoc);
-      committed.set(routingDoc, result);
+      result = sceneRoutes(base);
+      committed.set(base, result);
     }
-    return result;
+    return before ? previewRoutes(routingDoc, before, result) : result;
   }, [before, committed, routingDoc]);
   const { routes, memos } = computed;
   const displayedRoutes = useRef(computed);
