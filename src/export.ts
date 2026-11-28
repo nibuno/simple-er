@@ -1,6 +1,7 @@
 import { escapeXml, filename } from "../shared/export.ts";
 import {
   diagramBounds,
+  groupFrames,
   HEADER,
   height,
   rounded,
@@ -9,6 +10,7 @@ import {
   tableWidth,
 } from "./geometry.ts";
 import { columnMarks } from "./column-attributes.ts";
+import { tableColors } from "./types.ts";
 import { title } from "./model.ts";
 import {
   cardinalityMarker,
@@ -58,9 +60,10 @@ function tableSvg(
     .join("");
   return `<g transform="translate(${table.x} ${table.y})">
     <rect width="${w}" height="${height(table)}" rx="9" fill="#fff" stroke="#a1a1aa"/>
-    <path d="M9 1H${w - 9}Q${w - 1} 1 ${w - 1} 9V${HEADER}H1V9Q1 1 9 1" fill="#f4f4f5"/>
+    <path d="M9 1H${w - 9}Q${w - 1} 1 ${w - 1} 9V${HEADER}H1V9Q1 1 9 1" fill="${table.color ? tableColors[table.color].fill : "#f4f4f5"}"/>
     <path d="M1 ${HEADER}H${w - 1}" stroke="#d4d4d8"/>
-    <text x="16" y="31" font-weight="600" font-size="16">${escapeXml(tableName)}</text>${rows}
+    ${table.schemaName ? `<text x="16" y="17" font-size="11" fill="#52525b">${escapeXml(table.schemaName)}.</text>` : ""}
+    <text x="16" y="${table.schemaName ? 38 : 31}" font-weight="600" font-size="16">${escapeXml(tableName)}</text>${rows}
   </g>`;
 }
 
@@ -83,7 +86,18 @@ export function diagramSvg(
   routes = routeEdges(state.edges, state.tables),
 ) {
   const labels = relationshipLabels(state, routes);
-  const bounds = diagramBounds(state.tables, routes.values(), labels.values());
+  const frames = groupFrames(state);
+  const bounds = diagramBounds(state.tables, routes.values(), [
+    ...labels.values(),
+    ...frames,
+  ]);
+  const surrounds = frames
+    .map(
+      (f) => `<g transform="translate(${f.x} ${f.y})">
+    <rect width="${f.width}" height="${f.height}" rx="8" fill="none" stroke="#a1a1aa" stroke-dasharray="5 4"/>
+    <text x="14" y="25" font-size="14" fill="#52525b">${escapeXml(f.group.name)}</text></g>`,
+    )
+    .join("");
   const pad = 48,
     x = bounds.x - pad,
     y = bounds.y - pad;
@@ -121,6 +135,6 @@ export function diagramSvg(
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${x} ${y} ${width} ${height}">
     <title>${escapeXml(state.title || "SimpleER")}</title>
     <rect x="${x}" y="${y}" width="${width}" height="${height}" fill="#fff"/>
-    <g fill="#18181b" font-family="ui-monospace,Menlo,Consolas,monospace">${wires}${state.tables.map((t) => tableSvg(t, tableName(t), columnName)).join("")}</g>
+    <g fill="#18181b" font-family="ui-monospace,Menlo,Consolas,monospace">${surrounds}${wires}${state.tables.map((t) => tableSvg(t, tableName(t), columnName)).join("")}</g>
   </svg>`;
 }

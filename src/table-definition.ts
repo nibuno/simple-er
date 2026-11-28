@@ -51,10 +51,12 @@ function describeTable(
   table: TableSchema,
   tables: TableSchema[],
   logicalFirst: boolean,
+  group: string | undefined,
 ) {
   const info = [
     ...orderedNames(physicalName(table), table.logicalName, logicalFirst),
     table.note ?? "",
+    ...(group === undefined ? [] : [group]),
   ];
   const foreignKeys = table.foreignKeys.map((fk) => {
     const target = fk.target;
@@ -96,7 +98,7 @@ function describeTable(
     ];
     return { id: column.id, cells, refs };
   });
-  return { info, columns, foreignKeys, constraints };
+  return { info, group, columns, foreignKeys, constraints };
 }
 type Definition = ReturnType<typeof describeTable>;
 
@@ -106,7 +108,11 @@ function markdown(
   names: string[],
   tables: Definition[],
 ) {
-  const tableHeaders = [...names, "説明"];
+  const tableHeaders = [
+    ...names,
+    "説明",
+    ...(tables.some((t) => t.group !== undefined) ? ["グループ名"] : []),
+  ];
   const sections = [
     `# ${markdownText(title)}`,
     `出力日：${day}`,
@@ -168,6 +174,7 @@ function csv(
       "出力日",
       ...names.map((name) => "テーブル" + name),
       "テーブル説明",
+      ...(tables.some((t) => t.group !== undefined) ? ["グループ名"] : []),
       ...names.map((name) => "カラム" + name),
       ...columnAttributes,
       "カラム説明",
@@ -178,7 +185,11 @@ function csv(
       "一意制約",
     ],
   ];
-  for (const { info, columns, constraints } of tables) {
+  for (const { info, group, columns, constraints } of tables) {
+    if (!columns.length && group !== undefined) {
+      const row = [title, day, ...info];
+      records.push([...row, ...Array(records[0].length - row.length).fill("")]);
+    }
     for (const { id, cells, refs } of columns) {
       const memberships = (kind: "index" | "unique") =>
         constraints
@@ -212,7 +223,15 @@ export function tableDefinition(
   date = new Date(),
 ) {
   const tables = doc.schema.tables.map((table) =>
-    describeTable(table, doc.schema.tables, logicalFirst),
+    describeTable(
+      table,
+      doc.schema.tables,
+      logicalFirst,
+      doc.presentation.groups?.length
+        ? (doc.presentation.groups.find((g) => g.tableIds.includes(table.id))
+            ?.name ?? "")
+        : undefined,
+    ),
   );
   const render = format === "md" ? markdown : csv;
   return render(

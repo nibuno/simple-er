@@ -18,6 +18,7 @@ import type {
   Diagram,
   DiagramDocument,
   Endpoint,
+  TableGroup,
   Table,
   View,
 } from "./types.ts";
@@ -41,6 +42,7 @@ import {
 import { EdgeRouteCache, routeEdges, tableWidth } from "./geometry.ts";
 import { tidyDiagram } from "./layout.ts";
 import { historyReducer } from "./history.ts";
+import { GroupDialog } from "./GroupDialog.tsx";
 import { DiagramCanvas } from "./DiagramCanvas.tsx";
 import { relatedDiagram, type TableReveal } from "./diagram-view.ts";
 import {
@@ -145,6 +147,26 @@ function Editor({
   );
   const [selected, setSelected] = useState<string | null>(null);
   const [focusedTable, setFocusedTable] = useState<string | null>(null);
+  const [multiSelection, setMultiSelection] = useState<string[]>([]);
+  const [groupDraft, setGroupDraft] = useState<TableGroup | null>(null);
+  const focused = state.tables.find((t) => t.id === focusedTable);
+  const selectedTables = focused ? [focused.id] : multiSelection;
+  function beginGroup() {
+    if (!state.tables.length) return;
+    setGroupDraft({
+      id: uid(),
+      name: "",
+      tableIds: selectedTables,
+    });
+  }
+  function toggleTable(id: string) {
+    const ids = new Set(selectedTables);
+    if (ids.has(id)) ids.delete(id);
+    else ids.add(id);
+    clear();
+    if (ids.size === 1) setFocusedTable([...ids][0]);
+    else setMultiSelection([...ids]);
+  }
   const search = useRef<HTMLInputElement>(null);
   const [searchRequest, setSearchRequest] = useState(0);
   useEffect(() => {
@@ -263,6 +285,7 @@ function Editor({
     save(valid);
   }
   function clear() {
+    setMultiSelection([]);
     setSelected(null);
     setFocusedTable(null);
     setAdjustingLine(false);
@@ -395,7 +418,15 @@ function Editor({
         options.current.querySelector("summary")?.focus();
         return;
       }
-      if (draft || infer || help || importFormat || sampleList || listOpen)
+      if (
+        draft ||
+        groupDraft ||
+        infer ||
+        help ||
+        importFormat ||
+        sampleList ||
+        listOpen
+      )
         return;
       if (
         (e.ctrlKey || e.metaKey) &&
@@ -413,6 +444,16 @@ function Editor({
         e.target.matches("input,select,textarea")
       )
         return;
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        e.key.toLowerCase() === "g"
+      ) {
+        e.preventDefault();
+        beginGroup();
+        return;
+      }
       if (e.key === "Escape") clear();
       if (
         e.key === "?" &&
@@ -730,7 +771,6 @@ function Editor({
       .map((fk) => ({ table, fk })),
   );
   const edge = state.edges.find((e) => e.id === selected);
-  const focused = state.tables.find((t) => t.id === focusedTable);
   const pendingTable = pending
     ? state.tables.find((t) => t.id === pending.table)
     : undefined;
@@ -744,6 +784,7 @@ function Editor({
     );
   }
   function selectTable(id: string) {
+    setMultiSelection([]);
     setRevealRequest(null);
     setSelected(null);
     setAdjustingLine(false);
@@ -971,6 +1012,13 @@ function Editor({
             自動で接続
           </button>
           <button
+            disabled={!state.tables.length}
+            title="選んだテーブルを囲む (⌘G)"
+            onClick={beginGroup}
+          >
+            囲む
+          </button>
+          <button
             disabled={state.tables.length < 2}
             title="テーブルの配置と間隔を整える"
             onClick={() => {
@@ -1187,6 +1235,9 @@ function Editor({
             selected={selected}
             selectedTable={focusedTable}
             onSelectTable={selectTable}
+            multiSelection={multiSelection}
+            onToggleTable={toggleTable}
+            onEditGroup={setGroupDraft}
             revealRequest={revealRequest}
             adjustingLine={adjustingLine}
             onAdjustable={setAdjustable}
@@ -1345,6 +1396,18 @@ function Editor({
           </DiagramCanvas>
         </div>
       </main>
+      {groupDraft && (
+        <GroupDialog
+          state={state}
+          initial={groupDraft}
+          displayTable={displayTable}
+          onClose={() => setGroupDraft(null)}
+          onApply={(groups) => {
+            replace({ ...state, groups });
+            setGroupDraft(null);
+          }}
+        />
+      )}
       {draft && (
         <TableEditor
           initial={draft}

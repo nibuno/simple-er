@@ -1,3 +1,4 @@
+import { tableColors, type TableGroup } from "./types.ts";
 import { columnMarks, serialBase } from "./column-attributes.ts";
 import { isImeKey } from "../shared/ime.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -14,6 +15,7 @@ import type {
 } from "./types.ts";
 import {
   diagramBounds,
+  groupFrames,
   height,
   HEADER,
   ROW,
@@ -23,7 +25,7 @@ import {
 import { RelationshipDecorations } from "./RelationshipDecorations.tsx";
 import { relationshipLabels } from "./relationships.ts";
 import { MAX_COLUMNS } from "./model.ts";
-import { messageOf, overlaps } from "./utils.ts";
+import { messageOf, moveGroup, overlaps } from "./utils.ts";
 import { Icon } from "./icons.tsx";
 import type { TableReveal } from "./diagram-view.ts";
 
@@ -42,6 +44,9 @@ interface Props {
   relatedTo: string | null;
   routes: Map<string, Route>;
   selected: string | null;
+  multiSelection?: string[];
+  onToggleTable?: (id: string) => void;
+  onEditGroup?: (group: TableGroup) => void;
   selectedTable?: string | null;
   onSelectTable?: (id: string) => void;
   // `nearest` pans only as far as needed instead of centering the table.
@@ -64,6 +69,15 @@ interface Props {
   children: ReactNode;
 }
 type Drag =
+  | {
+      kind: "group";
+      group: TableGroup;
+      base: Diagram;
+      start: Point;
+      pointer: number;
+      next?: Diagram;
+      moved?: boolean;
+    }
   | {
       kind: "table";
       id: string;
@@ -226,11 +240,10 @@ export function DiagramCanvas(p: Props) {
       zoom(100, 0, 0);
       return;
     }
-    const bounds = diagramBounds(
-      tables,
-      latestRoutes.current.values(),
-      latestLabels.current.values(),
-    );
+    const bounds = diagramBounds(tables, latestRoutes.current.values(), [
+      ...latestLabels.current.values(),
+      ...groupFrames(latest.current.visible),
+    ]);
     const size = viewport();
     zoom(
       Math.min(
@@ -438,7 +451,19 @@ export function DiagramCanvas(p: Props) {
       });
       return;
     }
-    if (d.kind === "table") {
+    if (d.kind === "group") {
+      const dx = pos.x - d.start.x,
+        dy = pos.y - d.start.y;
+      if (!d.moved && Math.hypot(dx, dy) < 3) return;
+      d.moved = true;
+      const next = moveGroup(d.base, d.group, dx, dy);
+      if (!next) {
+        p.onHint("他のテーブルと重なる位置や、図の範囲外には移動できません。");
+        return;
+      }
+      p.onHint("");
+      d.next = next;
+    } else if (d.kind === "table") {
       const t = { ...p.state.tables.find((t) => t.id === d.id)! };
       t.x = d.x + pos.x - d.start.x;
       t.y = d.y + pos.y - d.start.y;
@@ -476,6 +501,10 @@ export function DiagramCanvas(p: Props) {
       const target = linking?.target;
       setLinking(null);
       if (!cancel && target) p.onLink?.(d.from, target);
+      return;
+    }
+    if (d.kind === "group" && !d.moved) {
+      if (!cancel) p.onEditGroup?.(d.group);
       return;
     }
     if (d.kind === "table" && !d.moved) {
@@ -548,6 +577,45 @@ export function DiagramCanvas(p: Props) {
             });
           }}
         />
+        <g className="group-frames">
+          {groupFrames(p.visible).map((f) => (
+            <g key={f.group.id} transform={`translate(${f.x} ${f.y})`}>
+              <rect
+                className="group-border"
+                rx={8}
+                width={f.width}
+                height={f.height}
+              />
+              <g
+                className="group-heading"
+                role="button"
+                tabIndex={0}
+                aria-label={`${f.group.name}の囲みを編集`}
+                onPointerDown={(e) =>
+                  capture(e, {
+                    kind: "group",
+                    group: f.group,
+                    base: p.state,
+                    start: point(e),
+                    pointer: e.pointerId,
+                  })
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    p.onEditGroup?.(f.group);
+                  }
+                }}
+              >
+                <title>クリックで編集、ドラッグでまとめて移動</title>
+                <rect width={f.width} height={36} fill="transparent" />
+                <text x={14} y={25}>
+                  {f.group.name}
+                </text>
+              </g>
+            </g>
+          ))}
+        </g>
         <g id="edges">
           {p.visible.edges.map((edge) => {
             const r = routes.get(edge.id)!,
@@ -629,7 +697,16 @@ export function DiagramCanvas(p: Props) {
               <g
                 key={t.id}
                 data-table={t.id}
-                className={`table${selected ? " selected" : ""}`}
+                className={`table${selected || p.multiSelection?.includes(t.id) ? " selected" : ""}`}
+                onPointerDownCapture={(e) => {
+                  if (e.shiftKey && e.button === 0) e.stopPropagation();
+                }}
+                onClickCapture={(e) => {
+                  if (e.shiftKey) {
+                    e.stopPropagation();
+                    p.onToggleTable?.(t.id);
+                  }
+                }}
                 transform={`translate(${t.x} ${t.y})`}
               >
                 <rect
@@ -692,6 +769,13 @@ export function DiagramCanvas(p: Props) {
                 >
                   <title>{`${t.logicalName ? t.logicalName + " / " : ""}${t.name ?? t.id}${t.note ? "\n" + t.note : ""}`}</title>
                   <path
+                    style={
+                      t.color
+                        ? {
+                            fill: `light-dark(${tableColors[t.color].fill}, ${tableColors[t.color].dark})`,
+                          }
+                        : undefined
+                    }
                     d={`M9 1H${width - 9}Q${width - 1} 1 ${width - 1} 9V${HEADER}H1V9Q1 1 9 1`}
                   />
                   <line
@@ -701,9 +785,14 @@ export function DiagramCanvas(p: Props) {
                     y2={HEADER - 0.5}
                     className="table-divider"
                   />
+                  {t.schemaName && (
+                    <text x={16} y={17} className="table-schema">
+                      {t.schemaName}.
+                    </text>
+                  )}
                   <text
                     x={16}
-                    y={31}
+                    y={t.schemaName ? 38 : 31}
                     className="table-title"
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {

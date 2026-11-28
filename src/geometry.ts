@@ -1,4 +1,4 @@
-import type { Table, Edge, Point, Port, Route } from "./types.ts";
+import type { Diagram, Table, Edge, Point, Port, Route } from "./types.ts";
 import { columnMarks } from "./column-attributes.ts";
 import { detour, interference } from "./detour.ts";
 import type { Box } from "./detour.ts";
@@ -27,7 +27,11 @@ export function tableWidth(t: Table) {
     0,
   );
   const heading =
-    Math.max(textWidth(t.name ?? t.id, 17), textWidth(t.logicalName, 17)) + 82;
+    Math.max(
+      textWidth(t.name ?? t.id, 17),
+      textWidth(t.logicalName, 17),
+      textWidth(t.schemaName, 11),
+    ) + 82;
   return Math.ceil(Math.max(WIDTH, heading, 39 + name + 24 + type + 14));
 }
 export const height = (t: Table) => HEADER + t.columns.length * ROW + 10;
@@ -49,6 +53,27 @@ export function diagramBounds(
   const x = Math.min(...xs),
     y = Math.min(...ys);
   return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+}
+// Frames are derived from the currently visible members, including after a filter or resize.
+export function groupFrames(diagram: Diagram) {
+  const byId = new Map(diagram.tables.map((t) => [t.id, t]));
+  return (diagram.groups ?? []).flatMap((group) => {
+    const members = group.tableIds.flatMap((id) => byId.get(id) ?? []);
+    if (!members.length) return [];
+    const bounds = diagramBounds(members, [], []);
+    return [
+      {
+        group,
+        x: bounds.x - 20,
+        y: bounds.y - 40,
+        width: Math.max(
+          bounds.width + 40,
+          Math.ceil(textWidth(group.name, 14)) + 32,
+        ),
+        height: bounds.height + 60,
+      },
+    ];
+  });
 }
 export const boxes = (
   ts: Table[],

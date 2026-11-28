@@ -1,6 +1,12 @@
-import type { Diagram, Table } from "./types.ts";
+import type { Diagram, Table, TableGroup } from "./types.ts";
 import { relationshipLabelWidth } from "./relationships.ts";
-import { tableWidth, height, connectionSides } from "./geometry.ts";
+import {
+  diagramBounds,
+  groupFrames,
+  tableWidth,
+  height,
+  connectionSides,
+} from "./geometry.ts";
 import { validateDiagram } from "./model.ts";
 
 const COLUMN_GAP = 120,
@@ -104,6 +110,103 @@ function orderColumns(
 // Stable IDs only break ties; viewport and previous coordinates have no influence.
 export function tidyDiagram(diagram: Diagram, _aspect = 1.5) {
   const next = validateDiagram(structuredClone(diagram));
+  positionTables(next);
+  if (next.groups?.length) arrangeGroups(next);
+  for (const e of next.edges) {
+    const a = next.tables.find((t) => t.id === e.from.table)!,
+      b = next.tables.find((t) => t.id === e.to.table)!;
+    [e.from.side, e.to.side] = connectionSides(a, b);
+    e.trunk = null;
+    e.manual = false;
+  }
+  return next;
+}
+
+// Use the relationship layout inside each frame. Pack the resulting rectangles
+// in the order of their first table in the overall relationship layout.
+function arrangeGroups(diagram: Diagram) {
+  const byTable = new Map(
+    diagram.groups!.flatMap((group) =>
+      group.tableIds.map((id) => [id, group] as const),
+    ),
+  );
+  // Keep the ordinary left-to-right layout when its frames are already clear.
+  const bounds = [
+    ...groupFrames(diagram),
+    ...diagram.tables
+      .filter((t) => !byTable.has(t.id))
+      .map((t) => ({
+        x: t.x,
+        y: t.y,
+        width: tableWidth(t),
+        height: height(t),
+      })),
+  ];
+  if (
+    !bounds.some((a, i) =>
+      bounds
+        .slice(i + 1)
+        .some(
+          (b) =>
+            a.x < b.x + b.width + 24 &&
+            b.x < a.x + a.width + 24 &&
+            a.y < b.y + b.height + 24 &&
+            b.y < a.y + a.height + 24,
+        ),
+    )
+  )
+    return;
+
+  const blocks = new Map<TableGroup | undefined, Table[]>();
+  for (const table of [...diagram.tables].sort(
+    (a, b) => a.x - b.x || a.y - b.y || a.id.localeCompare(b.id),
+  )) {
+    const group = byTable.get(table.id);
+    if (!blocks.has(group)) blocks.set(group, []);
+    blocks.get(group)!.push(table);
+  }
+  const rectangles = Array.from(blocks, ([group, tables]) => {
+    const ids = new Set(tables.map((t) => t.id));
+    const subset = {
+      tables,
+      groups: group ? [group] : [],
+      edges: diagram.edges.filter(
+        (e) => ids.has(e.from.table) && ids.has(e.to.table),
+      ),
+    };
+    positionTables(subset);
+    const bounds = group
+      ? groupFrames(subset)[0]
+      : diagramBounds(tables, [], []);
+    return { tables, bounds };
+  });
+  const area = rectangles.reduce(
+    (n, { bounds: b }) => n + (b.width + COLUMN_GAP) * (b.height + ROW_GAP),
+    0,
+  );
+  const limit = Math.max(
+    ...rectangles.map((r) => r.bounds.width),
+    Math.sqrt(area * 1.6),
+  );
+  let x = 0,
+    y = 0,
+    rowHeight = 0;
+  for (const { tables, bounds } of rectangles) {
+    if (x && x + bounds.width > limit) {
+      x = 0;
+      y += rowHeight + ROW_GAP;
+      rowHeight = 0;
+    }
+    for (const table of tables) {
+      table.x += 80 + x - bounds.x;
+      table.y += 80 + y - bounds.y;
+    }
+    x += bounds.width + COLUMN_GAP;
+    rowHeight = Math.max(rowHeight, bounds.height);
+  }
+}
+
+function positionTables(next: Diagram) {
   const ids = next.tables.map((t) => t.id).sort();
   const children = new Map(ids.map((id) => [id, new Set<string>()]));
   for (const edge of next.edges)
@@ -312,12 +415,4 @@ export function tidyDiagram(diagram: Diagram, _aspect = 1.5) {
     t.x += 80;
     t.y += 80;
   }
-  for (const e of next.edges) {
-    const a = next.tables.find((t) => t.id === e.from.table)!,
-      b = next.tables.find((t) => t.id === e.to.table)!;
-    [e.from.side, e.to.side] = connectionSides(a, b);
-    e.trunk = null;
-    e.manual = false;
-  }
-  return next;
 }
