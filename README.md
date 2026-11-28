@@ -83,6 +83,8 @@ npm run build
 
 ディレクトリ構成、データモデル、Web 版の公開手順は [docs/development.md](docs/development.md) を参照してください。設計と検証の記録は [IMPLEMENTATION.md](IMPLEMENTATION.md) にあります。
 
+PR と `main` への push では、CI が型チェック、テスト、ローカル版と Pages 版のビルドを実行し、`dist/` がビルド結果と一致するかを確認します。
+
 ## ライセンス
 
 [MIT](LICENSE)
