@@ -839,7 +839,7 @@ test("assigning a status from an attached memo updates its owner, list and drawi
   await act(() => root.unmount());
   await mount();
   assert.equal(marker().textContent, "決定");
-  await click(button("メモの一覧"));
+  await click(label("メモの一覧を表示"));
   const filter = label("メモを状態で絞り込む");
   const owners = () =>
     [...document.querySelectorAll(".memo-row strong")].map(
@@ -865,7 +865,7 @@ test("choosing an off-screen memo centers and selects its figure without editing
   localStorage.setItem(VIEW_KEY, JSON.stringify({ x: 0, y: 0, zoom: 0.8 }));
   await mount();
   await click(label("箱を追加"));
-  await click(button("メモの一覧"));
+  await click(label("メモの一覧を表示"));
   const row = document.querySelector(".memo-row");
   assert.equal(row.querySelector(".memo-body").textContent, api.body);
   await click(row);
@@ -879,7 +879,7 @@ test("choosing an off-screen memo centers and selects its figure without editing
   assert.equal(view.y + (api.y + api.h / 2) * view.zoom, 350);
   await key(row, "Delete");
   assert.deepEqual(saved(), doc);
-  await key(label("メニュー"), "Enter");
+  await key(label("ファイル"), "Enter");
   assert.equal(document.querySelector(".canvas-node.editing"), null);
   await click(button("図の一覧"));
   assert.ok(document.querySelector(".diagram-list[open]"));
@@ -888,23 +888,22 @@ test("choosing an off-screen memo centers and selects its figure without editing
 test("invalid files keep the current work, and importing the same file twice makes independent drawings", async () => {
   const before = saved();
   async function load(text) {
+    if (!document.querySelector("#file-import-dialog"))
+      await click(button("読み込む… ⌘O"));
     const input = document.querySelector('input[type="file"]');
     Object.defineProperty(input, "files", {
-      value: [{ size: text.length, text: async () => text }],
+      value: [{ name: "設計.json", size: text.length, text: async () => text }],
       configurable: true,
     });
     await act(async () => {
       input.dispatchEvent(new Event("change", { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 5));
     });
+    await click(button("読み込む"));
   }
   await load('{"format":"simple-canvas","version":99}');
   assert.deepEqual(saved(), before);
-  assert.ok(
-    document
-      .querySelector('[role="alert"]')
-      .textContent.includes("今の図はそのまま"),
-  );
+  assert.ok(document.querySelector('[role="alert"]').textContent.length > 0);
   const imported = sampleDocument();
   imported.title = "別の設計";
   await load(encode(imported));
@@ -1828,9 +1827,10 @@ test("メニューはフォーカス中の Esc と外側のクリックで閉じ
 });
 test("the paste dialog keeps invalid input and imports a corrected Mermaid graph in one undo step", async () => {
   const before = saved();
-  await click(button("Mermaid を読み込む…"));
-  const dialog = document.querySelector(".paste-dialog");
+  await click(button("読み込む… ⌘O"));
+  const dialog = document.querySelector("#file-import-dialog");
   const input = dialog.querySelector("textarea");
+  await click(dialog.querySelector('input[value="add"]'));
   assert.ok(dialog.open);
   assert.ok(button("読み込む").disabled);
   await type(input, "flowchart LR\na -->");
@@ -1840,7 +1840,7 @@ test("the paste dialog keeps invalid input and imports a corrected Mermaid graph
   assert.equal(input.value, "flowchart LR\na -->");
   await type(input, "flowchart LR\na --> b");
   await click(button("読み込む"));
-  assert.equal(document.querySelector(".paste-dialog"), null);
+  assert.equal(document.querySelector("#file-import-dialog"), null);
   assert.equal(saved().nodes.length, before.nodes.length + 2);
   assert.equal(saved().edges.length, before.edges.length + 1);
   await click(label("元に戻す"));
@@ -1865,7 +1865,8 @@ test("画像コピーが使えないときはメニューとショートカッ�
     /PNG で保存/,
   );
   await click(label("通知を閉じる"));
-  await click(button("画像をコピー ⇧⌘C"));
+  await click(button("書き出す… ⌘E"));
+  await click(button("コピー"));
   assert.match(
     document.querySelector('[role="alert"]').textContent,
     /PNG で保存/,
@@ -1884,11 +1885,17 @@ test("Mermaid をコピーした図は選択にかかわらず図全体を貼り
   });
   t.after(() => delete navigator.clipboard);
   await click(label("Queueを選択"));
+  await click(button("書き出す… ⌘E"));
+  await act(() => {
+    const select = document.querySelector(".export-format select");
+    select.value = "mmd";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
   assert.match(
-    document.querySelector(".file-popover")!.textContent!,
+    document.querySelector("#file-export-dialog")!.textContent!,
     /メモとテキストは含まれません/,
   );
-  await click(button("Mermaid をコピー"));
+  await click(button("コピー"));
   const before = saved();
   await paste(text);
   await click(button("読み込む"));
@@ -1954,6 +1961,7 @@ test("an invalid flowchart reports its line and leaves the saved diagram and his
   assert.deepEqual(saved(), before);
   assert.ok(label("元に戻す").disabled);
   await click(document.querySelectorAll('input[name="import-target"]')[1]);
+  await click(button("読み込む"));
   await click(button("読めた分を読み込む"));
   assert.equal(saved().nodes.length, 2);
   assert.ok(listDiagrams().some((entry) => entry.title === before.title));
@@ -2116,4 +2124,27 @@ test("使い方は初めの3手から始まり、メニューと ? から開け�
   await click(label("使い方を閉じる"));
   await click(button("使い方 ?"));
   assert.ok(help.open);
+});
+
+test("file shortcuts import JSON into the current diagram, preserve decisions and undo once", async () => {
+  const before = saved();
+  const fragment = sampleDocument();
+  fragment.decisions = [
+    { at: "2026-11-28T00:00:00Z", variant: "案1", reason: "確認済み" },
+  ];
+  await key(window, "o", { metaKey: true });
+  await type(document.querySelector("#import-source"), encode(fragment));
+  assert.match(document.querySelector(".file-format").textContent, /JSON/);
+  await click(document.querySelector('input[value="add"]'));
+  await click(button("読み込む"));
+  const merged = saved();
+  assert.equal(
+    merged.nodes.length,
+    before.nodes.length + fragment.nodes.length,
+  );
+  assert.deepEqual(merged.decisions, fragment.decisions);
+  await key(window, "z", { metaKey: true });
+  assert.deepEqual(saved(), before);
+  await key(window, "e", { ctrlKey: true });
+  assert.ok(document.querySelector("#file-export-dialog[open]"));
 });

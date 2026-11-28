@@ -537,13 +537,13 @@ test("a stale delete confirmation preserves an update from another tab", async (
 });
 
 test("a dump with only settings to skip imports in one click", async () => {
-  await click(byText("DDL を読み込む"));
+  await click(byText("読み込む… ⌘O"));
   await type(
-    document.querySelector("#ddl-source"),
+    document.querySelector("#import-source"),
     "SET statement_timeout = 0; CREATE TABLE scores(rank int); CREATE INDEX by_rank ON scores USING btree(rank);",
   );
   await click(byText("読み込む"));
-  assert.equal(document.querySelector("#ddl-source"), null);
+  assert.equal(document.querySelector("#import-source"), null);
   assert.match(
     document.body.textContent,
     /図に関係しない文を1件読み飛ばしました/,
@@ -556,15 +556,15 @@ test("a dump with only settings to skip imports in one click", async () => {
 
 test("pasted DDL previews line errors and adds the readable tables in one undo step", async () => {
   const before = saved();
-  await click(byText("DDL を読み込む"));
-  await click(document.querySelector('input[name="ddl-destination"]'));
-  const textarea = document.querySelector("#ddl-source");
+  await click(byText("読み込む… ⌘O"));
+  await click(document.querySelector('input[name="import-target"]'));
+  const textarea = document.querySelector("#import-source");
   await type(
     textarea,
     "DROP TABLE x;\nCREATE TABLE notes(user_id uuid REFERENCES users(id));",
   );
   await click(byText("読み込む"));
-  assert.match(document.querySelector(".ddl-issues").textContent, /1行目/);
+  assert.match(document.querySelector(".import-issues").textContent, /1行目/);
   assert.deepEqual(saved(), before);
   await click(byText("読めた分を読み込む"));
   const after = saved();
@@ -578,13 +578,14 @@ test("pasted DDL previews line errors and adds the readable tables in one undo s
 
 test("Mermaid import previews issues, draws table relationships and undoes the import in one step", async () => {
   const before = saved();
-  await click(byText("Mermaid を読み込む"));
+  await click(byText("読み込む… ⌘O"));
   await type(
-    document.querySelector("#ddl-source"),
+    document.querySelector("#import-source"),
     "erDiagram\nusers }o..o{ Notes : 閲覧\ninvalid line!",
   );
+  await click(document.querySelector('input[value="add"]'));
   await click(byText("読み込む"));
-  assert.match(document.querySelector(".ddl-issues").textContent, /3行目/);
+  assert.match(document.querySelector(".import-issues").textContent, /3行目/);
   assert.deepEqual(saved(), before);
   await click(byText("読めた分を読み込む"));
   const wire = byLabel("usersからNotesへの接続線");
@@ -615,11 +616,11 @@ for (const [format, extension, source] of [
     const original = library.restoreDiagram();
     await click(
       [...document.querySelectorAll(".empty-actions button")].find(
-        (b) => b.textContent === `${format} を読み込む`,
+        (b) => b.textContent === "読み込む…",
       ),
     );
     const input = document.querySelector(
-      '#ddl-import-dialog input[type="file"]',
+      '#file-import-dialog input[type="file"]',
     );
     Object.defineProperty(input, "files", {
       value: [
@@ -633,7 +634,7 @@ for (const [format, extension, source] of [
     await act(async () => {
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    await click(document.querySelectorAll('input[name="ddl-destination"]')[1]);
+    await click(document.querySelectorAll('input[name="import-target"]')[1]);
     await click(byText("読み込む"));
     const imported = library.restoreDiagram();
     assert.notEqual(original.key, imported.key);
@@ -819,6 +820,8 @@ test("editing a table keeps the apply button label", async () => {
 test("invalid imports preserve the diagram and importing a file twice creates independent drawings", async () => {
   const before = localStorage.getItem(storageKey);
   async function upload(text) {
+    if (!document.querySelector("#file-import-dialog"))
+      await click(byText("読み込む… ⌘O"));
     const input = document.querySelector('input[accept*=".json"]');
     Object.defineProperty(input, "files", {
       configurable: true,
@@ -829,12 +832,14 @@ test("invalid imports preserve the diagram and importing a file twice creates in
     await act(async () => {
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
+    await click(document.querySelector('input[value="new"]'));
+    await click(byText("読み込む"));
   }
   await upload("{broken");
   assert.equal(localStorage.getItem(storageKey), before);
   assert.match(
-    document.querySelector(".instruction").textContent,
-    /読み込めませんでした/,
+    document.querySelector('#file-import-dialog [role="alert"]').textContent,
+    /JSON/,
   );
   const data = encode(validateDiagram({ tables: [], edges: [] }));
   await upload(data);
@@ -847,6 +852,24 @@ test("invalid imports preserve the diagram and importing a file twice creates in
   assert.equal(localStorage.getItem(storageKey), before);
   assert.equal(byLabel("元に戻す").disabled, true);
 });
+
+async function selectExport(format) {
+  if (!document.querySelector("#file-export-dialog"))
+    await click(byText("書き出す… ⌘E"));
+  const select = document.querySelector(".export-format select");
+  await act(() => {
+    select.value = format;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+async function exportAs(format, action) {
+  await selectExport(format);
+  await click(
+    [...document.querySelectorAll("#file-export-dialog button")].find(
+      (b) => b.textContent === action,
+    ),
+  );
+}
 
 test("file menu copies and saves the same DDL and Mermaid text and disables exports on an empty diagram", async (t) => {
   let copied, blob, filename;
@@ -872,58 +895,55 @@ test("file menu copies and saves the same DDL and Mermaid text and disables expo
   await type(byLabel("図の名前"), "  注文/管理  ");
   await key(byLabel("図の名前"), "Enter");
   assert.equal(byLabel("図の名前").value, "注文/管理");
-  await click(byText("ファイルに保存"));
+  await click(byText("ファイルに保存 ⌘S"));
   assert.equal(filename, "注文_管理.json");
   assert.equal(JSON.parse(await blob.text()).title, "注文/管理");
-  await click(byText("SVG で保存"));
+  await exportAs("svg", "保存");
   assert.equal(filename, "注文_管理.svg");
-  await click(byText("全テーブルの DDL をコピー"));
+  await exportAs("sql", "コピー");
   assert.equal(copied.match(/CREATE TABLE /g).length, initial.tables.length);
   assert.match(
     document.querySelector(".instruction").textContent,
     /コピーしました/,
   );
-  await click(byText("全テーブルの DDL を保存"));
+  await exportAs("sql", "保存");
   assert.equal(await blob.text(), copied);
   assert.equal(filename, "注文_管理.sql");
   for (const [dialect, marker] of [
     ["MySQL", "ENGINE=InnoDB"],
     ["SQLite", '"id"'],
   ]) {
+    await selectExport("sql");
     await act(() => {
-      const select = document.querySelector(".ddl-dialect select");
+      const select = document.querySelector(".export-setting select");
       select.value = dialect;
       select.dispatchEvent(new Event("change", { bubbles: true }));
     });
     assert.equal(saved().ddlDialect, dialect);
-    await click(byText("全テーブルの DDL をコピー"));
+    await exportAs("sql", "コピー");
     assert.ok(copied.includes(marker));
-    await click(byText("全テーブルの DDL を保存"));
+    await exportAs("sql", "保存");
     assert.equal(await blob.text(), copied);
   }
-  await click(byText("Mermaid をコピー"));
+  await exportAs("mmd", "コピー");
   assert.match(copied, /^---\ntitle: "注文\/管理"\n---\nerDiagram\n/);
-  await click(byText("Mermaid を保存"));
+  await exportAs("mmd", "保存");
   assert.equal(await blob.text(), copied);
   assert.equal(filename, "注文_管理.mmd");
-  await click(byText("定義書を保存（Markdown）"));
+  await exportAs("md", "保存");
   assert.equal(filename, "注文_管理.md");
   assert.match(await blob.text(), /^# 注文\/管理\n/);
-  await click(byText("定義書を保存（CSV）"));
+  await exportAs("csv", "保存");
   assert.equal(filename, "注文_管理.csv");
   assert.match(await blob.text(), /注文\/管理,\d{4}-\d{2}-\d{2},users,/);
   await click(byText("新しい図"));
-  for (const label of [
-    "SVG で保存",
-    "PNG で保存",
-    "全テーブルの DDL をコピー",
-    "全テーブルの DDL を保存",
-    "Mermaid をコピー",
-    "Mermaid を保存",
-    "定義書を保存（Markdown）",
-    "定義書を保存（CSV）",
-  ])
-    assert.equal(byText(label).disabled, true);
+  for (const format of ["svg", "png", "sql", "mmd", "md", "csv"]) {
+    await selectExport(format);
+    assert.equal(
+      document.querySelector("#file-export-dialog .primary").disabled,
+      true,
+    );
+  }
 });
 
 async function pointer(element, type, x, y, id = 1, pointerType = "mouse") {
@@ -1951,13 +1971,13 @@ test("related view keeps both ends editable and saves and exports the whole diag
     return "blob:test";
   });
   t.mock.method(dom.window.HTMLAnchorElement.prototype, "click", () => {});
-  await click(byText("ファイルに保存"));
+  await click(byText("ファイルに保存 ⌘S"));
   assert.equal(JSON.parse(await blob.text()).schema.tables.length, 3);
-  await click(byText("SVG で保存"));
+  await exportAs("svg", "保存");
   assert.match(await blob.text(), /order_items/);
-  await click(byText("定義書を保存（Markdown）"));
+  await exportAs("md", "保存");
   assert.match(await blob.text(), /\n## order_items\n/);
-  await click(byText("定義書を保存（CSV）"));
+  await exportAs("csv", "保存");
   assert.match(await blob.text(), /,order_items,[^\r\n]*,product_name,/);
   await click(byLabel("元に戻す"));
   assert.deepEqual(saved().tables, before.tables);
@@ -2049,8 +2069,8 @@ for (const engine of ["Chrome", "Safari"]) {
     assert.equal(title.value, original);
     assert.equal(byLabel("元に戻す").disabled, true);
 
-    await click(byText("DDL を読み込む"));
-    const ddl = document.querySelector("#ddl-source");
+    await click(byText("読み込む… ⌘O"));
+    const ddl = document.querySelector("#import-source");
     await act(() => ddl.focus());
     await type(ddl, "CREATE TABLE 受注(id int);");
     await imeKey(ddl, "Escape", engine);
@@ -2316,13 +2336,13 @@ test("first visit starts empty; a dump names the drawing, sets its dialect and h
   localStorage.clear();
   await mount();
   assert.ok(document.querySelector(".empty-diagram"));
-  await click(byText("DDL を読み込む"));
+  await click(byText("読み込む… ⌘O"));
   assert.equal(
-    document.querySelectorAll('input[name="ddl-destination"]')[0].checked,
+    document.querySelectorAll('input[name="import-target"]')[0].checked,
     true,
   );
   await type(
-    document.querySelector("#ddl-source"),
+    document.querySelector("#import-source"),
     "USE shop; CREATE TABLE users(id bigint unsigned AUTO_INCREMENT PRIMARY KEY COMMENT '顧客番号', email text) COMMENT='顧客';",
   );
   await click(byText("読み込む"));
@@ -2332,17 +2352,17 @@ test("first visit starts empty; a dump names the drawing, sets its dialect and h
   assert.equal(document.querySelector(".table-title").textContent, "顧客");
   assert.equal(document.querySelector(".missing-name").textContent, "email");
   assert.equal(document.querySelector(".table-schema"), null);
-  await click(byText("DDL を読み込む"));
+  await click(byText("読み込む… ⌘O"));
   assert.equal(
-    document.querySelectorAll('input[name="ddl-destination"]')[1].checked,
+    document.querySelectorAll('input[name="import-target"]')[1].checked,
     true,
   );
-  await click(document.querySelectorAll('input[name="ddl-destination"]')[0]);
-  await click(document.querySelectorAll('input[name="ddl-comments"]')[1]);
+  await click(document.querySelectorAll('input[name="import-target"]')[0]);
   await type(
-    document.querySelector("#ddl-source"),
+    document.querySelector("#import-source"),
     "CREATE TABLE prefs (data jsonb); COMMENT ON COLUMN prefs.data IS '設定';",
   );
+  await click(document.querySelectorAll('input[name="ddl-comments"]')[1]);
   await click(byText("読み込む"));
   assert.equal(saved().ddlDialect, "MySQL");
   assert.equal(saved().tables[1].columns[0].logicalName, "");
@@ -2351,11 +2371,15 @@ test("first visit starts empty; a dump names the drawing, sets its dialect and h
 
 test("new MySQL tables use native defaults, infer reference types and preview the chosen export", async () => {
   await click(byText("新しい図"));
-  const dialect = document.querySelector(".ddl-dialect select");
+  await selectExport("sql");
+  const dialect = document.querySelector(".export-setting select");
   await act(() => {
     dialect.value = "MySQL";
     dialect.dispatchEvent(new Event("change", { bubbles: true }));
   });
+  await click(
+    document.querySelector("#file-export-dialog .dialog-actions button"),
+  );
   await key(document.body, "t");
   await type(document.querySelector("#table-editor input"), "users");
   assert.equal(byLabel("カラム1の型").value, "bigint unsigned");
@@ -2382,16 +2406,20 @@ test("new MySQL tables use native defaults, infer reference types and preview th
   );
   await click(byText("選択した候補を接続"));
   assert.equal(saved().edges.length, 1);
-  await click(document.querySelector('.ddl-dialect input[type="checkbox"]'));
+  await selectExport("sql");
+  await click(document.querySelector('.export-setting input[type="checkbox"]'));
+  await click(
+    document.querySelector("#file-export-dialog .dialog-actions button"),
+  );
   assert.equal(saved().ddlAnnotations, true);
   await click(byLabel("table_1を編集"));
   assert.match(document.querySelector(".ddl").textContent, /\/\* simple-er /);
 });
 
 test("inferred type changes require selection and undo restores the previous type", async () => {
-  await click(byText("DDL を読み込む"));
+  await click(byText("読み込む… ⌘O"));
   await type(
-    document.querySelector("#ddl-source"),
+    document.querySelector("#import-source"),
     "USE shop; CREATE TABLE users(id int PRIMARY KEY); CREATE TABLE posts(user_id text, absent_id int);",
   );
   await click(byText("読み込む"));
@@ -2411,4 +2439,60 @@ test("inferred type changes require selection and undo restores the previous typ
   assert.equal(saved().edges.length, 1);
   await click(byLabel("元に戻す"));
   assert.deepEqual(saved(), before);
+});
+
+test("file shortcuts open the shared dialogs and a pasted CSV can update only labels", async () => {
+  const { tableDefinition } = await import("../src/table-definition.ts");
+  const original = saved();
+  const doc = library.restoreDiagram().doc;
+  const changed = structuredClone(doc);
+  changed.schema.tables[0].columns[0].logicalName = "利用者番号";
+  const csv = tableDefinition(changed, "csv");
+  await key(document.body, "o", { ctrlKey: true });
+  assert.ok(document.querySelector("#file-import-dialog[open]"));
+  await type(document.querySelector("#import-source"), csv);
+  assert.match(
+    document.querySelector(".file-format").textContent,
+    /定義書（CSV）/,
+  );
+  await click(document.querySelector('input[value="labels"]'));
+  await click(byText("読み込む"));
+  assert.equal(saved().tables[0].columns[0].logicalName, "利用者番号");
+  await key(document.body, "z", { metaKey: true });
+  assert.deepEqual(saved(), original);
+  await key(document.body, "e", { metaKey: true });
+  assert.ok(document.querySelector("#file-export-dialog[open]"));
+  await selectExport("csv");
+  await click(
+    document.querySelector("#file-export-dialog .dialog-actions button"),
+  );
+  await key(document.body, "e", { ctrlKey: true });
+  assert.equal(document.querySelector(".export-format select").value, "csv");
+});
+
+test("typed input takes precedence over an unfinished file read", async () => {
+  await key(document.body, "o", { metaKey: true });
+  let finish;
+  const input = document.querySelector(
+    '#file-import-dialog input[type="file"]',
+  );
+  Object.defineProperty(input, "files", {
+    value: [
+      {
+        name: "old.json",
+        size: 20,
+        text: () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      },
+    ],
+  });
+  await act(() => input.dispatchEvent(new Event("change", { bubbles: true })));
+  const textarea = document.querySelector("#import-source");
+  await type(textarea, "erDiagram\nA ||--o{ B : has");
+  await act(() => finish("{broken"));
+  assert.match(textarea.value, /^erDiagram/);
+  assert.match(document.querySelector(".file-format").textContent, /Mermaid/);
+  assert.equal(byText("読み込む").disabled, false);
 });

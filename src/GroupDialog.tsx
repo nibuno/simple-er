@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal } from "./Dialogs.tsx";
+import { Modal } from "../shared/Modal.tsx";
 import type { Diagram, Table, TableGroup } from "./types.ts";
 
 export function GroupDialog({

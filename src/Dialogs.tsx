@@ -4,7 +4,7 @@ import { isImeKey } from "../shared/ime.ts";
 import { KeyList, DefinitionEditor } from "./ConstraintsEditor.tsx";
 import type { DefinitionSelection } from "./ConstraintsEditor.tsx";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { Modal } from "../shared/Modal.tsx";
 import type {
   Candidate,
   Column,
@@ -115,94 +115,6 @@ function ColumnDetails({
         />
       </label>
     </div>
-  );
-}
-export function Modal({
-  id,
-  onClose,
-  children,
-}: {
-  id: string;
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const backdropPress = useRef(false);
-  const keyboard = useRef(false);
-  useEffect(() => {
-    const dialog = ref.current!,
-      previous = document.activeElement;
-    keyboard.current = previous?.matches(":focus-visible") ?? false;
-    dialog.showModal();
-    return () => {
-      dialog.close();
-      if (
-        (previous instanceof HTMLElement || previous instanceof SVGElement) &&
-        previous.isConnected
-      ) {
-        if (!keyboard.current) {
-          previous.classList.add("pointer-restored-focus");
-          const clear = () => {
-            previous.classList.remove("pointer-restored-focus");
-            previous.removeEventListener("blur", clear);
-            previous.removeEventListener("keydown", clear);
-          };
-          previous.addEventListener("blur", clear);
-          previous.addEventListener("keydown", clear);
-        }
-        previous.focus({ preventScroll: true });
-      } else {
-        (
-          (document.querySelector(
-            ".migration-notice summary",
-          ) as HTMLElement | null) ?? document.getElementById("fit")
-        )?.focus();
-      }
-    };
-  }, []);
-  function outside(event: React.PointerEvent<HTMLDialogElement>) {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    return (
-      event.target === event.currentTarget &&
-      (event.clientX < bounds.left ||
-        event.clientX > bounds.right ||
-        event.clientY < bounds.top ||
-        event.clientY > bounds.bottom)
-    );
-  }
-  return (
-    <dialog
-      ref={ref}
-      id={id}
-      onKeyDownCapture={() => {
-        keyboard.current = true;
-      }}
-      onPointerDownCapture={() => {
-        keyboard.current = false;
-      }}
-      onPointerDown={(e) => {
-        backdropPress.current = e.button === 0 && outside(e);
-      }}
-      onPointerUp={(e) => {
-        const close = backdropPress.current && outside(e);
-        backdropPress.current = false;
-        if (close) onClose();
-      }}
-      onPointerCancel={() => {
-        backdropPress.current = false;
-      }}
-      aria-labelledby={
-        id === "table-editor"
-          ? "editor-heading"
-          : id.replace("dialog", "heading")
-      }
-      onCancel={(e) => {
-        e.preventDefault();
-        onClose();
-      }}
-    >
-      {children}
-    </dialog>
   );
 }
 export function TableEditor({
@@ -1153,6 +1065,9 @@ export function InferDialog({
   );
 }
 const SHORTCUTS = [
+  ["図を画像でコピー", "⇧⌘C"],
+  ["ファイルに保存", "⌘S"],
+  ["読み込む… / 書き出す…", "⌘O / ⌘E"],
   ["外部キーを登録", "カラム端の点から別のカラムへドラッグ"],
   ["キーボードで外部キーを登録", "カラム行で Enter（接続元と接続先で2回）"],
   ["テーブルを追加", "T"],
@@ -1176,14 +1091,12 @@ export function HelpDialog({ onClose }: { onClose: () => void }) {
       </div>
       <h3>よく使う操作</h3>
       <p>
-        既存の DB から始めるときは「DDL
-        を読み込む」を開きます。論理名をまとめて入力するには、定義書を CSV
-        で保存し、編集後に「CSV の論理名と説明を反映」を選びます。
+        「読み込む…」でファイルを選ぶか、JSON・DDL・Mermaid・定義書を貼り付けます。読み込み先を選んで「読み込む」を押します。CSV
+        では今の図の論理名と説明だけを反映できます。
       </p>
       <p>
-        新しく設計するときは「ファイル」で DDL
-        の形式を選んでからテーブルを追加します。「全テーブルの DDL を保存」で
-        SQL を書き出せます。
+        「書き出す…」で画像・DDL・Mermaid・定義書を選んで保存します。PNG・DDL・Mermaid・定義書はコピーもできます。DDL
+        の方言は、テーブル編集のプレビューにも反映されます。
       </p>
       <details>
         <summary>キー一覧</summary>

@@ -1,22 +1,38 @@
-import { useEffect, useRef, useState } from "react";
+import { ImportDialog } from "../../shared/FileDialogs.tsx";
 import { looksLikeFlowchart, readFlowchart } from "./flowchart";
 import { decode, emptyDocument, makeNode, MAX_TEXT } from "./model";
-import { Icon } from "./Icons";
+
 import type { CanvasDocument } from "./types";
 
 export type ImportKind = "mermaid" | "canvas" | "text";
-export function readInput(text: string, fileName = "") {
+function canvasFormat(text: string, filename: string) {
+  if (/^\s*\{/.test(text)) return "JSON";
+  if (looksLikeFlowchart(text)) return "Mermaid";
+  if (/\.(json|simplecanvas)$/i.test(filename)) return "JSON";
+  if (/\.(mmd|mermaid)$/i.test(filename)) return "Mermaid";
+  return "テキスト";
+}
+export function readInput(
+  text: string,
+  fileName = "",
+  format = canvasFormat(text, fileName),
+) {
   if (text.length > 2_000_000)
     throw new Error("読み込めるのは200万文字までです");
-  if (/^\s*\{/.test(text)) {
-    let json;
+  if (format === "JSON") {
     try {
-      json = JSON.parse(text);
-    } catch {}
-    if (json?.format === "simple-canvas")
-      return { doc: decode(text), warnings: [], kind: "canvas" as const };
+      return {
+        doc: decode(text.trimStart()),
+        warnings: [],
+        kind: "canvas" as const,
+      };
+    } catch (error) {
+      if (error instanceof SyntaxError)
+        throw new Error("JSON として読み取れません。");
+      throw error;
+    }
   }
-  if (/\.(mmd|mermaid)$/i.test(fileName) || looksLikeFlowchart(text)) {
+  if (format === "Mermaid") {
     const result = readFlowchart(text);
     if (!result.doc.nodes.length)
       throw new Error(
@@ -33,12 +49,14 @@ export function readInput(text: string, fileName = "") {
   return { doc, warnings: [], kind: "text" as const };
 }
 
-export function ImportDialog({
+export function CanvasImportDialog({
   initialText,
+  defaultNew,
   onClose,
   onImport,
 }: {
   initialText: string;
+  defaultNew: boolean;
   onClose: () => void;
   onImport: (
     doc: CanvasDocument,
@@ -46,124 +64,22 @@ export function ImportDialog({
     newDiagram: boolean,
   ) => void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const file = useRef<HTMLInputElement>(null);
-  const readVersion = useRef(0);
-  const [text, setText] = useState(initialText);
-  const [fileName, setFileName] = useState("");
-  const [newDiagram, setNewDiagram] = useState(false);
-  const [pending, setPending] = useState<ReturnType<typeof readInput> | null>(
-    null,
-  );
-  const [error, setError] = useState("");
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
-  function update(value: string, name = "") {
-    setText(value);
-    setFileName(name);
-    setPending(null);
-    setError("");
-    readVersion.current++;
-  }
-  function submit() {
-    try {
-      const result = pending ?? readInput(text, fileName);
-      if (!pending && result.warnings.length) {
-        setPending(result);
-        return;
-      }
-      onImport(result.doc, result.kind, newDiagram);
-      onClose();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
   return (
-    <dialog
-      ref={dialog}
-      className="help-dialog paste-dialog"
-      aria-labelledby="paste-heading"
+    <ImportDialog
+      initialText={initialText}
+      defaultNew={defaultNew}
+      formats="JSON · Mermaid · テキスト"
+      detect={canvasFormat}
+      accept=".json,.simplecanvas,.mmd,.mermaid,.txt,.md"
+      maxBytes={2_000_000}
+      prepare={({ text, filename, target }) => {
+        const result = readInput(text, filename);
+        return {
+          warnings: result.warnings,
+          apply: () => onImport(result.doc, result.kind, target === "new"),
+        };
+      }}
       onClose={onClose}
-    >
-      <div className="dialog-heading">
-        <h2 id="paste-heading">Mermaid を読み込む</h2>
-        <button className="icon-button" aria-label="閉じる" onClick={onClose}>
-          <Icon name="close" />
-        </button>
-      </div>
-      <label>
-        Mermaid またはテキスト
-        <textarea
-          autoFocus
-          rows={7}
-          value={text}
-          onChange={(e) => update(e.target.value)}
-        />
-      </label>
-      <button className="secondary" onClick={() => file.current?.click()}>
-        ファイルを開く
-      </button>
-      <input
-        ref={file}
-        hidden
-        type="file"
-        accept=".mmd,.mermaid,.txt,.md,text/plain"
-        onChange={async (event) => {
-          const input = event.currentTarget,
-            selected = input.files?.[0];
-          if (!selected) return;
-          input.value = "";
-          const version = ++readVersion.current;
-          try {
-            if (selected.size > 2_000_000)
-              throw new Error("ファイルの上限は2MBです");
-            const value = await selected.text();
-            if (version === readVersion.current) update(value, selected.name);
-          } catch (e) {
-            if (version === readVersion.current)
-              setError(e instanceof Error ? e.message : String(e));
-          }
-        }}
-      />
-      <fieldset>
-        <legend>読み込み先</legend>
-        <label>
-          <input
-            type="radio"
-            checked={!newDiagram}
-            onChange={() => setNewDiagram(false)}
-            name="import-target"
-          />
-          今の図に追加
-        </label>
-        <label>
-          <input
-            type="radio"
-            checked={newDiagram}
-            onChange={() => setNewDiagram(true)}
-            name="import-target"
-          />
-          新しい図
-        </label>
-      </fieldset>
-      {pending && (
-        <div className="import-issues" role="status">
-          <strong>読み込み時のお知らせ</strong>
-          <p>{pending.warnings.join("\n")}</p>
-        </div>
-      )}
-      {error && (
-        <p className="import-issues" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="dialog-actions">
-        <button onClick={onClose}>キャンセル</button>
-        <button className="primary" disabled={!text.trim()} onClick={submit}>
-          {pending ? "読めた分を読み込む" : "読み込む"}
-        </button>
-      </div>
-    </dialog>
+    />
   );
 }

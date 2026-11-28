@@ -1,0 +1,124 @@
+.file-dialog {
+  box-sizing: border-box;
+  width: min(540px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+.file-dialog .dialog-heading,
+.file-dialog .source-row,
+.file-dialog .dialog-actions,
+.file-dialog .export-format {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.file-dialog .dialog-heading {
+  margin-bottom: 16px;
+}
+.file-dialog .dialog-heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.file-dialog button,
+.file-dialog select {
+  font: inherit;
+}
+.file-dialog button {
+  padding: 5px 12px;
+}
+.file-dialog .source-row {
+  margin-bottom: 6px;
+}
+.file-dialog textarea,
+.file-dialog select {
+  box-sizing: border-box;
+  padding: 7px;
+  background: var(--surface);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.file-dialog textarea {
+  width: 100%;
+  min-height: 6em;
+  resize: vertical;
+  font: 14px/1.5 monospace;
+}
+.file-dialog .export-format {
+  justify-content: flex-start;
+}
+.file-dialog .export-format select {
+  flex: 1;
+}
+.file-dialog fieldset {
+  border: 0;
+  margin: 14px 0;
+  padding: 0;
+}
+.file-dialog legend {
+  margin-bottom: 4px;
+}
+.file-dialog fieldset label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 16px 2px 0;
+}
+.file-dialog fieldset small {
+  display: block;
+}
+.file-dialog .file-format,
+.file-dialog small {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.file-dialog .import-issues {
+  max-height: 20dvh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+.file-dialog .dialog-actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+.file-dialog .export-setting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+.file-dialog .export-setting input,
+.file-dialog fieldset input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+.file-dialog .export-setting select {
+  flex: 1;
+  min-width: 0;
+}
+.file-dialog .dialog-heading button {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+}
+.file-dialog .dialog-actions button:not(.primary),
+.file-dialog .source-row button {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.file-dialog button:focus-visible,
+.file-dialog select:focus-visible,
+.file-dialog textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

@@ -10,13 +10,15 @@ import type { DiagramEntry, OpenDiagram } from "../shared/diagram-library.ts";
 import { DiagramList } from "../shared/DiagramList.tsx";
 import { TextField } from "../shared/TextField.tsx";
 import { library, emptyDocument, namedDocument, untitled } from "./library.ts";
-import { downloadFile, downloadPng } from "../shared/export.ts";
-import { diagramSvg, exportFilename, titleFromFile } from "./export.ts";
-import {
-  applyDefinitionCsv,
-  importTableDefinition,
-} from "./table-definition-import.ts";
+import { downloadFile, downloadPng, copyPng } from "../shared/export.ts";
+import { diagramSvg, exportFilename } from "./export.ts";
 import { tableDefinition } from "./table-definition.ts";
+import {
+  FileActions,
+  ExportDialog,
+  fileShortcut,
+} from "../shared/FileDialogs.tsx";
+import { erFormat } from "./file-import.ts";
 import { SchemaImportDialog } from "./SchemaImportDialog.tsx";
 import { diagramMermaid } from "./mermaid.ts";
 import { dialectColumns } from "./ddl-dialect.ts";
@@ -34,7 +36,6 @@ import type {
 } from "./types.ts";
 import {
   MAX_TABLES,
-  MAX_JSON_BYTES,
   MAX_CONNECTIONS,
   canConnect,
   createColumn,
@@ -232,7 +233,8 @@ function Editor({
     string | undefined
   >();
   const [infer, setInfer] = useState(false);
-  const [importFormat, setImportFormat] = useState<"DDL" | "Mermaid" | null>(
+  const [pastedSource, setPastedSource] = useState("");
+  const [fileDialog, setFileDialog] = useState<"import" | "export" | null>(
     null,
   );
   const [help, setHelp] = useState(false);
@@ -240,8 +242,6 @@ function Editor({
   const [exportingPng, setExportingPng] = useState(false);
   const [fitRequest, setFitRequest] = useState(0);
   const view = useRef<View>({ x: 0, y: 0, w: 1200, h: 720, zoom: 100 });
-  const csvFile = useRef<HTMLInputElement>(null);
-  const file = useRef<HTMLInputElement>(null);
   const options = useRef<HTMLDetailsElement>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -452,11 +452,22 @@ function Editor({
         groupDraft ||
         infer ||
         help ||
-        importFormat ||
+        fileDialog ||
         sampleList ||
         listOpen
       )
         return;
+      const shortcut = fileShortcut(e);
+      if (shortcut) {
+        e.preventDefault();
+        if (options.current) options.current.open = false;
+        if (shortcut === "s") void exportFile("json");
+        else {
+          flushTitle();
+          setFileDialog(shortcut === "o" ? "import" : "export");
+        }
+        return;
+      }
       if (
         (e.ctrlKey || e.metaKey) &&
         !e.shiftKey &&
@@ -473,6 +484,17 @@ function Editor({
         e.target.matches("input,select,textarea")
       )
         return;
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "c"
+      ) {
+        e.preventDefault();
+        if (state.tables.length && !exportingPng)
+          void exportFile("png", "copy");
+        return;
+      }
       if (
         (e.ctrlKey || e.metaKey) &&
         !e.altKey &&
@@ -536,8 +558,26 @@ function Editor({
         else undo();
       }
     };
+    const paste = (e: ClipboardEvent) => {
+      if (
+        document.querySelector("dialog[open]") ||
+        (e.target instanceof Element &&
+          e.target.closest("input,select,textarea,[contenteditable]"))
+      )
+        return;
+      const text = e.clipboardData?.getData("text/plain");
+      if (!text || !erFormat(text, "")) return;
+      e.preventDefault();
+      if (options.current) options.current.open = false;
+      setPastedSource(text);
+      setFileDialog("import");
+    };
     document.addEventListener("keydown", key);
-    return () => document.removeEventListener("keydown", key);
+    document.addEventListener("paste", paste);
+    return () => {
+      document.removeEventListener("keydown", key);
+      document.removeEventListener("paste", paste);
+    };
   });
   function open(id?: string, constraints = false, foreignKeyId?: string) {
     setEditingForeignKey(foreignKeyId);
@@ -665,8 +705,9 @@ function Editor({
       setHint(messageOf(error));
     }
   }
-  async function download(
+  async function exportFile(
     format: "json" | "svg" | "png" | "sql" | "mmd" | "md" | "csv",
+    action: "save" | "copy" = "save",
   ) {
     flushTitle();
     const doc = currentDoc.current;
@@ -674,23 +715,22 @@ function Editor({
     const name = exportFilename(doc.title) + "." + format;
     try {
       if (format === "json") downloadFile(encodeDocument(doc), name);
-      else if (format === "md" || format === "csv")
-        downloadFile(
-          tableDefinition(doc, format, logical),
-          name,
-          format === "md"
-            ? "text/markdown;charset=utf-8"
-            : "text/csv;charset=utf-8",
-        );
-      else if (format === "mmd")
-        downloadFile(diagramMermaid(diagram), name, "text/plain;charset=utf-8");
-      else if (format === "sql")
-        downloadFile(
-          diagramDDL(diagram),
-          name,
-          "application/sql;charset=utf-8",
-        );
-      else {
+      else if (format !== "svg" && format !== "png") {
+        const content =
+          format === "sql"
+            ? diagramDDL(diagram)
+            : format === "mmd"
+              ? diagramMermaid(diagram)
+              : tableDefinition(doc, format, logical);
+        const types = {
+          sql: "application/sql",
+          mmd: "text/plain",
+          md: "text/markdown",
+          csv: "text/csv",
+        };
+        if (action === "copy") await navigator.clipboard.writeText(content);
+        else downloadFile(content, name, types[format] + ";charset=utf-8");
+      } else {
         const svg = diagramSvg(
           diagram,
           tableHeading,
@@ -704,35 +744,21 @@ function Editor({
           downloadFile(svg, name, "image/svg+xml;charset=utf-8");
         else {
           setExportingPng(true);
-          await downloadPng(svg, name);
+          if (action === "copy") await copyPng(svg);
+          else await downloadPng(svg, name);
         }
       }
-      setHint("");
+      setHint(
+        action === "copy" ? "コピーしました。" : "ファイルに保存しました。",
+      );
     } catch (error) {
-      setHint(`保存できませんでした：${messageOf(error)}`);
+      setHint(
+        (action === "copy"
+          ? "コピーできませんでした："
+          : "保存できませんでした：") + messageOf(error),
+      );
     } finally {
       if (format === "png") setExportingPng(false);
-    }
-  }
-  async function copySchema(format: "DDL" | "Mermaid") {
-    let text;
-    try {
-      text = format === "Mermaid" ? diagramMermaid(state) : diagramDDL(state);
-    } catch (error) {
-      setHint(messageOf(error));
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(text);
-      setHint(
-        format === "Mermaid"
-          ? "Mermaid をコピーしました。"
-          : "全テーブルの DDL をコピーしました。",
-      );
-    } catch {
-      setHint(
-        `コピーできませんでした。ファイルメニューから ${format} を保存できます。`,
-      );
     }
   }
   // Keep the optional browser model-context integration on the React state path.
@@ -912,97 +938,11 @@ function Editor({
             <div className="file-options-panel">
               <button onClick={showList}>図の一覧</button>
               <button onClick={() => runMenu(newDiagram)}>新しい図</button>
-              <button onClick={() => file.current?.click()}>
-                ファイルを開く
-              </button>
-              <button onClick={() => setImportFormat("DDL")}>
-                DDL を読み込む
-              </button>
-              <button onClick={() => setImportFormat("Mermaid")}>
-                Mermaid を読み込む
-              </button>
-              <button onClick={() => download("json")}>ファイルに保存</button>
-              <hr />
-              <button
-                disabled={!state.tables.length}
-                onClick={() => download("svg")}
-              >
-                SVG で保存
-              </button>
-              <button
-                disabled={!state.tables.length || exportingPng}
-                onClick={() => download("png")}
-              >
-                {exportingPng ? "PNG に変換中…" : "PNG で保存"}
-              </button>
-              <label className="ddl-dialect">
-                DDL の形式
-                <select
-                  value={state.ddlDialect ?? "PostgreSQL"}
-                  onChange={(e) =>
-                    commit({
-                      ...state,
-                      ddlDialect: e.target.value as DdlDialect,
-                    })
-                  }
-                >
-                  {ddlDialects.map((dialect) => (
-                    <option key={dialect}>{dialect}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="ddl-dialect">
-                <input
-                  type="checkbox"
-                  checked={!!state.ddlAnnotations}
-                  onChange={(e) =>
-                    commit({ ...state, ddlAnnotations: e.target.checked })
-                  }
-                />
-                読み直し用の注釈を含める
-              </label>
-              <button
-                disabled={!state.tables.length}
-                onClick={() => copySchema("DDL")}
-              >
-                全テーブルの DDL をコピー
-              </button>
-              <button
-                disabled={!state.tables.length}
-                onClick={() => download("sql")}
-              >
-                全テーブルの DDL を保存
-              </button>
-              <button
-                disabled={!state.tables.length}
-                onClick={() => copySchema("Mermaid")}
-              >
-                Mermaid をコピー
-              </button>
-              <button
-                disabled={!state.tables.length}
-                onClick={() => download("mmd")}
-              >
-                Mermaid を保存
-              </button>
-              <button
-                disabled={!state.tables.length}
-                onClick={() => download("md")}
-              >
-                定義書を保存（Markdown）
-              </button>
-              <button
-                disabled={!state.tables.length}
-                onClick={() => download("csv")}
-              >
-                定義書を保存（CSV）
-              </button>
-              <button
-                disabled={!state.tables.length}
-                onClick={() => csvFile.current?.click()}
-              >
-                CSV の論理名と説明を反映
-              </button>
+              <FileActions
+                onImport={() => setFileDialog("import")}
+                onExport={() => setFileDialog("export")}
+                onSave={() => exportFile("json")}
+              />
               <hr />
               <button onClick={() => setSampleList(true)}>
                 サンプルを開く
@@ -1017,62 +957,6 @@ function Editor({
               自動保存停止中
             </span>
           )}
-          <input
-            type="file"
-            ref={csvFile}
-            aria-label="論理名と説明の CSV"
-            accept=".csv,text/csv"
-            hidden
-            onChange={async (e) => {
-              const file = e.currentTarget.files?.[0];
-              e.currentTarget.value = "";
-              if (!file) return;
-              try {
-                if (file.size > MAX_JSON_BYTES)
-                  throw new Error("ファイルの上限は16MBです。");
-                const text = await file.text();
-                if (mounted.current)
-                  replace(
-                    applyDefinitionCsv(
-                      text,
-                      projectDocument(currentDoc.current),
-                    ),
-                    "論理名と説明を反映しました。",
-                  );
-              } catch (error) {
-                if (mounted.current) setHint(messageOf(error));
-              }
-            }}
-          />
-          <input
-            ref={file}
-            type="file"
-            accept=".json,.md,.csv,application/json,text/markdown,text/csv"
-            hidden
-            onChange={async (e) => {
-              const input = e.currentTarget,
-                selectedFile = input.files?.[0];
-              if (!selectedFile) return;
-              try {
-                if (selectedFile.size > MAX_JSON_BYTES)
-                  throw new Error("ファイルの上限は16MBです。");
-                const text = await selectedFile.text();
-                const doc = /\.(md|csv)$/i.test(selectedFile.name)
-                  ? importTableDefinition(text)
-                  : decodeDocument(text);
-                createDiagram(
-                  namedDocument(doc, titleFromFile(selectedFile.name)),
-                  "ファイルを開きました",
-                );
-              } catch (error) {
-                setHint(
-                  `読み込めませんでした：${messageOf(error)} 現在の図は保持しています。`,
-                );
-              } finally {
-                input.value = "";
-              }
-            }}
-          />
         </div>
         <nav className="editing-tools" aria-label="ER図の操作">
           <div className="history-tools" role="group" aria-label="編集履歴">
@@ -1438,14 +1322,8 @@ function Editor({
                     テーブルを追加
                     <kbd className="kbd">T</kbd>
                   </button>
-                  <button onClick={() => file.current?.click()}>
-                    ファイルを開く
-                  </button>
-                  <button onClick={() => setImportFormat("DDL")}>
-                    DDL を読み込む
-                  </button>
-                  <button onClick={() => setImportFormat("Mermaid")}>
-                    Mermaid を読み込む
+                  <button onClick={() => setFileDialog("import")}>
+                    読み込む…
                   </button>
                   <button onClick={() => setSampleList(true)}>
                     サンプルを開く
@@ -1565,24 +1443,104 @@ function Editor({
           }}
         />
       )}
-      {importFormat && (
+      {fileDialog === "import" && (
         <SchemaImportDialog
-          format={importFormat}
           state={state}
-          onClose={() => setImportFormat(null)}
-          onApply={(diagram, separate, title, count, skipped) => {
-            const message =
-              (count
-                ? `${count}個のテーブルを読み込みました。`
-                : `${importFormat} を読み込みました。`) + skipped;
+          initialText={pastedSource}
+          onClose={() => {
+            setPastedSource("");
+            setFileDialog(null);
+          }}
+          onApply={(diagram, separate, message, undoable) => {
             if (separate) {
-              const doc = namedDocument(documentFromDiagram(diagram), title);
-              createDiagram(doc, message, {
-                ...emptyDocument(),
-                title: doc.title,
-              });
+              const doc = namedDocument(documentFromDiagram(diagram));
+              createDiagram(
+                doc,
+                message,
+                undoable ? { ...emptyDocument(), title: doc.title } : undefined,
+              );
             } else replace(diagram, message, true);
           }}
+        />
+      )}
+      {fileDialog === "export" && (
+        <ExportDialog
+          storageKey="er-sketch.export-format"
+          onClose={() => setFileDialog(null)}
+          formats={[
+            {
+              value: "png",
+              label: "画像（PNG）",
+              disabled: !state.tables.length || exportingPng,
+              save: () => exportFile("png"),
+              copy: () => exportFile("png", "copy"),
+            },
+            {
+              value: "svg",
+              label: "画像（SVG）",
+              disabled: !state.tables.length,
+              save: () => exportFile("svg"),
+            },
+            {
+              value: "sql",
+              label: "DDL",
+              disabled: !state.tables.length && !state.enums?.length,
+              save: () => exportFile("sql"),
+              copy: () => exportFile("sql", "copy"),
+              details: (
+                <>
+                  {" "}
+                  <label className="export-setting">
+                    SQL の方言
+                    <select
+                      value={state.ddlDialect ?? "PostgreSQL"}
+                      onChange={(e) =>
+                        commit({
+                          ...state,
+                          ddlDialect: e.target.value as DdlDialect,
+                        })
+                      }
+                    >
+                      {ddlDialects.map((dialect) => (
+                        <option key={dialect}>{dialect}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="export-setting">
+                    <input
+                      type="checkbox"
+                      checked={!!state.ddlAnnotations}
+                      onChange={(e) =>
+                        commit({ ...state, ddlAnnotations: e.target.checked })
+                      }
+                    />
+                    読み直し用の注釈を含める
+                  </label>
+                </>
+              ),
+            },
+            {
+              value: "mmd",
+              label: "Mermaid",
+              disabled: !state.tables.length,
+              save: () => exportFile("mmd"),
+              copy: () => exportFile("mmd", "copy"),
+            },
+            {
+              value: "md",
+              label: "定義書（Markdown）",
+              disabled: !state.tables.length,
+              save: () => exportFile("md"),
+              copy: () => exportFile("md", "copy"),
+            },
+            {
+              value: "csv",
+              label: "定義書（CSV）",
+              disabled: !state.tables.length,
+              save: () => exportFile("csv"),
+              copy: () => exportFile("csv", "copy"),
+            },
+          ]}
         />
       )}
       {infer && (

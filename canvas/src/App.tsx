@@ -51,7 +51,12 @@ import { DiagramList } from "../../shared/DiagramList.tsx";
 import { TextField } from "../../shared/TextField.tsx";
 import { HelpDialog } from "./HelpDialog";
 import { MemoList } from "./MemoList";
-import { ImportDialog, readInput, type ImportKind } from "./ImportDialog";
+import {
+  ExportDialog,
+  FileActions,
+  fileShortcut,
+} from "../../shared/FileDialogs.tsx";
+import { CanvasImportDialog, readInput, type ImportKind } from "./ImportDialog";
 import { VariantDialog, DecisionRecords } from "./VariantDialog";
 import { VariantComparison, type VariantPair } from "./VariantComparison";
 import {
@@ -239,9 +244,9 @@ function Editor({
       ? "自動保存できません"
       : "";
   const canvas = useRef<CanvasHandle>(null),
-    file = useRef<HTMLInputElement>(null),
     menu = useRef<HTMLDetailsElement>(null),
     help = useRef<HTMLDialogElement>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const [pasteInput, setPasteInput] = useState<string | null>(null);
   const lastSaved = useRef(initial),
     actions = useRef({
@@ -518,6 +523,11 @@ function Editor({
       x: target.x - area.x,
       y: target.y - area.y,
     });
+    if (fragment.decisions?.length)
+      result.doc.decisions = [
+        ...(result.doc.decisions ?? []),
+        ...fragment.decisions,
+      ];
     if (!commit(result.doc)) throw new Error("図に追加できませんでした");
     select(kind === "mermaid" ? [] : result.ids);
     if (kind === "mermaid") {
@@ -536,7 +546,14 @@ function Editor({
       setPasteInput(text);
       return true;
     }
-    const { doc, kind } = readInput(text);
+    // Selection copies are Canvas JSON. Other clipboard text becomes a note.
+    let isCanvas = false;
+    if (/^\s*\{/.test(text)) {
+      try {
+        isCanvas = JSON.parse(text)?.format === "simple-canvas";
+      } catch {}
+    }
+    const { doc, kind } = readInput(text, "", isCanvas ? "JSON" : "テキスト");
     importFragment(doc, kind, false);
     return true;
   }
@@ -643,7 +660,7 @@ function Editor({
     } catch (e) {
       setError(
         format === "image"
-          ? "画像をコピーできません。メニューの「PNG で保存」を使ってください。"
+          ? "画像をコピーできません。「書き出す…」から PNG で保存できます。"
           : errorMessage(e),
       );
     } finally {
@@ -667,9 +684,7 @@ function Editor({
       await navigator.clipboard.writeText(text);
       notify("Mermaid をコピーしました");
     } catch {
-      setError(
-        "コピーできません。メニューの「Mermaid で保存」を使ってください。",
-      );
+      setError("コピーできません。「書き出す…」から Mermaid で保存できます。");
     }
   }
   function pause(raw: string | null) {
@@ -872,10 +887,14 @@ function Editor({
     const key = (e: KeyboardEvent) => {
       if (isImeKey(e) || dialogOpen()) return;
       const command = e.metaKey || e.ctrlKey;
-      if (command && e.key.toLowerCase() === "s") {
+      const shortcut = fileShortcut(e);
+      if (shortcut) {
         e.preventDefault();
         (document.activeElement as HTMLElement)?.blur();
-        actions.current.save();
+        if (menu.current) menu.current.open = false;
+        if (shortcut === "o") setPasteInput("");
+        else if (shortcut === "e") setExportOpen(true);
+        else actions.current.save();
         return;
       }
       if (e.key === "Escape" && menu.current?.open) {
@@ -1166,96 +1185,17 @@ function Editor({
                 menu.current!.open = false;
             }}
           >
-            <summary aria-label="メニュー" title="メニュー">
+            <summary aria-label="ファイル" title="ファイル">
               <Icon name="menu" />
             </summary>
             <div className="file-popover">
               <button onClick={showList}>図の一覧</button>
-              <button
-                disabled={paused}
-                onClick={() => runMenu(() => makeVariant())}
-              >
-                案を作る
-              </button>
-              <button
-                aria-expanded={listOpen === "memos"}
-                onClick={toggleMemos}
-              >
-                メモの一覧
-              </button>
               <button onClick={() => runMenu(newCanvas)}>新しい図</button>
-              <button onClick={() => file.current?.click()}>
-                ファイルを開く…
-              </button>
-              <button onClick={() => setPasteInput("")}>
-                Mermaid を読み込む…
-              </button>
-              <button onClick={save}>
-                ファイルに保存 <kbd>⌘S</kbd>
-              </button>
-              <hr />
-              <button
-                disabled={!doc.nodes.length}
-                onClick={() => {
-                  downloadFile(
-                    toSvg(
-                      docRef.current,
-                      [],
-                      canvas.current?.routesFor(docRef.current),
-                    ),
-                    filename(docRef.current.title) + ".svg",
-                    "image/svg+xml",
-                  );
-                  notify("SVG で保存しました");
-                }}
-              >
-                SVG で保存
-              </button>
-              <button
-                disabled={!doc.nodes.length || !!exporting}
-                onClick={() => exportDiagram("png")}
-              >
-                {exporting === "png" ? "PNGに変換中…" : "PNG で保存"}
-              </button>
-              <button
-                disabled={!doc.nodes.length || !!exporting}
-                onClick={() => exportDiagram("image")}
-              >
-                画像をコピー <kbd>⇧⌘C</kbd>
-              </button>
-              <button
-                disabled={
-                  (!doc.nodes.length && !doc.decisions?.length) || !!exporting
-                }
-                onClick={() => exportDiagram("markdown")}
-              >
-                Markdown と画像を保存（zip）
-              </button>
-              <button
-                disabled={
-                  (!doc.nodes.length && !doc.decisions?.length) || !!exporting
-                }
-                onClick={() => exportDiagram("html")}
-              >
-                閲覧用 HTML で保存
-              </button>
-              <button
-                disabled={!canExportMermaid}
-                onClick={() => exportMermaid("copy")}
-              >
-                Mermaid をコピー
-              </button>
-              <button
-                disabled={!canExportMermaid}
-                onClick={() => exportMermaid("save")}
-              >
-                Mermaid で保存
-              </button>
-              {doc.nodes.some((n) => n.kind === "note" || n.body.trim()) && (
-                <small className="mermaid-note">
-                  Mermaid にはメモとテキストは含まれません。
-                </small>
-              )}
+              <FileActions
+                onImport={() => setPasteInput("")}
+                onExport={() => setExportOpen(true)}
+                onSave={save}
+              />
               <hr />
               <button
                 onClick={() =>
@@ -1269,7 +1209,6 @@ function Editor({
               >
                 サンプルを開く
               </button>
-              <hr />
               <button onClick={() => help.current?.showModal()}>
                 使い方 <kbd>?</kbd>
               </button>
@@ -1297,6 +1236,13 @@ function Editor({
               })
             }
           />
+          <button
+            className="variant-shortcut"
+            disabled={paused}
+            onClick={() => runMenu(() => makeVariant())}
+          >
+            案を作る
+          </button>
           {saveWarning && (
             <span className="save-status">
               <span className="save-long">{saveWarning}</span>
@@ -1343,9 +1289,7 @@ function Editor({
             {!doc.nodes.length && !placing && (
               <span className="rail-hint">
                 ← ここから図形を置きます
-                <button onClick={() => setPasteInput("")}>
-                  Mermaid を貼り付け
-                </button>
+                <button onClick={() => setPasteInput("")}>読み込む…</button>
               </span>
             )}
           </span>
@@ -1519,32 +1463,6 @@ function Editor({
           )}
         </div>
       </main>
-      <input
-        ref={file}
-        type="file"
-        accept=".json,.simplecanvas,application/json"
-        hidden
-        onChange={async (e) => {
-          const input = e.currentTarget,
-            selected = input.files?.[0];
-          if (!selected) return;
-          try {
-            if (selected.size > 2000000)
-              throw new Error("ファイルの上限は2MBです。");
-            const doc = decode(await selected.text());
-            if (input.isConnected)
-              runMenu(() => createDiagram(doc, "ファイルを開きました"));
-          } catch (error) {
-            setError(
-              "読み込めませんでした：" +
-                errorMessage(error) +
-                "（今の図はそのままです）",
-            );
-          } finally {
-            input.value = "";
-          }
-        }}
-      />
       {listOpen === "memos" && (
         <MemoList
           doc={doc}
@@ -1630,10 +1548,78 @@ function Editor({
         />
       )}
       {pasteInput !== null && (
-        <ImportDialog
+        <CanvasImportDialog
+          defaultNew={
+            !pasteInput && !!(doc.nodes.length || doc.decisions?.length)
+          }
           initialText={pasteInput}
           onImport={importFragment}
           onClose={() => setPasteInput(null)}
+        />
+      )}
+      {exportOpen && (
+        <ExportDialog
+          storageKey="simple-canvas.export-format"
+          onClose={() => setExportOpen(false)}
+          formats={[
+            {
+              value: "png",
+              label: "画像（PNG）",
+              disabled: !doc.nodes.length || !!exporting,
+              save: () => exportDiagram("png"),
+              copy: () => exportDiagram("image"),
+              details: (
+                <p className="file-format">
+                  コピーは選択部分、保存は図全体が対象です。何も選んでいないときは図全体をコピーします。
+                </p>
+              ),
+            },
+            {
+              value: "svg",
+              label: "画像（SVG）",
+              disabled: !doc.nodes.length,
+              save: () => {
+                downloadFile(
+                  toSvg(
+                    docRef.current,
+                    [],
+                    canvas.current?.routesFor(docRef.current),
+                  ),
+                  filename(docRef.current.title) + ".svg",
+                  "image/svg+xml",
+                );
+                notify("SVG で保存しました");
+              },
+            },
+            {
+              value: "mmd",
+              label: "Mermaid",
+              disabled: !canExportMermaid,
+              save: () => exportMermaid("save"),
+              copy: () => exportMermaid("copy"),
+              details: doc.nodes.some(
+                (n) => n.kind === "note" || n.body.trim(),
+              ) && (
+                <p className="file-format">
+                  Mermaid にはメモとテキストは含まれません。
+                </p>
+              ),
+            },
+            {
+              value: "html",
+              label: "閲覧用 HTML",
+              disabled:
+                (!doc.nodes.length && !doc.decisions?.length) || !!exporting,
+              save: () => exportDiagram("html"),
+            },
+            {
+              value: "markdown",
+              label: "Markdown と画像（zip）",
+              disabled:
+                (!doc.nodes.length && !doc.decisions?.length) || !!exporting,
+              save: () => exportDiagram("markdown"),
+            },
+          ]}
         />
       )}
       <HelpDialog dialog={help} />
