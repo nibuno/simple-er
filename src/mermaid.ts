@@ -1,5 +1,6 @@
 import type { Diagram, EntityRelation, Table } from "./types.ts";
 import { columnAttributes } from "./model.ts";
+import { typeName } from "./schema-constraints.ts";
 import { childMaximum } from "./relationships.ts";
 
 const encodeText = (text: string) =>
@@ -24,6 +25,14 @@ export function identifyingForeignKey(child: Table, columnIds: string[]) {
 
 export function diagramMermaid(diagram: Diagram) {
   const lines = ["erDiagram"];
+  const qualified = diagram.tables.some((t) => t.schemaName);
+  if (qualified) lines.push("    %% simple-er-qualified-names");
+  const entityName = (t: Table) =>
+    quoted(
+      qualified
+        ? typeName(t.schemaName ? [t.schemaName, t.name] : [t.name])
+        : t.name,
+    );
   if (diagram.enums?.length)
     lines.push("    %% simple-er-enums " + JSON.stringify(diagram.enums));
   const names = (t: Table, ids: string[]) =>
@@ -41,7 +50,7 @@ export function diagramMermaid(diagram: Diagram) {
       lines.push("    %% simple-er-keys " + JSON.stringify(keys));
     }
     const entity =
-      quoted(t.name) + (t.logicalName ? "[" + quoted(t.logicalName) + "]" : "");
+      entityName(t) + (t.logicalName ? "[" + quoted(t.logicalName) + "]" : "");
     const columns = t.columns.flatMap((c) => {
       const attrs = columnAttributes(c);
       return Object.keys(attrs).length ? [{ name: c.name, ...attrs }] : [];
@@ -77,7 +86,7 @@ export function diagramMermaid(diagram: Diagram) {
   }
   function relation(from: Table, to: Table, r: EntityRelation) {
     lines.push(
-      `    ${quoted(from.name)} ${r.from}${r.identifying ? "--" : ".."}${r.to} ${quoted(to.name)} : ${quoted(r.label)}`,
+      `    ${entityName(from)} ${r.from}${r.identifying ? "--" : ".."}${r.to} ${entityName(to)} : ${quoted(r.label)}`,
     );
   }
   for (const child of diagram.tables) {

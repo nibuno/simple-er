@@ -1,6 +1,7 @@
 import { serialBase } from "./column-attributes.ts";
 import { expression } from "./ddl-tokens.ts";
-import { checkTokens, enumPath } from "./schema-constraints.ts";
+import { checkTokens, identifierPath } from "./schema-constraints.ts";
+import { qualifiedTitle, tableKey } from "./model.ts";
 import { ddlType, detailsComment } from "./ddl-dialect.ts";
 import type { DdlDialect, Diagram, Table } from "./types.ts";
 
@@ -54,6 +55,18 @@ export function tableDDL(
     schema ? quote(schema) + "." + quote(name) : quote(name);
   const tableName = table.name?.trim() || table.id;
   const name = qualified(table.schemaName, tableName);
+  if (
+    sqlite &&
+    state.tables.some(
+      (t) =>
+        t.id !== table.id &&
+        tableKey(t.name, sqliteDatabase(t)) ===
+          tableKey(tableName, sqliteDatabase(table)),
+    )
+  )
+    throw new Error(
+      `SQLite ではスキーマなしと main の ${tableName} が同じテーブルになります。`,
+    );
   const constraintName = (name?: string) =>
     name ? `CONSTRAINT ${quote(name)} ` : "";
   const named = (ids: string[]) => {
@@ -85,7 +98,7 @@ export function tableDDL(
         ? `ENUM(${values})`
         : sqlite
           ? `TEXT CHECK (${quote(c.name)} IN (${values}))`
-          : enumPath(original).map(quote).join(".");
+          : identifierPath(original).map(quote).join(".");
     }
     let generation = "";
     if (sqlite && (serial || c.identity)) {
@@ -173,11 +186,31 @@ export function tableDDL(
       throw new Error(
         `${tableName} から別のデータベースへの外部キーは SQLite では使えません。`,
       );
+    if (
+      !sqlite &&
+      !parent.schemaName &&
+      table.schemaName &&
+      state.tables.some(
+        (t) =>
+          tableKey(t.name, t.schemaName) ===
+          tableKey(parent.name, table.schemaName),
+      )
+    )
+      throw new Error(
+        `${qualifiedTitle(table)} の参照先 ${parent.name} にスキーマ名を付けてください。同名のテーブルがあります。`,
+      );
     const target = qualified(
       sqlite ? undefined : parent.schemaName,
       parent.name?.trim() || parent.id,
     );
-    const constraint = `${constraintName(fk.name)}FOREIGN KEY (${named(fk.columnIds)}) REFERENCES ${target} (${targets.map(quote).join(", ")})${fk.onDelete ? ` ON DELETE ${fk.onDelete}` : ""}${fk.onUpdate ? ` ON UPDATE ${fk.onUpdate}` : ""}${detailsComment({ label: fk.label || undefined, cardinality: fk.cardinality })}`;
+    const details = detailsComment({
+      label: fk.label || undefined,
+      cardinality: fk.cardinality,
+      // SQLite omits the qualifier even when a table in main was explicitly named.
+      referenceSchema:
+        sqlite && !table.schemaName ? parent.schemaName : undefined,
+    });
+    const constraint = `${constraintName(fk.name)}FOREIGN KEY (${named(fk.columnIds)}) REFERENCES ${target} (${targets.map(quote).join(", ")})${fk.onDelete ? ` ON DELETE ${fk.onDelete}` : ""}${fk.onUpdate ? ` ON UPDATE ${fk.onUpdate}` : ""}${details}`;
     if (
       !sqlite &&
       forwardReferences &&
@@ -225,7 +258,7 @@ export function diagramDDL(
   const preamble: string[] = [];
   if (dialect === "PostgreSQL") {
     for (const e of enums) {
-      const name = enumPath(e.name)
+      const name = identifierPath(e.name)
         .map((n) => identifier(n))
         .join(".");
       const values = e.values.map((v) => literal(v, dialect)).join(", ");

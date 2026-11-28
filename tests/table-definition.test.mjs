@@ -117,3 +117,23 @@ test("CSV quotes multiline fields and aligns references, actions and index membe
     ),
   );
 });
+
+test("Markdown and CSV restore references between tables with the same physical name", async () => {
+  const { importTableDefinition } =
+    await import("../src/table-definition-import.ts");
+  const { importDDL } = await import("../src/ddl-import.ts");
+  const { documentFromDiagram } = await import("../src/model.ts");
+  const { diagram } = importDDL(
+    "CREATE TABLE auth.users(id int PRIMARY KEY); CREATE TABLE public.users(id int PRIMARY KEY REFERENCES auth.users(id));",
+  );
+  for (const format of ["md", "csv"]) {
+    const text = tableDefinition(documentFromDiagram(diagram), format);
+    assert.match(text, /auth\.users\.id/);
+    const [auth, pub] = importTableDefinition(text).schema.tables;
+    assert.deepEqual([auth.schemaName, pub.schemaName], ["auth", "public"]);
+    assert.deepEqual(pub.foreignKeys[0].target, {
+      tableId: auth.id,
+      columnIds: [auth.columns[0].id],
+    });
+  }
+});

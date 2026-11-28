@@ -1,4 +1,9 @@
-import { readChecks, registerEnum } from "./schema-constraints.ts";
+import {
+  identifierPath,
+  typeName,
+  readChecks,
+  registerEnum,
+} from "./schema-constraints.ts";
 import { messageOf } from "./utils.ts";
 import { decodeText, identifyingForeignKey } from "./mermaid.ts";
 import {
@@ -7,6 +12,7 @@ import {
   MAX_COLUMNS,
   MAX_TABLES,
   MAX_CONNECTIONS,
+  tableKey,
   uid,
 } from "./model.ts";
 import { childMaximum } from "./relationships.ts";
@@ -159,18 +165,34 @@ export function importMermaid(
     hint: Hint | undefined;
   let block: { line: number; table?: Table } | undefined;
 
-  function tableFor(name: string) {
-    const found = next.tables.find((t) => t.name === name);
+  function entityPath(entity: string) {
+    if (!qualified) return [entity];
+    const path = identifierPath(entity);
+    if (typeName(path) !== entity) bad("テーブルの修飾名を確認してください。");
+    return path;
+  }
+  function tableFor(entity: string) {
+    const path = entityPath(entity);
+    const name = path.at(-1)!,
+      schemaName = path.at(-2);
+    const found = next.tables.find(
+      (t) => t.name === name && t.schemaName === schemaName,
+    );
     if (found) return found;
     if (!name.trim() || name !== name.trim() || name.length > 80)
       return bad("テーブル名は80文字以内で指定してください。");
-    if (next.tables.some((t) => t.name.toLowerCase() === name.toLowerCase()))
+    if (
+      next.tables.some(
+        (t) => tableKey(t.name, t.schemaName) === tableKey(name, schemaName),
+      )
+    )
       return bad(`${name} はすでにあります。`);
     if (next.tables.length >= MAX_TABLES)
       return bad(`テーブルは${MAX_TABLES}個までです。`);
     const table: Table = {
       id: uid(),
       name,
+      ...(schemaName && { schemaName }),
       logicalName: "",
       x: 0,
       y: 0,
@@ -188,6 +210,10 @@ export function importMermaid(
     lines[first]?.trim() === "---"
       ? lines.findIndex((line, i) => i > first && line.trim() === "---")
       : -1;
+  // Untagged Mermaid (including older exports) treats a dot as part of an entity name.
+  const qualified = lines.some(
+    (line, i) => i > frontEnd && line.trim() === "%% simple-er-qualified-names",
+  );
   for (const [index, raw] of lines.entries()) {
     if (index <= frontEnd) continue;
     const line = index + 1,
@@ -278,9 +304,11 @@ export function importMermaid(
         body = decl[3]?.trim();
       const opens = body !== undefined && !body.endsWith("}");
       if (opens) block = { line };
+      const path = entityPath(name);
+      const key = tableKey(path.at(-1)!, path.at(-2));
       if (
         declared.has(name) ||
-        base.tables.some((t) => t.name.toLowerCase() === name.toLowerCase())
+        base.tables.some((t) => tableKey(t.name, t.schemaName) === key)
       ) {
         if (!declared.has(name)) skipped.add(name);
         bad(`${name} はすでにあります。`);

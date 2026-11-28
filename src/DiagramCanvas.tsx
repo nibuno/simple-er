@@ -25,7 +25,7 @@ import {
 } from "./geometry.ts";
 import { RelationshipDecorations } from "./RelationshipDecorations.tsx";
 import { relationshipLabels } from "./relationships.ts";
-import { MAX_COLUMNS } from "./model.ts";
+import { MAX_COLUMNS, qualifiedTitle } from "./model.ts";
 import { messageOf, moveGroup, overlaps } from "./utils.ts";
 import { Icon } from "./icons.tsx";
 import type { TableReveal } from "./diagram-view.ts";
@@ -55,6 +55,7 @@ interface Props {
   adjustingLine?: boolean;
   onAdjustable?: (value: boolean) => void;
   pending: Endpoint | null;
+  tableHeading: (t: Table) => string;
   displayTable: (t: Table) => string;
   displayColumn: (c: Column) => string;
   onEdit: (id: string) => void;
@@ -801,7 +802,7 @@ export function DiagramCanvas(p: Props) {
                       p.onCommit(next);
                   }}
                 >
-                  <title>{`${t.logicalName ? t.logicalName + " / " : ""}${t.name ?? t.id}${t.note ? "\n" + t.note : ""}`}</title>
+                  <title>{`${t.logicalName ? t.logicalName + " / " : ""}${qualifiedTitle(t)}${t.note ? "\n" + t.note : ""}`}</title>
                   <path
                     style={
                       t.color
@@ -855,7 +856,7 @@ export function DiagramCanvas(p: Props) {
                       p.onSelectTable?.(t.id);
                     }}
                   >
-                    {p.displayTable(t)}
+                    {p.tableHeading(t)}
                   </text>
                 </g>
                 <g

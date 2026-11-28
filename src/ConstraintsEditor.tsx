@@ -2,7 +2,7 @@ import type { Diagram, ForeignKey, KeyDefinition, Table } from "./types.ts";
 import { referenceActions } from "./types.ts";
 import type { ReferenceAction } from "./types.ts";
 import { childMaximum } from "./relationships.ts";
-import { title } from "./model.ts";
+import { qualifiedTitle } from "./model.ts";
 export const keyLabel = (kind: KeyDefinition["kind"]) =>
   kind === "primary"
     ? "主キー"
@@ -306,7 +306,7 @@ export function DefinitionEditor({
       {fk && (
         <>
           <div className="reference-tables">
-            <strong>{title(draft)}</strong>
+            <strong>{qualifiedTitle(draft)}</strong>
             <span aria-hidden="true">→</span>
             <label className="definition-field">
               <span>参照先テーブル</span>
@@ -318,7 +318,7 @@ export function DefinitionEditor({
                 <option value="">未設定</option>
                 {tables.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {title(t)}
+                    {qualifiedTitle(t)}
                     {t.id === draft.id ? "（このテーブル）" : ""}
                   </option>
                 ))}
@@ -406,7 +406,7 @@ export function DefinitionEditor({
             <div className="relationship-fields">
               <label className="definition-field">
                 <span>
-                  {title(target)} → {title(draft)}
+                  {qualifiedTitle(target)} → {qualifiedTitle(draft)}
                 </span>
                 <input
                   aria-label="関係ラベル"
@@ -446,9 +446,11 @@ export function DefinitionEditor({
                   const many = !parent && childMaximum(draft, fk) === "many";
                   return (
                     <label className="definition-field" key={key}>
-                      <span>{title(parent ? draft : target)} 1件に対して</span>
+                      <span>
+                        {qualifiedTitle(parent ? draft : target)} 1件に対して
+                      </span>
                       <span className="cardinality-value">
-                        <span>{title(parent ? target : draft)}</span>
+                        <span>{qualifiedTitle(parent ? target : draft)}</span>
                         <select
                           aria-label={`${parent ? "参照先" : "参照元"}の件数`}
                           value={fk.cardinality?.[key] ?? ""}

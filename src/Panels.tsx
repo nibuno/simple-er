@@ -2,6 +2,7 @@ import { useState, type RefObject } from "react";
 import { isImeKey } from "../shared/ime.ts";
 import type { Column, Diagram, ForeignKey, Table } from "./types.ts";
 import { Icon } from "./icons.tsx";
+import { qualifiedTitle } from "./model.ts";
 
 function noteMatch(note: string | undefined, query: string) {
   if (!note) return "";
@@ -75,7 +76,8 @@ export function Sidebar({
     });
     const tableMatch =
       [
-        table.name,
+        qualifiedTitle(table),
+        names.displayTable(table),
         table.logicalName,
         table.id,
         table.schemaName,

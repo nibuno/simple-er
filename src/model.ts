@@ -14,6 +14,7 @@ import { ddlDialects, referenceActions } from "./types.ts";
 import { serialBase } from "./column-attributes.ts";
 import {
   inlineEnumName,
+  typeName,
   readChecks,
   readEnum,
   readEnumValues,
@@ -25,6 +26,16 @@ import { tableColors, type TableGroup } from "./types.ts";
 
 export const uid = () => crypto.randomUUID();
 export const title = (table: Table) => table.name ?? table.id;
+export function tableKey(name: string, schema?: string) {
+  return JSON.stringify([
+    schema?.trim().toLowerCase() ?? "",
+    name.trim().toLowerCase(),
+  ]);
+}
+export function qualifiedTitle(table: Table, label = title(table)) {
+  if (table.schemaName) return typeName([table.schemaName, label]);
+  return label.includes(".") ? typeName([label]) : label;
+}
 export const MAX_TABLES = 150;
 export const MAX_CONNECTIONS = 400;
 export const MAX_COLUMNS = 60;
@@ -120,7 +131,6 @@ export function validateDiagram(input: unknown): Diagram {
       tableIds.has(t.id) ||
       !boundedText(title(t)) ||
       (t.schemaName !== undefined && !boundedText(t.schemaName)) ||
-      names.has(title(t).trim().toLowerCase()) ||
       (t.color !== undefined &&
         (typeof t.color !== "string" ||
           !Object.hasOwn(tableColors, t.color))) ||
@@ -131,7 +141,10 @@ export function validateDiagram(input: unknown): Diagram {
     if (!Array.isArray(t.columns) || t.columns.length > MAX_COLUMNS)
       fail("カラムは60個までです。");
     tableIds.add(t.id);
-    names.add(title(t).trim().toLowerCase());
+    const key = tableKey(title(t), t.schemaName);
+    if (names.has(key))
+      fail(`テーブル名 ${qualifiedTitle(t)} が重複しています。`);
+    names.add(key);
     const columnIds = new Set(),
       columnNames = new Set();
     const columns: RenderColumn[] = t.columns.map((c, i): RenderColumn => {
@@ -668,7 +681,7 @@ export function inferConnections(diagram: Diagram) {
         ).length > 1
       ) {
         skipped.push(
-          `${title(child)}.${column.name}：参照先未設定の外部キーが複数あります。「要確認」から設定してください。`,
+          `${qualifiedTitle(child)}.${column.name}：参照先未設定の外部キーが複数あります。「要確認」から設定してください。`,
         );
         return;
       }
@@ -686,7 +699,7 @@ export function inferConnections(diagram: Diagram) {
             match[1],
           ),
       );
-      const label = `${title(child)}.${column.name}`;
+      const label = `${qualifiedTitle(child)}.${column.name}`;
       if (parents.length !== 1) {
         skipped.push(
           `${label}：${parents.length ? "候補が複数あります" : "対応するテーブルがありません"}`,
@@ -709,7 +722,7 @@ export function inferConnections(diagram: Diagram) {
       candidates.push({
         from: { table: parent.id, row: pk },
         to: endpoint,
-        label: `${label} → ${title(parent)}.${parent.columns[pk].name}`,
+        label: `${label} → ${qualifiedTitle(parent)}.${parent.columns[pk].name}`,
       });
     });
   return { candidates, skipped };

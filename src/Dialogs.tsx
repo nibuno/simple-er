@@ -14,6 +14,7 @@ import type {
 } from "./types.ts";
 import {
   createColumn,
+  qualifiedTitle,
   MAX_COLUMNS,
   referenceImpacts,
   editTable,
@@ -440,7 +441,7 @@ export function TableEditor({
       target?.columns.find(
         (c) => c.id === f.target!.columnIds[f.columnIds.indexOf(columnId)],
       )?.name ?? "未設定";
-    return `${target?.name ?? target?.id ?? "未設定"}.${name}`;
+    return `${target ? qualifiedTitle(target) : "未設定"}.${name}`;
   }
   const addedColumn = useRef<string | null>(null);
   const list = useRef<HTMLDivElement>(null),
@@ -592,7 +593,9 @@ export function TableEditor({
           <Icon name="table" />
           <h2 id="editor-heading">テーブルを{creating ? "追加" : "編集"}</h2>
           {!creating && (
-            <span className="dialog-subject mono">{initial.name}</span>
+            <span className="dialog-subject mono">
+              {qualifiedTitle(initial)}
+            </span>
           )}
           <span className="spacer" />
           <kbd className="kbd">Esc</kbd>
@@ -1013,7 +1016,7 @@ export function TableEditor({
             <ul>
               {impacts.map(({ table, foreignKey: fk }) => (
                 <li key={fk.id}>
-                  {table.name || table.id}.
+                  {qualifiedTitle(table)}.
                   {fk.columnIds
                     .map((id) => table.columns.find((c) => c.id === id)?.name)
                     .join(", ")}
@@ -1045,7 +1048,7 @@ export function TableEditor({
               onClick={() => {
                 onApply(
                   removeTable(state, draft.id).next,
-                  `${draft.name || draft.id}を削除しました。${incomingCount ? `外部キー${incomingCount}件は参照先未設定として「要確認」に残しています。` : ""}「元に戻す」で復元できます。`,
+                  `${qualifiedTitle(draft)}を削除しました。${incomingCount ? `外部キー${incomingCount}件は参照先未設定として「要確認」に残しています。` : ""}「元に戻す」で復元できます。`,
                 );
                 onClose();
               }}
