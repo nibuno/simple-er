@@ -1,7 +1,9 @@
+import { ddlType, readDetails } from "./ddl-dialect.ts";
+import { serialBase } from "./column-attributes.ts";
 import { expression, SqlError, statements, Tokens } from "./ddl-tokens.ts";
 import { layoutImportedTables } from "./import-layout.ts";
 import { MAX_COLUMNS, MAX_TABLES, MAX_CONNECTIONS, uid } from "./model.ts";
-import { referenceActions } from "./types.ts";
+import { ddlDialects, referenceActions } from "./types.ts";
 import type { Diagram, ForeignKey, KeyDefinition, Table } from "./types.ts";
 
 type Name = string[];
@@ -9,7 +11,7 @@ type Constraint = { name: string; columns: string[] } & (
   | { kind: KeyDefinition["kind"] }
   | ({ kind: "foreign"; parent: Name; targets?: string[] } & Pick<
       ForeignKey,
-      "onDelete" | "onUpdate"
+      "onDelete" | "onUpdate" | "label" | "cardinality"
     >)
 );
 type Change = { table: Name; line: number } & (
@@ -52,7 +54,19 @@ function reference(
     tokens.index += action.split(" ").length;
     actions[deleting ? "onDelete" : "onUpdate"] = action;
   }
-  return { kind: "foreign", columns, name, parent, targets, ...actions };
+  const { label, cardinality } = readDetails(
+    tokens.items[tokens.index - 1]?.details,
+  );
+  return {
+    kind: "foreign",
+    columns,
+    name,
+    parent,
+    targets,
+    ...actions,
+    label,
+    cardinality,
+  };
 }
 
 function tableConstraint(tokens: Tokens): Constraint {
@@ -177,10 +191,39 @@ function parseColumn(tokens: Tokens, sql: string, issues: DdlIssue[]) {
     if (!(error instanceof SqlError)) throw error;
     issues.push({ line: error.line, message: `${name}：${error.message}` });
   }
+  const details = readDetails(tokens.items.at(-1)?.details);
+  // If the native type has since been edited, keep the SQL declaration.
+  if (
+    details.type &&
+    ddlDialects.some(
+      (dialect) =>
+        ddlType(details.type!, dialect, true).toLowerCase() ===
+        type.toLowerCase(),
+    )
+  ) {
+    column.type = details.type;
+    if (serialBase(column.type)) delete column.identity;
+  }
+  if (column.identity) {
+    if (details.identity) column.identity = details.identity;
+    if (details.identityOptions)
+      column.identityOptions = details.identityOptions;
+  }
+  if (details.note !== undefined) column.note = details.note;
+  if (details.logicalName) column.logicalName = details.logicalName;
   return { column, keys };
 }
 
 function parseOptions(tokens: Tokens, table: Table) {
+  if (tokens.keyword === "STRICT" || tokens.keyword === "WITHOUT") {
+    do {
+      if (!tokens.eat("STRICT")) {
+        tokens.need("WITHOUT");
+        tokens.need("ROWID");
+      }
+    } while (tokens.eat(","));
+    return tokens.end();
+  }
   while (tokens.current) {
     if (tokens.eat("COMMENT")) {
       tokens.eat("=");
@@ -203,6 +246,7 @@ function parseOptions(tokens: Tokens, table: Table) {
       if (!tokens.current) tokens.fail("テーブルオプションの値がありません。");
       tokens.index++;
     }
+    tokens.eat(",");
   }
 }
 
@@ -275,6 +319,9 @@ export function importDDL(
       if (!t.eat(",")) break;
     }
     t.need(")");
+    const { note, logicalName } = readDetails(t.items[t.index - 1].details);
+    if (logicalName) table.logicalName = logicalName;
+    if (note !== undefined) table.note = note;
     if (!table.columns.length)
       t.fail(`${name} に読み込めるカラムがありません。`);
     attempt(t.line, () => parseOptions(t, table));
@@ -293,7 +340,8 @@ export function importDDL(
         } else {
           const unique = t.eat("UNIQUE");
           t.need("INDEX");
-          const name = t.name();
+          const index = t.qualifiedName();
+          const name = index.at(-1)!;
           t.need("ON");
           const table = t.qualifiedName(),
             columns = t.names();
@@ -301,7 +349,10 @@ export function importDDL(
           changes.push({
             kind: unique ? "unique" : "index",
             name,
-            table,
+            table:
+              index.length === 2 && table.length === 1
+                ? [index[0], ...table]
+                : table,
             columns,
             line,
           });
@@ -416,6 +467,8 @@ export function importDDL(
             id: uid(),
             name: op.name,
             columnIds: ids,
+            ...(op.label && { label: op.label }),
+            ...(op.cardinality && { cardinality: op.cardinality }),
             ...(op.onDelete && { onDelete: op.onDelete }),
             ...(op.onUpdate && { onUpdate: op.onUpdate }),
             target: { tableId: parent.id, columnIds: targets },

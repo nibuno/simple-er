@@ -2465,6 +2465,20 @@ dialog::backdrop {
   font-size: 12px;
   color: var(--muted);
 }
+.ddl-dialect {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.ddl-dialect select {
+  min-width: 0;
+  font: inherit;
+}
 .file-options-panel hr {
   margin: 4px 0;
   border: 0;

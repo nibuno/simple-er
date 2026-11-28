@@ -10,7 +10,7 @@ import type {
   TablePosition,
   RoutePresentation,
 } from "./types.ts";
-import { referenceActions } from "./types.ts";
+import { ddlDialects, referenceActions } from "./types.ts";
 import { serialBase } from "./column-attributes.ts";
 import { tableWidth, connectionSides } from "./geometry.ts";
 
@@ -275,6 +275,7 @@ export function documentFromDiagram(diagram: Diagram): DiagramDocument {
     format: "er-sketch",
     version: 3,
     ...(valid.title && { title: valid.title }),
+    ...(valid.ddlDialect && { ddlDialect: valid.ddlDialect }),
     schema: {
       tables: valid.tables.map((t) => ({
         id: t.id,
@@ -374,6 +375,7 @@ export function projectDocument(
   const valid = validateDiagram({
     schemaVersion: 2,
     title: document.title,
+    ddlDialect: document.ddlDialect,
     groups: document.presentation.groups,
     tables,
     edges: document.entityEdges ?? [],
@@ -790,6 +792,10 @@ function normalizeRelations(diagram: Diagram): Diagram {
   return {
     schemaVersion: 2,
     ...(title && { title }),
+    ...(diagram.ddlDialect &&
+      ddlDialects.includes(diagram.ddlDialect) && {
+        ddlDialect: diagram.ddlDialect,
+      }),
     ...(diagram.groups?.length && { groups: diagram.groups }),
     tables,
     edges,

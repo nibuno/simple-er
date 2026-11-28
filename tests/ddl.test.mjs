@@ -55,7 +55,7 @@ test("DDL lists columns, keys, references, indexes and comments", () => {
   const ddl = tableDDL(orders, state);
   assert.match(
     ddl,
-    /^CREATE TABLE orders \(\n {2}id {6}uuid,\n {2}user_id uuid,/,
+    /^CREATE TABLE orders \(\n {2}id {6}uuid,\n {2}user_id uuid \/\* simple-er .*? \*\/,/,
   );
   assert.match(ddl, /PRIMARY KEY \(id\)/);
   assert.match(ddl, /FOREIGN KEY \(user_id\) REFERENCES users \(id\)\n\);/);

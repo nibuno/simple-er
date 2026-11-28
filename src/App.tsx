@@ -1,3 +1,4 @@
+import { ddlDialects, type DdlDialect } from "./types.ts";
 import { isImeKey } from "../shared/ime.ts";
 import { watchStorage } from "../shared/storage.ts";
 import { checkDiagram, DiagramChanged } from "../shared/diagram-library.ts";
@@ -671,10 +672,15 @@ function Editor({
     }
   }
   async function copySchema(format: "DDL" | "Mermaid") {
+    let text;
     try {
-      await navigator.clipboard.writeText(
-        format === "Mermaid" ? diagramMermaid(state) : diagramDDL(state),
-      );
+      text = format === "Mermaid" ? diagramMermaid(state) : diagramDDL(state);
+    } catch (error) {
+      setHint(messageOf(error));
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
       setHint(
         format === "Mermaid"
           ? "Mermaid をコピーしました。"
@@ -886,6 +892,22 @@ function Editor({
               >
                 {exportingPng ? "PNG に変換中…" : "PNG で保存"}
               </button>
+              <label className="ddl-dialect">
+                DDL の形式
+                <select
+                  value={state.ddlDialect ?? "PostgreSQL"}
+                  onChange={(e) =>
+                    commit({
+                      ...state,
+                      ddlDialect: e.target.value as DdlDialect,
+                    })
+                  }
+                >
+                  {ddlDialects.map((dialect) => (
+                    <option key={dialect}>{dialect}</option>
+                  ))}
+                </select>
+              </label>
               <button
                 disabled={!state.tables.length}
                 onClick={() => copySchema("DDL")}

@@ -1,4 +1,6 @@
-import type { Diagram, Table } from "./types.ts";
+import { serialBase } from "./column-attributes.ts";
+import { ddlType, detailsComment } from "./ddl-dialect.ts";
+import type { DdlDialect, Diagram, Table } from "./types.ts";
 
 // PostgreSQL 19 pg_get_keywords() categories R and T, plus the previously quoted index and key.
 const RESERVED = new Set(
@@ -13,57 +15,126 @@ const RESERVED = new Set(
    some symmetric system_user table tablesample then to trailing true union unique
    user using variadic verbose when where window with`.split(/\s+/),
 );
-/** Quote only identifiers that would not be valid as written. */
-export function identifier(name: string) {
-  return /^[a-z_][a-z0-9_]*$/.test(name) && !RESERVED.has(name)
-    ? name
-    : `"${name.replaceAll('"', '""')}"`;
+/** Keep familiar PostgreSQL spelling, and quote all MySQL/SQLite identifiers. */
+export function identifier(name: string, dialect: DdlDialect = "PostgreSQL") {
+  if (
+    dialect === "PostgreSQL" &&
+    /^[a-z_][a-z0-9_]*$/.test(name) &&
+    !RESERVED.has(name)
+  )
+    return name;
+  const quote = dialect === "MySQL" ? "`" : '"';
+  return quote + name.replaceAll(quote, quote + quote) + quote;
 }
-const tableIdentifier = (table: Table) =>
-  [table.schemaName, table.name?.trim() || table.id]
-    .filter((part): part is string => !!part)
-    .map(identifier)
-    .join(".");
-const literal = (text: string) => `'${text.replaceAll("'", "''")}'`;
+const literal = (text: string, dialect: DdlDialect) =>
+  "'" +
+  (dialect === "MySQL" ? text.replaceAll("\\", "\\\\") : text).replaceAll(
+    "'",
+    "''",
+  ) +
+  "'";
 
-/**
- * A PostgreSQL-flavoured preview of one table. It is a reading aid for the
- * editor, so incomplete drafts (unnamed columns, missing targets) are skipped
- * instead of rejected.
- */
+// SQLite folds ASCII letters in database names. No qualifier means main.
+const sqliteDatabase = (table: Table) =>
+  (table.schemaName ?? "main").replace(/[A-Z]/g, (ch) => ch.toLowerCase());
+
+/** Incomplete editor drafts can lack names or foreign key targets. */
 export function tableDDL(
   table: Table,
   state: Diagram,
+  dialect: DdlDialect = state.ddlDialect ?? "PostgreSQL",
   forwardReferences?: string[],
 ) {
-  const columnName = (id: string) =>
-    table.columns.find((c) => c.id === id)?.name.trim() ?? "";
+  const mysql = dialect === "MySQL",
+    sqlite = dialect === "SQLite";
+  const quote = (name: string) => identifier(name, dialect);
+  const qualified = (schema: string | undefined, name: string) =>
+    schema ? quote(schema) + "." + quote(name) : quote(name);
+  const tableName = table.name?.trim() || table.id;
+  const name = qualified(table.schemaName, tableName);
+  const constraintName = (name?: string) =>
+    name ? `CONSTRAINT ${quote(name)} ` : "";
   const named = (ids: string[]) => {
-    const names = ids.map(columnName);
-    return names.length && names.every(Boolean)
-      ? names.map(identifier).join(", ")
+    const names = ids.map((id) =>
+      table.columns.find((c) => c.id === id)?.name.trim(),
+    );
+    return names.length && names.every((n): n is string => !!n)
+      ? names.map(quote).join(", ")
       : "";
   };
-  const name = tableIdentifier(table);
-  const columns = table.columns.filter((c) => c.name.trim());
-  const width = Math.max(0, ...columns.map((c) => identifier(c.name).length));
-  const lines = columns.map((c) => {
-    const identity = c.identity
-      ? ` GENERATED ${c.identity === "always" ? "ALWAYS" : "BY DEFAULT"} AS IDENTITY${c.identityOptions ? ` (${c.identityOptions})` : ""}`
-      : "";
-    return `  ${identifier(c.name).padEnd(width)} ${c.type.trim() || "text"}${identity}${c.notNull ? " NOT NULL" : ""}${c.defaultValue ? ` DEFAULT ${c.defaultValue}` : ""}`;
-  });
   const keys = table.keys ?? [];
   const primary = keys.find((k) => k.kind === "primary");
-  if (primary && named(primary.columnIds))
+  const columns = table.columns.filter((c) => c.name.trim());
+  const width = Math.max(0, ...columns.map((c) => quote(c.name).length));
+  let inlinePrimary = false;
+  let mysqlIncrement = false;
+  const lines = columns.map((c) => {
+    const original = c.type.trim() || "text";
+    const serial = serialBase(original);
+    const indexed =
+      keys.some((k) => k.columnIds.includes(c.id)) ||
+      table.foreignKeys?.some((k) => k.columnIds.includes(c.id)) ||
+      false;
+    let type = ddlType(original, dialect, indexed);
+    let generation = "";
+    if (sqlite && (serial || c.identity)) {
+      if (primary?.columnIds.length !== 1 || primary.columnIds[0] !== c.id)
+        throw new Error(
+          `${tableName}.${c.name} を SQLite で自動採番するには、単独の主キーにしてください。`,
+        );
+      type = "INTEGER";
+      inlinePrimary = true;
+      generation =
+        " " + constraintName(primary.name) + "PRIMARY KEY AUTOINCREMENT";
+    } else if (mysql && (serial || c.identity)) {
+      if (mysqlIncrement || !keys.some((k) => k.columnIds[0] === c.id))
+        throw new Error(
+          `${tableName} の AUTO_INCREMENT はキーの先頭カラム1つに指定してください。`,
+        );
+      mysqlIncrement = true;
+      generation = " AUTO_INCREMENT";
+    } else if (c.identity) {
+      if (type === "numeric(20)" && type !== original)
+        throw new Error(
+          `${tableName}.${c.name} の符号なし BIGINT は PostgreSQL の IDENTITY の範囲を超えます。`,
+        );
+      generation = ` GENERATED ${c.identity === "always" ? "ALWAYS" : "BY DEFAULT"} AS IDENTITY${c.identityOptions ? ` (${c.identityOptions})` : ""}`;
+    }
+    let value = c.defaultValue;
+    if (mysql && value)
+      value = value.replace(/'(?:''|[^'])*'/g, (str) =>
+        str.replaceAll("\\", "\\\\"),
+      );
+    const details = detailsComment({
+      type: original !== type ? original : undefined,
+      logicalName: c.logicalName || undefined,
+      note: sqlite ? c.note : undefined,
+      identity:
+        dialect !== "PostgreSQL" && c.identity === "always"
+          ? c.identity
+          : undefined,
+      identityOptions: dialect !== "PostgreSQL" ? c.identityOptions : undefined,
+    });
+    return `  ${quote(c.name).padEnd(width)} ${type}${generation}${c.notNull ? " NOT NULL" : ""}${value ? ` DEFAULT ${value}` : ""}${mysql && c.note ? " COMMENT " + literal(c.note, dialect) : ""}${details}`;
+  });
+  if (primary && !inlinePrimary && named(primary.columnIds))
     lines.push(
-      `  ${primary.name ? `CONSTRAINT ${identifier(primary.name)} ` : ""}PRIMARY KEY (${named(primary.columnIds)})`,
+      `  ${constraintName(primary.name)}PRIMARY KEY (${named(primary.columnIds)})`,
     );
   for (const k of keys.filter((k) => k.kind === "unique"))
     if (named(k.columnIds))
-      lines.push(
-        `  ${k.name ? `CONSTRAINT ${identifier(k.name)} ` : ""}UNIQUE (${named(k.columnIds)})`,
-      );
+      lines.push(`  ${constraintName(k.name)}UNIQUE (${named(k.columnIds)})`);
+  const indexes: string[] = [];
+  keys
+    .filter((k) => k.kind === "index" && named(k.columnIds))
+    .forEach((k, i) => {
+      const index = k.name || `${tableName}_idx_${i + 1}`;
+      if (mysql) lines.push(`  INDEX ${quote(index)} (${named(k.columnIds)})`);
+      else
+        indexes.push(
+          `CREATE INDEX ${qualified(sqlite ? table.schemaName : undefined, index)} ON ${sqlite ? quote(tableName) : name} (${named(k.columnIds)});`,
+        );
+    });
   for (const fk of table.foreignKeys ?? []) {
     if (!fk.target || !named(fk.columnIds)) continue;
     const parent =
@@ -74,37 +145,64 @@ export function tableDDL(
       (id) => parent?.columns.find((c) => c.id === id)?.name.trim() ?? "",
     );
     if (!parent || !targets.every(Boolean)) continue;
-    const constraint = `${fk.name ? `CONSTRAINT ${identifier(fk.name)} ` : ""}FOREIGN KEY (${named(fk.columnIds)}) REFERENCES ${tableIdentifier(parent)} (${targets.map(identifier).join(", ")})${fk.onDelete ? ` ON DELETE ${fk.onDelete}` : ""}${fk.onUpdate ? ` ON UPDATE ${fk.onUpdate}` : ""}`;
     if (
+      mysql &&
+      (fk.onDelete === "SET DEFAULT" || fk.onUpdate === "SET DEFAULT")
+    )
+      throw new Error(
+        `${tableName} の外部キーにある SET DEFAULT は MySQL では使えません。`,
+      );
+    if (sqlite && sqliteDatabase(parent) !== sqliteDatabase(table))
+      throw new Error(
+        `${tableName} から別のデータベースへの外部キーは SQLite では使えません。`,
+      );
+    const target = qualified(
+      sqlite ? undefined : parent.schemaName,
+      parent.name?.trim() || parent.id,
+    );
+    const constraint = `${constraintName(fk.name)}FOREIGN KEY (${named(fk.columnIds)}) REFERENCES ${target} (${targets.map(quote).join(", ")})${fk.onDelete ? ` ON DELETE ${fk.onDelete}` : ""}${fk.onUpdate ? ` ON UPDATE ${fk.onUpdate}` : ""}${detailsComment({ label: fk.label || undefined, cardinality: fk.cardinality })}`;
+    if (
+      !sqlite &&
       forwardReferences &&
       state.tables.indexOf(parent) > state.tables.indexOf(table)
     )
       forwardReferences.push(`ALTER TABLE ${name} ADD ${constraint};`);
     else lines.push(`  ${constraint}`);
   }
-  const statements = [`CREATE TABLE ${name} (\n${lines.join(",\n")}\n);`];
-  keys
-    .filter((k) => k.kind === "index" && named(k.columnIds))
-    .forEach((k, i) =>
+  const tableDetails = detailsComment({
+    logicalName: table.logicalName || undefined,
+    note: sqlite ? table.note : undefined,
+  });
+  let options = "";
+  if (mysql)
+    options =
+      " ENGINE=InnoDB" +
+      (table.note ? " COMMENT=" + literal(table.note, dialect) : "");
+  const statements = [
+    `CREATE TABLE ${name} (\n${lines.join(",\n")}\n)${tableDetails}${options};`,
+    ...indexes,
+  ];
+  if (dialect === "PostgreSQL") {
+    if (table.note)
       statements.push(
-        `CREATE INDEX ${identifier(k.name || `${table.name || table.id}_idx_${i + 1}`)} ON ${name} (${named(k.columnIds)});`,
-      ),
-    );
-  if (table.note)
-    statements.push(`COMMENT ON TABLE ${name} IS ${literal(table.note)};`);
-  for (const c of columns)
-    if (c.note)
-      statements.push(
-        `COMMENT ON COLUMN ${name}.${identifier(c.name)} IS ${literal(c.note)};`,
+        `COMMENT ON TABLE ${name} IS ${literal(table.note, dialect)};`,
       );
+    for (const c of columns)
+      if (c.note)
+        statements.push(
+          `COMMENT ON COLUMN ${name}.${quote(c.name)} IS ${literal(c.note, dialect)};`,
+        );
+  }
   return statements.join("\n");
 }
 
-/** Install references to later tables after CREATE TABLE, including cycles. */
-export function diagramDDL(state: Diagram) {
+export function diagramDDL(
+  state: Diagram,
+  dialect: DdlDialect = state.ddlDialect ?? "PostgreSQL",
+) {
   const forwardReferences: string[] = [];
   const tables = state.tables.map((table) =>
-    tableDDL(table, state, forwardReferences),
+    tableDDL(table, state, dialect, forwardReferences),
   );
   return [...tables, ...forwardReferences].join("\n\n");
 }
