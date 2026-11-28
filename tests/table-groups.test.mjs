@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { initial } from "../src/initial.ts";
+import { importDDL } from "../src/ddl-import.ts";
 import { diagramDDL } from "../src/ddl.ts";
 import { diagramMermaid } from "../src/mermaid.ts";
 import { diagramSvg } from "../src/export.ts";
@@ -163,4 +164,45 @@ test("an overlapping group moves intact, carrying its manual route", () => {
   assert.equal(next.tables[2].x - third.x, dx);
   assert.equal(next.tables[2].y - third.y, next.tables[1].y - second.y);
   assert.equal(next.edges[1].trunk, 800 + dx);
+});
+
+test("migration, group placement and DDL keep same-named tables in their own schemas", () => {
+  const { diagram, issues } = importDDL(`
+    CREATE TABLE auth.users (id integer PRIMARY KEY);
+    CREATE TABLE public.users (id integer PRIMARY KEY);
+    CREATE TABLE auth.logins (user_id integer REFERENCES auth.users(id));
+  `);
+  assert.deepEqual(issues, []);
+  const [auth, pub, logins] = diagram.tables;
+  for (const [i, t] of diagram.tables.entries())
+    Object.assign(t, { x: 80 + i * 400, y: 80 });
+  const doc = documentFromDiagram(diagram);
+  const [authRow, pubRow] = doc.schema.tables;
+  Object.assign(authRow, { logicalName: "認証用", note: "認証用" });
+  Object.assign(pubRow, { logicalName: "表示用", note: "画面に出す情報" });
+  doc.presentation.groups = [
+    { id: "auth", name: "認証", tableIds: [auth.id, logins.id] },
+  ];
+  for (const version of [2, 3]) {
+    const loaded = decode(JSON.stringify({ ...doc, version }));
+    const grouped = clearGroupFrame(loaded, "auth");
+    assert.deepEqual(grouped.groups[0].tableIds, [auth.id, logins.id]);
+    assert.deepEqual(grouped.tables[0], loaded.tables[0]);
+    assert.notDeepEqual(grouped.tables[1], loaded.tables[1]);
+    const note = version === 2 ? undefined : "画面に出す情報";
+    for (const dialect of ["PostgreSQL", "MySQL", "SQLite"]) {
+      const restored = importDDL(diagramDDL(grouped, dialect));
+      assert.deepEqual(restored.issues, []);
+      const [a, p, l] = restored.diagram.tables;
+      assert.deepEqual(
+        [a.schemaName, a.logicalName, a.note],
+        ["auth", "認証用", undefined],
+      );
+      assert.deepEqual(
+        [p.schemaName, p.logicalName, p.note],
+        ["public", "表示用", note],
+      );
+      assert.equal(l.foreignKeys[0].target.tableId, a.id);
+    }
+  }
 });
