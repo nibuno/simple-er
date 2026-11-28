@@ -7,6 +7,7 @@ import {
   emptyDocument,
   encode,
   growNodes,
+  sampleDocument,
   makeNode,
   moveNodes,
   attachNote,
@@ -16,6 +17,8 @@ import {
   documentRoutes,
   memoRoutes,
   routeEdge,
+  sceneRoutes,
+  previewRoutes,
   sceneBounds,
 } from "../canvas/src/geometry.ts";
 import { toSvg } from "../canvas/src/export.ts";
@@ -632,4 +635,147 @@ test("branch labels occupy their own clear segments", () => {
           b.y + b.h <= a.y,
       );
     }
+});
+
+test("経路の折れ点とラベルが従来の配置と一致する", () => {
+  const doc = growNodes(sampleDocument());
+  doc.edges.push(
+    {
+      ...doc.edges[0],
+      id: "skip",
+      from: "browser",
+      to: "worker",
+      label: "完了",
+    },
+    { ...doc.edges[0], id: "loop", from: "db", to: "db" },
+  );
+  const { routes, memos } = sceneRoutes(doc);
+  // Captured on main (8fe1353), including a shared port, a loop and a memo.
+  const coordinates = [...routes, ...memos].map(([id, r]) => [
+    id,
+    r.points.map((p) => [p.x, p.y]),
+    [r.label.x, r.label.y],
+    r.labelLines,
+  ]);
+  assert.deepEqual(coordinates, [
+    [
+      "skip",
+      [
+        [320, 160],
+        [344, 160],
+        [344, 270],
+        [696, 270],
+        [696, 380],
+        [720, 380],
+      ],
+      [467.2, 270],
+      ["完了"],
+    ],
+    [
+      "edge-0",
+      [
+        [320, 160],
+        [360, 160],
+        [360, 150],
+        [400, 150],
+      ],
+      [340, 160],
+      [""],
+    ],
+    [
+      "edge-2",
+      [
+        [500, 200],
+        [500, 330],
+      ],
+      [554, 253.5],
+      ["通知イベント"],
+    ],
+    [
+      "edge-1",
+      [
+        [600, 150],
+        [660, 150],
+        [660, 170],
+        [720, 170],
+      ],
+      [630, 150],
+      [""],
+    ],
+    [
+      "edge-3",
+      [
+        [600, 380],
+        [720, 380],
+      ],
+      [660, 380],
+      [""],
+    ],
+    [
+      "loop",
+      [
+        [920, 170],
+        [944, 170],
+        [944, 76],
+        [820, 76],
+        [820, 100],
+      ],
+      [882, 76],
+      [""],
+    ],
+    [
+      "worker-note",
+      [
+        [820, 430],
+        [820, 466],
+      ],
+      [820, 448],
+      [""],
+    ],
+  ]);
+});
+
+test("ドラッグ中は無関係な経路を再利用し、全体を動かすと線とメモも同じ距離だけ移動する", () => {
+  const doc = growNodes(sampleDocument()),
+    base = sceneRoutes(doc),
+    moved = moveNodes(doc, ["queue", "worker"], 48, 24),
+    preview = previewRoutes(moved, doc, base);
+  assert.equal(preview.routes.get("edge-0"), base.routes.get("edge-0"));
+  assert.notDeepEqual(
+    preview.routes.get("edge-2").points,
+    base.routes.get("edge-2").points,
+  );
+  const all = moveNodes(
+      doc,
+      doc.nodes.map((n) => n.id),
+      48,
+      24,
+    ),
+    translated = previewRoutes(all, doc, base);
+  for (const [before, after] of [
+    [base.routes.get("edge-3"), translated.routes.get("edge-3")],
+    [base.memos.get("worker-note"), translated.memos.get("worker-note")],
+  ]) {
+    const translate = (p) => ({ x: p.x + 48, y: p.y + 24 });
+    assert.deepEqual(after.points, before.points.map(translate));
+    assert.deepEqual(after.label, translate(before.label));
+  }
+  const cacheBefore = structuredClone(base);
+  assert.equal(toSvg(doc, ["edge-1"], base), toSvg(doc, ["edge-1"]));
+  assert.equal(toSvg(doc, [], base), toSvg(doc));
+  assert.deepEqual(base, cacheBefore);
+});
+
+test("両端をまとめて動かすと、動いていない図形をドラッグ中も迂回する", () => {
+  const doc = place(graph([["a"], ["b"], ["block"]], [["a", "b"]]), [
+    ["a", 0, 0],
+    ["b", 700, 0],
+    ["block", 340, 200],
+  ]);
+  const next = moveNodes(doc, ["a", "b"], 0, 200),
+    preview = previewRoutes(next, doc, sceneRoutes(doc));
+  assert.deepEqual(
+    preview.routes.get("link-0").points,
+    checkRoutes(next).get("link-0").points,
+  );
 });

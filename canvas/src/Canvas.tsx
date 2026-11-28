@@ -24,7 +24,12 @@ import {
   moveNodes,
   noteContent,
 } from "./model";
-import { documentRoutes, memoRoutes, sceneBounds } from "./geometry";
+import {
+  previewRoutes,
+  sceneRoutes,
+  sceneBounds,
+  type SceneRoutes,
+} from "./geometry";
 import { snapToGuides } from "./spatial";
 import type { Guide } from "./spatial";
 import { Icon, NodeIcon } from "./Icons";
@@ -41,6 +46,7 @@ import {
 import { nodeAppearance } from "./colors";
 
 export interface CanvasHandle {
+  routesFor: (doc: CanvasDocument) => SceneRoutes | undefined;
   fit: () => void;
   centerOn: (area: ReturnType<typeof bounds>) => void;
   center: () => Point;
@@ -177,8 +183,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   );
   // A figure being added without a line is left out of routing, so existing
   // lines do not detour around it before it is confirmed.
-  const { routes, memos } = useMemo(() => {
-    const doc =
+  const routingDoc = useMemo(
+    () =>
       p.addedId &&
       !displayedDoc.edges.some(
         (e) => e.from === p.addedId || e.to === p.addedId,
@@ -187,10 +193,39 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
             ...displayedDoc,
             nodes: displayedDoc.nodes.filter((n) => n.id !== p.addedId),
           }
-        : displayedDoc;
-    const routes = documentRoutes(doc);
-    return { routes, memos: memoRoutes(doc, routes) };
-  }, [displayedDoc, p.addedId]);
+        : displayedDoc,
+    [displayedDoc, p.addedId],
+  );
+  // History retains committed documents by identity, so undo and exports can
+  // use the same complete routes. Preview results never enter this cache.
+  const [committed] = useState(
+    () => new WeakMap<CanvasDocument, SceneRoutes>(),
+  );
+  const gesture = drag.current;
+  const before =
+    gesture &&
+    (gesture.kind === "move" || gesture.kind === "resize") &&
+    gesture.moved
+      ? gesture.before
+      : displayedDoc !== p.doc && !p.addedId
+        ? p.doc
+        : undefined;
+  const computed = useMemo(() => {
+    const base = before ?? routingDoc;
+    let result = committed.get(base);
+    if (!result) {
+      result = sceneRoutes(base);
+      committed.set(base, result);
+    }
+    return before ? previewRoutes(routingDoc, before, result) : result;
+  }, [before, committed, routingDoc]);
+  const { routes, memos } = computed;
+  const displayedRoutes = useRef(computed);
+  displayedRoutes.current = computed;
+  function currentBounds() {
+    const { routes, memos } = displayedRoutes.current;
+    return sceneBounds(latest.current.doc, routes, memos);
+  }
   // The selection bar sits centered above the selection, or below it when
   // the selection is near the top of the window.
   const barAnchor = (() => {
@@ -277,7 +312,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       y: (h - b.h * zoom) / 2 - b.y * zoom,
     });
   }
-  const fit = () => centerBounds(sceneBounds(latest.current.doc));
+  const fit = () => centerBounds(currentBounds());
   // The first layout can happen before the stage has a size (a hidden pane),
   // so the initial view is settled once it has one. A stored view is kept
   // unless it hides the whole drawing or is far smaller than fitting it.
@@ -290,7 +325,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
       doc = latest.current.doc;
     if (v && !doc.nodes.length) return;
     if (v) {
-      const b = sceneBounds(doc),
+      const b = currentBounds(),
         visible = intersects(
           {
             x: b.x * v.zoom + v.x,
@@ -307,6 +342,7 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas(p, ref) {
   }
   useImperativeHandle(ref, () => ({
     fit,
+    routesFor: (doc) => committed.get(doc),
     centerOn: (area) => centerBounds(area, viewRef.current.zoom),
     center: () =>
       toWorld(

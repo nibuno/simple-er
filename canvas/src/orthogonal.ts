@@ -21,35 +21,138 @@ export function simplify(points: Point[]) {
   }
   return result;
 }
-export function clearSegment(a: Point, b: Point, nodes: Rect[]) {
-  return !nodes.some((n) =>
-    a.x === b.x
-      ? a.x > n.x + 0.5 &&
+// Candidate corridors repeatedly query the same x or y. Keep the rectangles
+// intersecting each such line, including its boundary for point queries.
+export class ObstacleIndex {
+  private columns = new Map<number, Rect[]>();
+  private rows = new Map<number, Rect[]>();
+  constructor(readonly nodes: CanvasNode[]) {}
+  along(vertical: boolean, coordinate: number) {
+    const lines = vertical ? this.columns : this.rows;
+    let line = lines.get(coordinate);
+    if (!line) {
+      line = this.nodes.filter((n) =>
+        vertical
+          ? coordinate >= n.x && coordinate <= n.x + n.w
+          : coordinate >= n.y && coordinate <= n.y + n.h,
+      );
+      lines.set(coordinate, line);
+    }
+    return line;
+  }
+  clear(a: Point, b: Point) {
+    const vertical = a.x === b.x;
+    return clearSegment(a, b, this.along(vertical, vertical ? a.x : a.y));
+  }
+}
+
+type Endpoints = { from: string; to: string };
+type Wire = {
+  vertical: boolean;
+  at: number;
+  lo: number;
+  hi: number;
+  edge?: Endpoints;
+};
+type WireLine = { wires: Wire[]; indexed: number };
+
+// Index just the wires that run along or cross each queried row/column.
+// New routes are appended in order. Refresh a line only when it is queried.
+export class WireIndex {
+  private wires: Wire[] = [];
+  private columns = new Map<number, WireLine>();
+  private rows = new Map<number, WireLine>();
+  add(parts: Segment[], edge?: Endpoints) {
+    for (const { a, b } of parts) {
+      const vertical = a.x === b.x,
+        first = vertical ? a.y : a.x,
+        last = vertical ? b.y : b.x;
+      this.wires.push({
+        vertical,
+        at: vertical ? a.x : a.y,
+        lo: Math.min(first, last),
+        hi: Math.max(first, last),
+        edge,
+      });
+    }
+  }
+  cost(a: Point, b: Point, edge: Endpoints) {
+    const vertical = a.x === b.x,
+      at = vertical ? a.x : a.y,
+      first = vertical ? a.y : a.x,
+      last = vertical ? b.y : b.x,
+      lo = Math.min(first, last),
+      hi = Math.max(first, last),
+      lines = vertical ? this.columns : this.rows;
+    let line = lines.get(at);
+    if (!line) {
+      line = { wires: [], indexed: 0 };
+      lines.set(at, line);
+    }
+    for (let i = line.indexed; i < this.wires.length; i++) {
+      const w = this.wires[i];
+      if (w.vertical !== vertical) {
+        if (at > w.lo && at < w.hi) line.wires.push(w);
+      } else if (vertical ? Math.abs(at - w.at) < 16 : at === w.at)
+        line.wires.push(w);
+    }
+    line.indexed = this.wires.length;
+    let cost = 0;
+    for (const wire of line.wires) {
+      if (vertical !== wire.vertical) {
+        if (
+          wire.at < lo ||
+          wire.at > hi ||
+          wire.edge?.from === edge.from ||
+          wire.edge?.to === edge.to
+        )
+          continue;
+        cost += wire.at === lo || wire.at === hi ? 320 : 640;
+      } else {
+        const overlap = Math.min(hi, wire.hi) - Math.max(lo, wire.lo);
+        if (
+          overlap > 0 &&
+          wire.edge?.from !== edge.from &&
+          wire.edge?.to !== edge.to
+        )
+          cost += overlap * 12 * (1 - Math.abs(at - wire.at) / 16);
+      }
+    }
+    return cost;
+  }
+}
+
+export function crossesRect(a: Point, b: Point, n: Rect) {
+  return a.x === b.x
+    ? a.x > n.x + 0.5 &&
         a.x < n.x + n.w - 0.5 &&
         Math.max(a.y, b.y) > n.y + 0.5 &&
         Math.min(a.y, b.y) < n.y + n.h - 0.5
-      : a.y > n.y + 0.5 &&
+    : a.y > n.y + 0.5 &&
         a.y < n.y + n.h - 0.5 &&
         Math.max(a.x, b.x) > n.x + 0.5 &&
-        Math.min(a.x, b.x) < n.x + n.w - 0.5,
-  );
+        Math.min(a.x, b.x) < n.x + n.w - 0.5;
+}
+export function clearSegment(a: Point, b: Point, nodes: Rect[]) {
+  return !nodes.some((n) => crossesRect(a, b, n));
 }
 export function sharedLength(a: Point, b: Point, shared: Segment[]) {
   const vertical = a.x === b.x,
     start = vertical ? Math.min(a.y, b.y) : Math.min(a.x, b.x),
     end = vertical ? Math.max(a.y, b.y) : Math.max(a.x, b.x);
-  const intervals = shared
-    .flatMap(({ a: c, b: d }) => {
-      if (vertical ? c.x !== a.x || d.x !== a.x : c.y !== a.y || d.y !== a.y)
-        return [];
-      const lo = Math.max(
-          start,
-          vertical ? Math.min(c.y, d.y) : Math.min(c.x, d.x),
-        ),
-        hi = Math.min(end, vertical ? Math.max(c.y, d.y) : Math.max(c.x, d.x));
-      return hi > lo ? [[lo, hi]] : [];
-    })
-    .sort((a, b) => a[0] - b[0]);
+  const intervals: [number, number][] = [];
+  for (const { a: c, b: d } of shared) {
+    if (vertical ? c.x !== a.x || d.x !== a.x : c.y !== a.y || d.y !== a.y)
+      continue;
+    const first = vertical ? c.y : c.x,
+      last = vertical ? d.y : d.x,
+      lo = Math.max(start, Math.min(first, last)),
+      hi = Math.min(end, Math.max(first, last));
+    if (hi > lo) intervals.push([lo, hi]);
+  }
+  if (!intervals.length) return 0;
+  if (intervals.length === 1) return intervals[0][1] - intervals[0][0];
+  intervals.sort((a, b) => a[0] - b[0]);
   let length = 0,
     covered = start;
   for (const [lo, hi] of intervals) {
@@ -58,35 +161,6 @@ export function sharedLength(a: Point, b: Point, shared: Segment[]) {
   }
   return length;
 }
-export function interference(a: Point, b: Point, occupied: Segment[]) {
-  let cost = 0;
-  for (const { a: c, b: d } of occupied) {
-    const vertical = a.x === b.x,
-      otherVertical = c.x === d.x;
-    if (vertical === otherVertical) {
-      const distance = vertical ? Math.abs(a.x - c.x) : Math.abs(a.y - c.y);
-      if (distance === 0 || (vertical && distance < 16)) {
-        const overlap = vertical
-          ? Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y)) -
-            Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y))
-          : Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x)) -
-            Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x));
-        cost += Math.max(0, overlap) * 12 * (1 - distance / 16);
-      }
-    } else {
-      const at = vertical ? c.y : c.x,
-        lo = vertical ? Math.min(a.y, b.y) : Math.min(a.x, b.x),
-        hi = vertical ? Math.max(a.y, b.y) : Math.max(a.x, b.x);
-      const inside = vertical
-        ? a.x > Math.min(c.x, d.x) && a.x < Math.max(c.x, d.x)
-        : a.y > Math.min(c.y, d.y) && a.y < Math.max(c.y, d.y);
-      if (inside && at >= lo && at <= hi)
-        cost += at === lo || at === hi ? 320 : 640;
-    }
-  }
-  return cost;
-}
-
 class RouteQueue {
   items: [number, number, number][] = [];
   push(item: [number, number, number]) {
@@ -126,12 +200,14 @@ class RouteQueue {
 export function findDetour(
   from: { p: Point; out: Point },
   to: { p: Point; out: Point },
-  nodes: CanvasNode[],
-  occupied: Segment[],
+  index: ObstacleIndex,
+  occupied: WireIndex,
+  edge: { from: string; to: string },
   trunk: number,
   row?: number,
 ) {
-  const a = from.out,
+  const nodes = index.nodes,
+    a = from.out,
     b = to.out,
     left = Math.min(a.x, b.x),
     right = Math.max(a.x, b.x),
@@ -171,7 +247,9 @@ export function findDetour(
   for (const y of ys)
     for (const x of xs) {
       if (
-        nodes.some((n) => x > n.x && x < n.x + n.w && y > n.y && y < n.y + n.h)
+        index
+          .along(true, x)
+          .some((n) => x > n.x && x < n.x + n.w && y > n.y && y < n.y + n.h)
       )
         continue;
       const id = points.length;
@@ -191,12 +269,10 @@ export function findDetour(
         v = line[i],
         p = points[u],
         q = points[v];
-      if (!clearSegment(p, q, nodes)) continue;
+      if (!index.clear(p, q)) continue;
       const direction = p.x === q.x ? 1 : 0,
         cost =
-          Math.abs(p.x - q.x) +
-          Math.abs(p.y - q.y) +
-          interference(p, q, occupied);
+          Math.abs(p.x - q.x) + Math.abs(p.y - q.y) + occupied.cost(p, q, edge);
       adjacency[u].push([v, direction, cost]);
       adjacency[v].push([u, direction, cost]);
     }
@@ -206,7 +282,9 @@ export function findDetour(
     queue = new RouteQueue();
   queue.push([start, direction, 0]);
   let end: string | null = null;
-  while (queue.items.length) {
+  // A pathological maze falls back to the best candidate already scored.
+  let remaining = 8192;
+  while (queue.items.length && remaining-- > 0) {
     const [id, dir, cost] = queue.pop(),
       key = `${id},${dir}`;
     if (cost !== distance.get(key)) continue;

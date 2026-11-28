@@ -1,3 +1,4 @@
+import type { SceneRoutes } from "./geometry";
 import { strToU8, zipSync } from "fflate";
 import { toSvg } from "./export";
 import { memoNodes, memoOwnerName } from "./model";
@@ -32,7 +33,7 @@ function literal(text: string) {
 const heading = (text: string) =>
   literal(text.replace(/\s+/g, " ").trim()).replace(/(\s)(#+)$/, "$1\\$2");
 
-export function markdownArchive(doc: CanvasDocument) {
+export function markdownArchive(doc: CanvasDocument, computed?: SceneRoutes) {
   const sections = [
     "# " + (heading(doc.title) || "無題のキャンバス"),
     "![図](./diagram.svg)",
@@ -56,7 +57,7 @@ export function markdownArchive(doc: CanvasDocument) {
   if (!memos.length) sections.push("メモはありません。");
   const zip = zipSync({
     "README.md": strToU8(sections.join("\n\n") + "\n"),
-    "diagram.svg": strToU8(toSvg(doc)),
+    "diagram.svg": strToU8(toSvg(doc, [], computed)),
   });
   return new Blob([zip], { type: "application/zip" });
 }

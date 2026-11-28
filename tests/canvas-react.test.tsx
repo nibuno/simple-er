@@ -1755,3 +1755,36 @@ for (const engine of ["Chrome", "Safari"]) {
     );
   });
 }
+
+test("無関係な線の上に図形をドラッグすると、確定時に迂回して元に戻すと元の経路になる", async () => {
+  await act(() => root.unmount());
+  const doc = emptyDocument();
+  doc.nodes = [
+    ["left", 100, 100],
+    ["right", 700, 100],
+    ["block", 400, 350],
+  ].map(([id, x, y]) => ({
+    ...makeNode("box", { x, y }),
+    id,
+    title: id,
+  }));
+  doc.edges = [
+    { id: "edge", from: "left", to: "right", label: "", dashed: false },
+  ];
+  localStorage.setItem(STORAGE_KEY, encode(doc));
+  localStorage.setItem(VIEW_KEY, JSON.stringify({ x: 0, y: 0, zoom: 1 }));
+  await mount();
+  const path = () => document.querySelector(".edge-visible").getAttribute("d"),
+    original = path(),
+    stage = label("設計キャンバス");
+  await pointer(label("blockを選択"), "pointerdown", 420, 380);
+  await pointer(stage, "pointermove", 420, 130);
+  assert.equal(path(), original);
+  await pointer(stage, "pointerup", 420, 130);
+  const detour = path();
+  assert.notEqual(detour, original);
+  await click(label("元に戻す"));
+  assert.equal(path(), original);
+  await click(label("やり直す"));
+  assert.equal(path(), detour);
+});
