@@ -79,12 +79,12 @@ test("composite FK owns all lines and survives rename, reorder, round trip and g
   assert.ok(removed.tables[1].columns.every((c) => c.key === ""));
   assert.equal(edited.edges.length, 2);
 });
-test("version 2 persistence separates definitions from presentation", () => {
+test("current persistence separates definitions from presentation", () => {
   const d = fixture();
   d.edges[0].manual = true;
   d.edges[0].trunk = 390;
   const file = JSON.parse(encode(d));
-  assert.equal(file.version, 2);
+  assert.equal(file.version, 3);
   assert.ok(!("x" in file.schema.tables[0]));
   assert.ok(!("key" in file.schema.tables[0].columns[0]));
   assert.equal(file.presentation.routes[0].foreignKeyId, "fk");
@@ -293,7 +293,7 @@ test("deleting a self-reference target keeps its source definition pending", () 
   assert.deepEqual(after.tables[0].foreignKeys[0].columnIds, ["ref1", "ref2"]);
 });
 
-test("all example documents have stable v2 round trips and derived edge counts", async () => {
+test("all example documents have stable document round trips and derived edge counts", async () => {
   const { readdir, readFile } = await import("node:fs/promises");
   for (const file of await readdir(new URL("../examples/", import.meta.url))) {
     if (!file.endsWith(".json")) continue;

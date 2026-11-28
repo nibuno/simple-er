@@ -22,7 +22,7 @@ function deepFreeze(value) {
 
 test("canonical documents contain only definitions, presentation and legacy issues", () => {
   const doc = documentFromDiagram(initial);
-  assert.equal(doc.version, 2);
+  assert.equal(doc.version, 3);
   assert.ok(!("tables" in doc) && !("edges" in doc));
   for (const t of doc.schema.tables) {
     assert.ok(!("x" in t) && !("y" in t));
@@ -230,4 +230,38 @@ test("document import rejects duplicate, dangling and malformed presentation rec
     projectDocument(decodeDocument(JSON.stringify(noRoutes))).edges.length,
     2,
   );
+});
+
+test("v1 and v2 logical names remain labels and seed notes only once", () => {
+  const v1 = {
+    format: "er-sketch",
+    version: 1,
+    diagram: {
+      tables: [
+        {
+          id: "people",
+          logicalName: "会員",
+          x: 0,
+          y: 0,
+          columns: [["id", "integer", "PK", "number", "会員番号"]],
+        },
+      ],
+      edges: [],
+    },
+  };
+  const v2 = documentFromDiagram(initial);
+  v2.version = 2;
+  v2.schema.tables[0].logicalName = "会員";
+  v2.schema.tables[0].columns[0].logicalName = "会員番号";
+  for (const legacy of [v1, v2]) {
+    const doc = decodeDocument(JSON.stringify(legacy));
+    const table = doc.schema.tables[0];
+    assert.equal(table.note, "会員");
+    assert.equal(table.logicalName, "会員");
+    assert.equal(table.columns[0].note, "会員番号");
+    assert.equal(table.columns[0].logicalName, "会員番号");
+    delete table.note;
+    table.columns[0].note = "採番は登録時に行います。";
+    assert.deepEqual(decodeDocument(encodeDocument(doc)), doc);
+  }
 });

@@ -1,4 +1,5 @@
 import type { Table, Edge, Point, Port, Route } from "./types.ts";
+import { columnMarks } from "./column-attributes.ts";
 import { detour, interference } from "./detour.ts";
 import type { Box } from "./detour.ts";
 export const WIDTH = 230,
@@ -19,7 +20,12 @@ export function tableWidth(t: Table) {
     ),
     0,
   );
-  const type = Math.max(...t.columns.map((c) => textWidth(c.type, 12)), 0);
+  const type = Math.max(
+    ...t.columns.map((c) =>
+      Math.max(textWidth(c.type, 12), textWidth(columnMarks(c), 10)),
+    ),
+    0,
+  );
   const heading =
     Math.max(textWidth(t.name ?? t.id, 17), textWidth(t.logicalName, 17)) + 82;
   return Math.ceil(Math.max(WIDTH, heading, 39 + name + 24 + type + 14));

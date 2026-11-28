@@ -5,7 +5,8 @@ import { diagramDDL, tableDDL, identifier } from "../src/ddl.ts";
 const users = {
   id: "users",
   name: "users",
-  logicalName: "ユーザー",
+  logicalName: "利用者",
+  note: "ユーザー",
   x: 0,
   y: 0,
   columns: [
@@ -31,7 +32,8 @@ const orders = {
       name: "user_id",
       type: "uuid",
       key: "FK",
-      logicalName: "ユーザーID",
+      logicalName: "利用者番号",
+      note: "ユーザーID",
     },
   ],
   keys: [

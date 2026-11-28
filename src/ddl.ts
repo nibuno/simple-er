@@ -47,10 +47,12 @@ export function tableDDL(
   const name = tableIdentifier(table);
   const columns = table.columns.filter((c) => c.name.trim());
   const width = Math.max(0, ...columns.map((c) => identifier(c.name).length));
-  const lines = columns.map(
-    (c) =>
-      `  ${identifier(c.name).padEnd(width)} ${c.type.trim() || "text"}${c.notNull ? " NOT NULL" : ""}${c.defaultValue ? ` DEFAULT ${c.defaultValue}` : ""}`,
-  );
+  const lines = columns.map((c) => {
+    const identity = c.identity
+      ? ` GENERATED ${c.identity === "always" ? "ALWAYS" : "BY DEFAULT"} AS IDENTITY${c.identityOptions ? ` (${c.identityOptions})` : ""}`
+      : "";
+    return `  ${identifier(c.name).padEnd(width)} ${c.type.trim() || "text"}${identity}${c.notNull ? " NOT NULL" : ""}${c.defaultValue ? ` DEFAULT ${c.defaultValue}` : ""}`;
+  });
   const keys = table.keys ?? [];
   const primary = keys.find((k) => k.kind === "primary");
   if (primary && named(primary.columnIds))
@@ -72,7 +74,7 @@ export function tableDDL(
       (id) => parent?.columns.find((c) => c.id === id)?.name.trim() ?? "",
     );
     if (!parent || !targets.every(Boolean)) continue;
-    const constraint = `${fk.name ? `CONSTRAINT ${identifier(fk.name)} ` : ""}FOREIGN KEY (${named(fk.columnIds)}) REFERENCES ${tableIdentifier(parent)} (${targets.map(identifier).join(", ")})`;
+    const constraint = `${fk.name ? `CONSTRAINT ${identifier(fk.name)} ` : ""}FOREIGN KEY (${named(fk.columnIds)}) REFERENCES ${tableIdentifier(parent)} (${targets.map(identifier).join(", ")})${fk.onDelete ? ` ON DELETE ${fk.onDelete}` : ""}${fk.onUpdate ? ` ON UPDATE ${fk.onUpdate}` : ""}`;
     if (
       forwardReferences &&
       state.tables.indexOf(parent) > state.tables.indexOf(table)
@@ -88,14 +90,12 @@ export function tableDDL(
         `CREATE INDEX ${identifier(k.name || `${table.name || table.id}_idx_${i + 1}`)} ON ${name} (${named(k.columnIds)});`,
       ),
     );
-  if (table.logicalName?.trim())
-    statements.push(
-      `COMMENT ON TABLE ${name} IS ${literal(table.logicalName.trim())};`,
-    );
+  if (table.note)
+    statements.push(`COMMENT ON TABLE ${name} IS ${literal(table.note)};`);
   for (const c of columns)
-    if (c.logicalName?.trim())
+    if (c.note)
       statements.push(
-        `COMMENT ON COLUMN ${name}.${identifier(c.name)} IS ${literal(c.logicalName.trim())};`,
+        `COMMENT ON COLUMN ${name}.${identifier(c.name)} IS ${literal(c.note)};`,
       );
   return statements.join("\n");
 }

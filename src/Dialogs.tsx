@@ -21,6 +21,7 @@ import {
   uid,
 } from "./model.ts";
 import { messageOf, overlaps } from "./utils.ts";
+import { serialBase, serialType } from "./column-attributes.ts";
 import { tableDDL } from "./ddl.ts";
 import { Icon } from "./icons.tsx";
 import { samples } from "./samples.ts";
@@ -28,6 +29,10 @@ const TYPES = [
   "uuid",
   "integer",
   "bigint",
+  "smallint",
+  "smallserial",
+  "serial",
+  "bigserial",
   "text",
   "varchar(255)",
   "boolean",
@@ -36,6 +41,74 @@ const TYPES = [
   "decimal",
   "json",
 ];
+function ColumnDetails({
+  column,
+  update,
+}: {
+  column: Column;
+  update: (patch: Partial<Column>) => void;
+}) {
+  const base = serialBase(column.type);
+  const serial = serialType(column.type);
+  const generation = base ? "serial" : (column.identity ?? "");
+  return (
+    <div className="column-details">
+      <label className="definition-field">
+        既定値（SQL）
+        <input
+          aria-label={`${column.name}の既定値`}
+          placeholder="例: CURRENT_TIMESTAMP"
+          value={column.defaultValue ?? ""}
+          disabled={!!generation && !column.defaultValue}
+          onChange={(e) =>
+            update({ defaultValue: e.target.value || undefined })
+          }
+        />
+      </label>
+      <label className="definition-field">
+        自動採番
+        <select
+          aria-label={`${column.name}の自動採番`}
+          value={generation}
+          disabled={!!column.defaultValue && !generation}
+          onChange={(e) => {
+            const mode = e.target.value;
+            update({
+              type:
+                mode === "serial"
+                  ? (serial ?? column.type)
+                  : (base ?? column.type),
+              identity:
+                mode === "always" || mode === "byDefault" ? mode : undefined,
+              identityOptions:
+                mode === "always" || mode === "byDefault"
+                  ? column.identityOptions
+                  : undefined,
+            });
+          }}
+        >
+          <option value="">なし</option>
+          <option value="byDefault" disabled={!serial && !generation}>
+            IDENTITY（既定）
+          </option>
+          <option value="always" disabled={!serial && !generation}>
+            IDENTITY（常に生成）
+          </option>
+          {(base || serial) && <option value="serial">SERIAL</option>}
+        </select>
+      </label>
+      <label className="definition-field column-note">
+        説明
+        <textarea
+          aria-label={`${column.name}の説明`}
+          rows={2}
+          value={column.note ?? ""}
+          onChange={(e) => update({ note: e.target.value })}
+        />
+      </label>
+    </div>
+  );
+}
 export function Modal({
   id,
   onClose,
@@ -193,6 +266,7 @@ export function TableEditor({
       ? { kind: "foreign", id: fk.id, before: structuredClone(fk) }
       : null;
   });
+  const [detailId, setDetailId] = useState<string | null>(null);
   const impacts = referenceImpacts(state, draft);
   const removedForeignKeys = (initial.foreignKeys ?? []).filter(
     (f) => !draft.foreignKeys?.some((next) => next.id === f.id),
@@ -346,10 +420,7 @@ export function TableEditor({
     input.focus({ preventScroll: true });
     input.select();
   }, [draft.columns]);
-  function column(
-    index: number,
-    patch: Partial<Pick<Column, "name" | "type" | "logicalName">>,
-  ) {
+  function column(index: number, patch: Partial<Omit<Column, "id">>) {
     setDraft((d) => ({
       ...d,
       columns: d.columns.map((c, i) => (i === index ? { ...c, ...patch } : c)),
@@ -507,6 +578,15 @@ export function TableEditor({
               </label>
             </div>
             <div className="table-editor-body" ref={body}>
+              <details className="table-note">
+                <summary>テーブルの説明</summary>
+                <textarea
+                  aria-label="テーブルの説明"
+                  rows={2}
+                  value={draft.note ?? ""}
+                  onChange={(e) => setDraft({ ...draft, note: e.target.value })}
+                />
+              </details>
               <div className="column-heading">
                 <h3>
                   カラム
@@ -524,6 +604,7 @@ export function TableEditor({
                 <span>型</span>
                 <span>主キー</span>
                 <span>一意</span>
+                <span title="NOT NULL">NN</span>
                 <span>参照先</span>
                 <span />
               </div>
@@ -658,6 +739,17 @@ export function TableEditor({
                           }
                         />
                       </label>
+                      <label className="column-check nn-check" title="NOT NULL">
+                        <span aria-hidden="true">NN</span>
+                        <input
+                          type="checkbox"
+                          aria-label={`${c.name}のNOT NULL`}
+                          checked={!!c.notNull}
+                          onChange={(e) =>
+                            column(i, { notNull: e.target.checked })
+                          }
+                        />
+                      </label>
                       <div className="column-references">
                         {draft.foreignKeys
                           ?.filter((f) => f.columnIds.includes(c.id))
@@ -685,6 +777,17 @@ export function TableEditor({
                         </button>
                       </div>
                       <div className="row-actions">
+                        <button
+                          type="button"
+                          className="detail-toggle"
+                          aria-label={`${c.name}の詳細`}
+                          aria-expanded={detailId === c.id}
+                          onClick={() =>
+                            setDetailId(detailId === c.id ? null : c.id)
+                          }
+                        >
+                          詳細
+                        </button>
                         <button
                           type="button"
                           className="delete-column"
@@ -724,6 +827,12 @@ export function TableEditor({
                           </svg>
                         </button>
                       </div>
+                      {detailId === c.id && (
+                        <ColumnDetails
+                          column={c}
+                          update={(patch) => column(i, patch)}
+                        />
+                      )}
                     </div>
                   );
                 })}

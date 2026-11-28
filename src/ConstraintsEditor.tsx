@@ -1,4 +1,6 @@
 import type { Diagram, ForeignKey, KeyDefinition, Table } from "./types.ts";
+import { referenceActions } from "./types.ts";
+import type { ReferenceAction } from "./types.ts";
 import { childMaximum } from "./relationships.ts";
 import { title } from "./model.ts";
 export const keyLabel = (kind: KeyDefinition["kind"]) =>
@@ -414,6 +416,30 @@ export function DefinitionEditor({
                   onChange={(e) => patchFk({ label: e.target.value })}
                 />
               </label>
+              <div className="cardinality-fields">
+                {(["onDelete", "onUpdate"] as const).map((action) => (
+                  <label className="definition-field" key={action}>
+                    {action === "onDelete" ? "親の削除時" : "親の更新時"}
+                    <select
+                      aria-label={
+                        action === "onDelete" ? "親の削除時" : "親の更新時"
+                      }
+                      value={fk[action] ?? ""}
+                      onChange={(e) =>
+                        patchFk({
+                          [action]:
+                            (e.target.value as ReferenceAction) || undefined,
+                        })
+                      }
+                    >
+                      <option value="">未指定</option>
+                      {referenceActions.map((value) => (
+                        <option key={value}>{value}</option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
               <div className="cardinality-fields">
                 {(["parentMinimum", "childMinimum"] as const).map((key) => {
                   const parent = key === "parentMinimum";

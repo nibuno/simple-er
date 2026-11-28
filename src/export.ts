@@ -8,6 +8,7 @@ import {
   ROW,
   tableWidth,
 } from "./geometry.ts";
+import { columnMarks } from "./column-attributes.ts";
 import { title } from "./model.ts";
 import {
   cardinalityMarker,
@@ -41,6 +42,7 @@ function tableSvg(
   const rows = table.columns
     .map((column, index) => {
       const y = HEADER + index * ROW;
+      const marks = columnMarks(column);
       const both = column.key === "PK,FK";
       const badge = column.key
         ? `
@@ -49,7 +51,8 @@ function tableSvg(
         : "";
       return `${badge}
       <text x="41" y="${y + 24}" font-size="14">${escapeXml(columnName(column))}</text>
-      <text x="${w - 14}" y="${y + 24}" text-anchor="end" font-size="12" fill="#52525b">${escapeXml(column.type)}</text>`;
+      <text x="${w - 14}" y="${y + (marks ? 17 : 24)}" text-anchor="end" font-size="12" fill="#52525b">${escapeXml(column.type)}</text>
+      ${marks ? `<text x="${w - 14}" y="${y + 31}" text-anchor="end" font-size="10" fill="#52525b">${marks}</text>` : ""}`;
     })
     .join("");
   return `<g transform="translate(${table.x} ${table.y})">

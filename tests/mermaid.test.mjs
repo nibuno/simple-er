@@ -158,3 +158,42 @@ test("a relationship alone can connect existing tables without moving them", () 
     label: "relates",
   });
 });
+
+test("Mermaid preserves separate names, notes, column properties and reference actions", () => {
+  const note = "登録時に指定。".repeat(20) + '\n"quoted"';
+  const original = importMermaid(
+    'erDiagram\nP { bigint id PK }\nC { bigint id FK "親番号" }',
+  ).diagram;
+  const [p, c] = original.tables;
+  p.note = note;
+  p.columns[0].identity = "always";
+  p.columns[0].identityOptions = "START WITH 20";
+  c.columns[0].notNull = true;
+  c.columns[0].defaultValue = "(1 + 2)";
+  c.columns[0].note = note;
+  Object.assign(c.foreignKeys[0], {
+    target: { tableId: p.id, columnIds: [p.columns[0].id] },
+    onDelete: "RESTRICT",
+    onUpdate: "CASCADE",
+  });
+  const text = diagramMermaid(original);
+  const { diagram, issues } = importMermaid(text);
+  assert.deepEqual(issues, []);
+  assert.equal(diagramDDL(diagram), diagramDDL(original));
+  assert.equal(diagram.tables[1].columns[0].logicalName, "親番号");
+  assert.equal(diagramMermaid(decode(encode(diagram))), text);
+  const plain = importMermaid(
+    'erDiagram\nP { text info "' + "説明".repeat(90) + '" }',
+  );
+  assert.deepEqual(plain.issues, []);
+  assert.equal(plain.diagram.tables[0].columns[0].note, "説明".repeat(90));
+});
+
+test("invalid Mermaid detail metadata leaves the other attributes intact", () => {
+  const { diagram, issues } = importMermaid(
+    'erDiagram\nP {\n int id\n %% simple-er-details {"note":"discard","columns":[{"name":"id","notNull":"false"}]}\n}',
+  );
+  assert.equal(issues[0].line, 4);
+  assert.equal(diagram.tables[0].note, undefined);
+  assert.equal(diagram.tables[0].columns[0].notNull, undefined);
+});

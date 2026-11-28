@@ -1834,3 +1834,60 @@ test("an invalid name stays editable when leaving through Tab or the grid", asyn
   await key(input, "Escape");
   assert.equal(saved().tables[0].columns[0].name, "id");
 });
+
+test("column details and referential actions can be edited, cleared and undone", async () => {
+  async function choose(select, value) {
+    await act(() => {
+      select.value = value;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+  await click(byLabel("ordersを編集"));
+  await type(byLabel("テーブルの説明"), "注文の明細は別表に記録します。");
+  await click(byLabel("totalのNOT NULL"));
+  await click(byLabel("totalの詳細"));
+  await type(byLabel("totalの既定値"), "0");
+  await type(byLabel("totalの説明"), "税込の合計");
+  await click(byLabel("idの詳細"));
+  await choose(byLabel("カラム1の型"), "integer");
+  await choose(byLabel("idの自動採番"), "serial");
+  assert.equal(byLabel("カラム1の型").value, "serial");
+  await click(byLabel("user_idの参照先 users.idを編集"));
+  await choose(
+    document.querySelector('select[aria-label="親の削除時"]'),
+    "CASCADE",
+  );
+  await choose(
+    document.querySelector('select[aria-label="親の更新時"]'),
+    "RESTRICT",
+  );
+  await click(byText("完了"));
+  await submit();
+  const order = saved().tables[1];
+  assert.equal(order.note, "注文の明細は別表に記録します。");
+  assert.equal(order.columns[0].type, "serial");
+  assert.equal(order.columns[2].note, "税込の合計");
+  assert.equal(order.columns[2].notNull, true);
+  assert.equal(order.columns[2].defaultValue, "0");
+  assert.equal(order.foreignKeys[0].onUpdate, "RESTRICT");
+  assert.deepEqual(
+    [...document.querySelectorAll(".column-marks")].map((n) => n.textContent),
+    ["AI", "NN · DF"],
+  );
+  await click(byLabel("usersからordersへの接続線"));
+  assert.match(
+    document.querySelector("#edge-label").textContent,
+    /削除時 CASCADE更新時 RESTRICT/,
+  );
+  await click(byText("外部キーを編集"));
+  await choose(document.querySelector('select[aria-label="親の削除時"]'), "");
+  await click(byText("完了"));
+  await click(byLabel("idの詳細"));
+  await choose(byLabel("idの自動採番"), "always");
+  await submit();
+  assert.equal(saved().tables[1].columns[0].type, "integer");
+  assert.equal(saved().tables[1].columns[0].identity, "always");
+  assert.equal(saved().tables[1].foreignKeys[0].onDelete, undefined);
+  await click(byLabel("元に戻す"));
+  assert.deepEqual(saved().tables[1], order);
+});
