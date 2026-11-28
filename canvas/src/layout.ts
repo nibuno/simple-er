@@ -1,6 +1,4 @@
 import type { CanvasDocument, CanvasNode, Point } from "./types";
-import { documentRoutes } from "./geometry";
-import { clearSegment, interference, segments } from "./orthogonal";
 import { connectionAxis, overlapArea } from "./spatial";
 
 // Tidy is a local adjustment: distance along the flow and the existing order
@@ -192,35 +190,18 @@ export function arrangeBoxes(
     return next;
   }
   function score(points: Map<string, Point>) {
-    const candidate = project(points),
-      routes = documentRoutes(candidate),
-      bodies = candidate.nodes.filter((n) => n.kind !== "group"),
-      routed: {
-        from: string;
-        to: string;
-        segments: ReturnType<typeof segments>;
-      }[] = [];
+    const nodes = new Map(project(points).nodes.map((n) => [n.id, n]));
     let total = 0;
-    for (const edge of [...candidate.edges].sort((a, b) =>
-      a.id.localeCompare(b.id),
-    )) {
-      const route = routes.get(edge.id)!;
-      if (route.points.length < 2) {
-        total += 1e6;
-        continue;
-      }
-      total += Math.max(0, route.points.length - 2) * 60;
-      const parts = segments(route.points),
-        occupied = routed
-          .filter((r) => r.from !== edge.from && r.to !== edge.to)
-          .flatMap((r) => r.segments);
-      for (const { a, b } of parts) {
-        total +=
-          (Math.abs(a.x - b.x) + Math.abs(a.y - b.y)) * 0.25 +
-          interference(a, b, occupied) * 0.25;
-        if (!clearSegment(a, b, bodies)) total += 1e6;
-      }
-      routed.push({ from: edge.from, to: edge.to, segments: parts });
+    for (const edge of doc.edges) {
+      const from = nodes.get(edge.from)!,
+        to = nodes.get(edge.to)!;
+      if (from === to) continue;
+      const axis = connectionAxis(from, to),
+        cross = axis === "x" ? "y" : "x";
+      const offset = Math.abs(center(from, cross) - center(to, cross));
+      // An aligned connection saves two bends. Longer off-axis spans
+      // contribute distance without pulling unrelated branches together.
+      total += (offset > 0.000001 ? 120 : 0) + offset * 0.25;
     }
     // Original positions are anchors: a tidier wire must justify moving a box.
     for (const [id, point] of points) {

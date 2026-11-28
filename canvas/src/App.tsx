@@ -496,18 +496,19 @@ function Editor({
     flushInput();
     const current = docRef.current;
     if (!current.nodes.length || exporting) return;
+    const computed = canvas.current?.routesFor(current);
     setExporting(format);
     try {
       if (format === "png") {
-        await exportPng(current);
+        await exportPng(current, computed);
         notify("PNGで保存しました");
       } else if (format === "image") {
-        await copyImage(current, selectionRef.current);
+        await copyImage(current, selectionRef.current, computed);
         notify("画像をコピーしました");
       } else {
         const { markdownArchive } = await import("./markdown");
         downloadFile(
-          markdownArchive(current),
+          markdownArchive(current, computed),
           filename(current.title) + ".zip",
         );
         notify("Markdownと図を保存しました");
@@ -1021,7 +1022,11 @@ function Editor({
                 disabled={!doc.nodes.length}
                 onClick={() => {
                   downloadFile(
-                    toSvg(docRef.current),
+                    toSvg(
+                      docRef.current,
+                      [],
+                      canvas.current?.routesFor(docRef.current),
+                    ),
                     filename(docRef.current.title) + ".svg",
                     "image/svg+xml",
                   );

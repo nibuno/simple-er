@@ -3,9 +3,10 @@ import { bounds, connectionAxis, overlapArea } from "./spatial";
 import { textWidth, wrapText } from "./text";
 import { PERSON_ARM_Y } from "./shapes";
 import {
-  clearSegment,
+  crossesRect,
+  ObstacleIndex,
+  WireIndex,
   findDetour,
-  interference,
   segments,
   sharedLength,
   simplify,
@@ -71,7 +72,8 @@ function port(node: CanvasNode, side: Side) {
   };
 }
 interface RouteContext {
-  occupied?: Segment[];
+  occupied?: Segment[] | WireIndex;
+  obstacles?: ObstacleIndex;
   shared?: Segment[];
   trunk?: number;
   row?: number;
@@ -85,9 +87,14 @@ export function routeEdge(
     to = nodes.find((n) => n.id === edge.to)!;
   if (!from || !to)
     return { points: [], path: "", label: { x: 0, y: 0 }, labelLines: [] };
-  const obstacles = nodes.filter((n) => n.kind !== "group");
-  const occupied = context.occupied || [],
-    shared = context.shared || [],
+  const index =
+    context.obstacles ??
+    new ObstacleIndex(nodes.filter((n) => n.kind !== "group"));
+  const obstacles = index.nodes;
+  const occupied =
+    context.occupied instanceof WireIndex ? context.occupied : new WireIndex();
+  if (Array.isArray(context.occupied)) occupied.add(context.occupied);
+  const shared = context.shared || [],
     scene = bounds(obstacles),
     preferred: [Side, Side] =
       from.id === to.id
@@ -130,11 +137,19 @@ export function routeEdge(
   let best: Point[] = [],
     bestScore = Infinity,
     blocked = true;
+  const ports = (node: CanvasNode) => ({
+    left: port(node, "left"),
+    right: port(node, "right"),
+    top: port(node, "top"),
+    bottom: port(node, "bottom"),
+  });
+  const starts = ports(from),
+    ends = ports(to);
   const accept = (raw: Point[], s: Side, t: Side) => {
     const points = simplify(raw);
     if (points.length < 2) return;
-    const a = port(from, s),
-      b = port(to, t),
+    const a = starts[s],
+      b = ends[t],
       start = points[1],
       end = points.at(-2)!;
     // Connections leave and enter along the outward normal of the shape.
@@ -156,13 +171,26 @@ export function routeEdge(
         (points.length - 2) * 60 +
         (s === preferred[0] && t === preferred[1] ? 0 : 180),
       clear = true;
-    for (const { a, b } of segments(points)) {
+    // The shared-wire discount is at most 8% of length. Reject a
+    // candidate before costing its crossings if even this bound loses.
+    let length = 0;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1],
+        b = points[i];
+      if (bestScore < 1000000 && !index.clear(a, b)) return;
+      length += Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    }
+    if (score + length * 0.92 > bestScore) return;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1],
+        b = points[i];
+      if (score >= bestScore) return;
       score +=
         Math.abs(a.x - b.x) +
         Math.abs(a.y - b.y) +
-        interference(a, b, occupied) -
+        occupied.cost(a, b, edge) -
         sharedLength(a, b, shared) * 0.08;
-      if (!clearSegment(a, b, obstacles)) {
+      if (bestScore >= 1000000 && !index.clear(a, b)) {
         clear = false;
         score += 1000000;
       }
@@ -177,40 +205,36 @@ export function routeEdge(
       blocked = !clear;
     }
   };
+  const columns = new Set([
+      scene.x - 36,
+      scene.x + scene.w + 36,
+      ...nearby.flatMap((n) => [n.x - 20, n.x + n.w + 20]),
+      ...shared.filter(({ a, b }) => a.x === b.x).map(({ a }) => a.x),
+      ...(context.trunk === undefined
+        ? []
+        : [-32, -16, 16, 32].map((offset) => context.trunk! + offset)),
+    ]),
+    rows = new Set([
+      scene.y - 36,
+      scene.y + scene.h + 36,
+      ...nearby.flatMap((n) => [n.y - 20, n.y + n.h + 20]),
+      ...shared.filter(({ a, b }) => a.y === b.y).map(({ a }) => a.y),
+      ...(context.row === undefined
+        ? []
+        : [-32, -16, 16, 32].map((offset) => context.row! + offset)),
+    ]);
   for (const [s, t] of pairs) {
-    const a = port(from, s),
-      b = port(to, t);
+    const a = starts[s],
+      b = ends[t];
     const add = (mid: Point[]) =>
       accept([a.p, a.out, ...mid, b.out, b.p], s, t);
     if (a.p.x === b.p.x || a.p.y === b.p.y) accept([a.p, b.p], s, t);
     add([{ x: b.out.x, y: a.out.y }]);
     add([{ x: a.out.x, y: b.out.y }]);
-    const xs = [
-      ...new Set([
-        context.trunk ?? (a.out.x + b.out.x) / 2,
-        (a.out.x + b.out.x) / 2,
-        scene.x - 36,
-        scene.x + scene.w + 36,
-        ...nearby.flatMap((n) => [n.x - 20, n.x + n.w + 20]),
-        ...shared.filter(({ a, b }) => a.x === b.x).map(({ a }) => a.x),
-        ...(context.trunk === undefined
-          ? []
-          : [-32, -16, 16, 32].map((offset) => context.trunk! + offset)),
-      ]),
-    ];
-    const ys = [
-      ...new Set([
-        context.row ?? (a.out.y + b.out.y) / 2,
-        (a.out.y + b.out.y) / 2,
-        scene.y - 36,
-        scene.y + scene.h + 36,
-        ...nearby.flatMap((n) => [n.y - 20, n.y + n.h + 20]),
-        ...shared.filter(({ a, b }) => a.y === b.y).map(({ a }) => a.y),
-        ...(context.row === undefined
-          ? []
-          : [-32, -16, 16, 32].map((offset) => context.row! + offset)),
-      ]),
-    ];
+    const midX = (a.out.x + b.out.x) / 2,
+      midY = (a.out.y + b.out.y) / 2;
+    const xs = new Set([context.trunk ?? midX, midX, ...columns]);
+    const ys = new Set([context.row ?? midY, midY, ...rows]);
     for (const x of xs)
       add([
         { x, y: a.out.y },
@@ -224,13 +248,14 @@ export function routeEdge(
   }
   if (blocked) {
     for (const [s, t] of pairs) {
-      const a = port(from, s),
-        b = port(to, t),
+      const a = starts[s],
+        b = ends[t],
         path = findDetour(
           a,
           b,
-          obstacles,
+          index,
           occupied,
+          edge,
           context.trunk ?? (a.out.x + b.out.x) / 2,
           context.row,
         );
@@ -299,9 +324,68 @@ function placeLabel(
   }
   return best;
 }
-export function documentRoutes(doc: CanvasDocument) {
+export interface SceneRoutes {
+  routes: Map<string, Route>;
+  memos: Map<string, Route>;
+}
+
+interface Preview {
+  base: SceneRoutes;
+  // No entry means unchanged. null means resized or newly added.
+  changes: Map<string, Point | null>;
+}
+
+function previewRoute(
+  route: Route | undefined,
+  preview: Preview,
+  from: string,
+  to: string,
+) {
+  if (!route) return;
+  const a = preview.changes.get(from),
+    b = preview.changes.get(to);
+  if (a === undefined && b === undefined) return route;
+  if (a && b && a.x === b.x && a.y === b.y) {
+    const translate = (p: Point) => ({ x: p.x + a.x, y: p.y + a.y });
+    const points = route.points.map(translate);
+    return {
+      ...route,
+      points,
+      path: rounded(points),
+      label: translate(route.label),
+    };
+  }
+}
+
+export function sceneRoutes(doc: CanvasDocument): SceneRoutes {
+  const routes = documentRoutes(doc);
+  return { routes, memos: memoRoutes(doc, routes) };
+}
+
+// A drag/resize only changes node geometry. Keep unrelated wires and labels
+// in place until release, including when a moving box passes over a wire.
+export function previewRoutes(
+  doc: CanvasDocument,
+  before: CanvasDocument,
+  base: SceneRoutes,
+): SceneRoutes {
+  const previous = new Map(before.nodes.map((n) => [n.id, n]));
+  const changes: Preview["changes"] = new Map();
+  for (const n of doc.nodes) {
+    const old = previous.get(n.id);
+    if (!old || n.w !== old.w || n.h !== old.h) changes.set(n.id, null);
+    else if (n.x !== old.x || n.y !== old.y)
+      changes.set(n.id, { x: n.x - old.x, y: n.y - old.y });
+  }
+  const preview = { base, changes };
+  const routes = documentRoutes(doc, preview);
+  return { routes, memos: memoRoutes(doc, routes, preview) };
+}
+export function documentRoutes(doc: CanvasDocument, preview?: Preview) {
   const nodes = new Map(doc.nodes.map((n) => [n.id, n])),
     routes = new Map<string, Route>(),
+    obstacles = new ObstacleIndex(doc.nodes.filter((n) => n.kind !== "group")),
+    occupied = new WireIndex(),
     routed: { edge: CanvasEdge; segments: Segment[] }[] = [];
   const edges = [...doc.edges].sort((a, b) => {
     const af = nodes.get(a.from)!,
@@ -319,61 +403,94 @@ export function documentRoutes(doc: CanvasDocument) {
       a.id.localeCompare(b.id)
     );
   });
+  const fixedLabels = new Set<string>();
   for (const edge of edges) {
-    const from = nodes.get(edge.from)!,
-      to = nodes.get(edge.to)!,
-      shared = routed.filter(
-        (r) => r.edge.from === edge.from || r.edge.to === edge.to,
-      ),
-      occupied = routed.filter(
-        (r) => r.edge.from !== edge.from && r.edge.to !== edge.to,
+    const fixed =
+      preview &&
+      previewRoute(
+        preview.base.routes.get(edge.id),
+        preview,
+        edge.from,
+        edge.to,
       );
-    const columnRight = Math.max(
-        ...doc.nodes
-          .filter((n) => n.kind === "box" && n.x === from.x)
-          .map((n) => n.x + n.w),
-        from.x + from.w,
-      ),
-      nextColumn = Math.min(
-        ...doc.nodes
-          .filter((n) => n.kind === "box" && n.x > columnRight && n.x <= to.x)
-          .map((n) => n.x),
-        to.x,
-      ),
-      trunk =
-        columnRight < nextColumn ? (columnRight + nextColumn) / 2 : undefined;
-    const rowBottom = Math.max(
-        from.y + from.h,
-        ...doc.nodes
-          .filter((n) => n.kind === "box" && n.y === from.y)
-          .map((n) => n.y + n.h),
-      ),
-      nextRow = Math.min(
-        to.y,
-        ...doc.nodes
-          .filter((n) => n.kind === "box" && n.y > rowBottom && n.y <= to.y)
-          .map((n) => n.y),
-      ),
-      row = rowBottom < nextRow ? (rowBottom + nextRow) / 2 : undefined,
-      axis = connectionAxis(from, to);
-    const route = routeEdge(edge, doc.nodes, {
-      occupied: occupied.flatMap((r) => r.segments),
-      shared: shared.flatMap((r) => r.segments),
-      trunk: axis === "x" ? trunk : undefined,
-      row: axis === "y" ? row : undefined,
-    });
+    let route: Route;
+    if (fixed) {
+      route = fixed;
+      fixedLabels.add(edge.id);
+    } else {
+      const from = nodes.get(edge.from)!,
+        to = nodes.get(edge.to)!,
+        shared = routed.filter(
+          (r) => r.edge.from === edge.from || r.edge.to === edge.to,
+        );
+      const columnRight = Math.max(
+          ...doc.nodes
+            .filter((n) => n.kind === "box" && n.x === from.x)
+            .map((n) => n.x + n.w),
+          from.x + from.w,
+        ),
+        nextColumn = Math.min(
+          ...doc.nodes
+            .filter((n) => n.kind === "box" && n.x > columnRight && n.x <= to.x)
+            .map((n) => n.x),
+          to.x,
+        ),
+        trunk =
+          columnRight < nextColumn ? (columnRight + nextColumn) / 2 : undefined;
+      const rowBottom = Math.max(
+          from.y + from.h,
+          ...doc.nodes
+            .filter((n) => n.kind === "box" && n.y === from.y)
+            .map((n) => n.y + n.h),
+        ),
+        nextRow = Math.min(
+          to.y,
+          ...doc.nodes
+            .filter((n) => n.kind === "box" && n.y > rowBottom && n.y <= to.y)
+            .map((n) => n.y),
+        ),
+        row = rowBottom < nextRow ? (rowBottom + nextRow) / 2 : undefined,
+        axis = connectionAxis(from, to);
+      route = routeEdge(edge, doc.nodes, {
+        occupied,
+        obstacles,
+        shared: shared.flatMap((r) => r.segments),
+        trunk: axis === "x" ? trunk : undefined,
+        row: axis === "y" ? row : undefined,
+      });
+    }
     routes.set(edge.id, route);
-    routed.push({ edge, segments: segments(route.points) });
+    const parts = segments(route.points);
+    occupied.add(parts, edge);
+    routed.push({ edge, segments: parts });
   }
-  placeLabels(doc, routes);
+  if (fixedLabels.size < routes.size) placeLabels(doc, routes, fixedLabels);
   return routes;
 }
 // Route memo links after the diagram's connections so they can avoid them.
-export function memoRoutes(doc: CanvasDocument, routes: Map<string, Route>) {
+export function memoRoutes(
+  doc: CanvasDocument,
+  routes: Map<string, Route>,
+  preview?: Preview,
+) {
   const memos = new Map<string, Route>(),
-    occupied = [...routes.values()].flatMap((r) => segments(r.points));
+    occupied = new WireIndex();
+  for (const r of routes.values()) occupied.add(segments(r.points));
   for (const note of doc.nodes) {
     if (!note.attachedTo) continue;
+    const fixed =
+      preview &&
+      previewRoute(
+        preview.base.memos.get(note.id),
+        preview,
+        note.attachedTo,
+        note.id,
+      );
+    if (fixed) {
+      memos.set(note.id, fixed);
+      occupied.add(segments(fixed.points));
+      continue;
+    }
     // Keep the dots clear of other outlines, even when a route follows a side.
     const nodes = doc.nodes.map((n) =>
       n === note || n.id === note.attachedTo
@@ -386,27 +503,68 @@ export function memoRoutes(doc: CanvasDocument, routes: Map<string, Route>) {
       { occupied },
     );
     memos.set(note.id, route);
-    occupied.push(...segments(route.points));
+    occupied.add(segments(route.points));
   }
   return memos;
 }
-function placeLabels(doc: CanvasDocument, routes: Map<string, Route>) {
+function placeLabels(
+  doc: CanvasDocument,
+  routes: Map<string, Route>,
+  fixed: Set<string>,
+) {
   const placed: { x: number; y: number; w: number; h: number }[] = [];
+  const allSegments = [...routes].flatMap(([id, r]) =>
+    segments(r.points).map((part) => ({ ...part, id })),
+  );
+  const verticals = allSegments
+    .filter(({ a, b }) => a.x === b.x)
+    .sort((a, b) => a.a.x - b.a.x);
+  const horizontals = allSegments
+    .filter(({ a, b }) => a.x !== b.x)
+    .sort((a, b) => a.a.y - b.a.y);
+  function crossings(box: (typeof placed)[number], id: string) {
+    let count = 0;
+    for (const axis of ["x", "y"] as const) {
+      const list = axis === "x" ? verticals : horizontals,
+        min = box[axis] + 0.5,
+        max = box[axis] + (axis === "x" ? box.w : box.h) - 0.5;
+      let low = 0,
+        high = list.length;
+      while (low < high) {
+        const mid = (low + high) >>> 1;
+        if (list[mid].a[axis] <= min) low = mid + 1;
+        else high = mid;
+      }
+      for (let i = low; i < list.length && list[i].a[axis] < max; i++) {
+        const wire = list[i];
+        if (wire.id !== id && crossesRect(wire.a, wire.b, box)) count++;
+      }
+    }
+    return count;
+  }
   for (const edge of [...doc.edges].sort((a, b) => a.id.localeCompare(b.id))) {
     if (!edge.label) continue;
     const route = routes.get(edge.id)!,
-      otherSegments = [...routes]
-        .filter(([id]) => id !== edge.id)
-        .flatMap(([, r]) => segments(r.points)),
       width =
         Math.max(...route.labelLines.map((line) => textWidth(line, 12))) + 12,
       height = route.labelLines.length * 18 + 10;
+    if (fixed.has(edge.id)) {
+      placed.push({
+        x: route.label.x - width / 2,
+        y: route.label.y - 22,
+        w: width,
+        h: height,
+      });
+      continue;
+    }
+    const otherSegments = allSegments.filter((w) => w.id !== edge.id);
     let best = route.label,
       score = Infinity;
     for (const { a, b } of segments(route.points)) {
       const vertical = a.x === b.x,
         length = Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
       if (length < 32) continue;
+      const overlapLength = sharedLength(a, b, otherSegments);
       for (const fraction of [0.5, 0.35, 0.65, 0.2, 0.8]) {
         for (const offset of vertical
           ? [width / 2 + 12, -width / 2 - 12]
@@ -433,11 +591,9 @@ function placeLabels(doc: CanvasDocument, routes: Map<string, Route>) {
             doc.nodes.filter((n) => n.kind !== "group" && overlap(n)).length *
               100000 +
             placed.filter(overlap).length * 10000 +
-            otherSegments.filter(({ a, b }) => !clearSegment(a, b, [box]))
-              .length *
-              2000 +
+            crossings(box, edge.id) * 2000 +
             Math.max(0, (vertical ? height : width) + 24 - length) * 100 +
-            sharedLength(a, b, otherSegments) +
+            overlapLength +
             Math.abs(fraction - 0.5) * 20 +
             Math.abs(offset) * 0.2;
           if (cost < score) {

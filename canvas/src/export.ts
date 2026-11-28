@@ -1,7 +1,7 @@
 import type { CanvasDocument, CanvasNode } from "./types";
 import { memoStatusLabels } from "./types";
 import { expandedIds, noteContent, wrapText } from "./model";
-import { documentRoutes, memoRoutes, sceneBounds } from "./geometry";
+import { sceneRoutes, sceneBounds, type SceneRoutes } from "./geometry";
 import { boxTextArea, memoMarker, shapePaths } from "./shapes";
 import { DEFAULT_COLORS, nodeAppearance, safeColor } from "./colors";
 import { iconPath } from "./Icons";
@@ -47,9 +47,13 @@ function textBlock(
     )
     .join("");
 }
-export function toSvg(doc: CanvasDocument, selection: string[] = []) {
-  const routes = documentRoutes(doc),
-    memos = memoRoutes(doc, routes);
+export function toSvg(
+  doc: CanvasDocument,
+  selection: string[] = [],
+  computed = sceneRoutes(doc),
+) {
+  const routes = selection.length ? new Map(computed.routes) : computed.routes,
+    memos = selection.length ? new Map(computed.memos) : computed.memos;
   // Route in the original scene so even a single selected wire keeps its path.
   const ids = selection.length ? expandedIds(doc, selection) : null;
   const nodes = ids ? doc.nodes.filter((n) => ids.has(n.id)) : doc.nodes;
@@ -267,15 +271,21 @@ export function toSvg(doc: CanvasDocument, selection: string[] = []) {
     "</g></svg>"
   );
 }
-export function exportPng(doc: CanvasDocument) {
-  return downloadPng(toSvg(doc), filename(doc.title) + ".png");
+export function exportPng(doc: CanvasDocument, computed?: SceneRoutes) {
+  return downloadPng(toSvg(doc, [], computed), filename(doc.title) + ".png");
 }
 
-export async function copyImage(doc: CanvasDocument, selection: string[]) {
+export async function copyImage(
+  doc: CanvasDocument,
+  selection: string[],
+  computed?: SceneRoutes,
+) {
   if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined")
     throw new Error("このブラウザでは画像をコピーできません。");
   // Safari needs write() during the gesture, before the PNG is ready.
   await navigator.clipboard.write([
-    new ClipboardItem({ "image/png": pngBlob(toSvg(doc, selection)) }),
+    new ClipboardItem({
+      "image/png": pngBlob(toSvg(doc, selection, computed)),
+    }),
   ]);
 }
