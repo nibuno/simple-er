@@ -1680,13 +1680,105 @@ test("sidebar lists tables and relations and selects them", async () => {
   assert.equal(document.querySelectorAll(".edge.selected").length, 1);
   assert.equal(document.querySelector("[data-table].selected"), null);
   assert.ok(byText("外部キーを編集"));
-  await type(byLabel("テーブルを絞り込む"), "item");
+  await type(byLabel("図の中を検索"), "item");
   assert.deepEqual(
     [...document.querySelectorAll(".sidebar-item:not(.relation)")].map(
       (b) => b.textContent,
     ),
     ["order_items4"],
   );
+});
+
+test("diagram search matches both names of tables and columns and reveals the result", async () => {
+  await act(() => root.unmount());
+  const diagram = structuredClone(initial);
+  const table = diagram.tables.find((t) => t.id === "order_items");
+  table.logicalName = "注文明細";
+  table.note = "購入時の明細";
+  table.columns[2].note = "注文時点の単価";
+  table.columns[2].logicalName = "商品番号";
+  table.x = 10000;
+  localStorage.setItem(storageKey, encode(diagram));
+  await mount();
+  await click(document.querySelector("#zoom-label"));
+  await key(document.body, "f", { metaKey: true });
+  const input = byLabel("図の中を検索");
+  assert.equal(document.activeElement, input);
+  for (const query of [
+    "ORDER_IT",
+    "注文明細",
+    "購入時",
+    "単価",
+    table.columns[2].name,
+    "商品番号",
+  ]) {
+    await type(input, query);
+    assert.equal(document.querySelectorAll(".sidebar-item").length, 1);
+    assert.match(
+      document.querySelector(".sidebar-item").textContent,
+      /order_items/,
+    );
+  }
+  assert.equal(document.querySelector(".search-match").textContent, "商品番号");
+  await key(input, "Enter");
+  assert.ok(document.querySelector('[data-table="order_items"].selected'));
+  assert.equal(
+    document.querySelector("[data-search-match] .column-name").textContent,
+    table.columns[2].name,
+  );
+  const [x, , width] = currentView();
+  assert.ok(x <= table.x && table.x + 230 <= x + width);
+  await type(input, "該当なし");
+  assert.equal(
+    document.querySelector(".sidebar-empty").textContent,
+    "一致するテーブルはありません",
+  );
+});
+
+test("related view keeps both ends editable and saves and exports the whole diagram", async (t) => {
+  const tables = () =>
+    [...document.querySelectorAll("g.table")].map((el) =>
+      el.getAttribute("data-table"),
+    );
+  const before = saved();
+  const view = currentView();
+  await click(byLabel("users.email を接続"));
+  await click(byText("関連だけ表示"));
+  assert.deepEqual(tables(), ["users", "orders"]);
+  assert.equal(document.querySelectorAll("g.edge").length, 1);
+  await click(byLabel("orders.user_id を接続"));
+  await key(byLabel("ordersを移動。矢印キーで移動できます。"), "ArrowDown");
+  assert.deepEqual(tables(), ["users", "orders"]);
+  assert.equal(saved().tables[1].y, before.tables[1].y + 8);
+  assert.deepEqual(saved().tables[2], before.tables[2]);
+  assert.equal(saved().edges.length, 2);
+  let blob;
+  t.mock.method(URL, "createObjectURL", (value) => {
+    blob = value;
+    return "blob:test";
+  });
+  t.mock.method(dom.window.HTMLAnchorElement.prototype, "click", () => {});
+  await click(byText("ファイルに保存"));
+  assert.equal(JSON.parse(await blob.text()).schema.tables.length, 3);
+  await click(byText("SVG で保存"));
+  assert.match(await blob.text(), /order_items/);
+  await click(byLabel("元に戻す"));
+  assert.deepEqual(saved().tables, before.tables);
+  assert.deepEqual(tables(), ["users", "orders"]);
+  await click(byText("関連表示を解除"));
+  assert.equal(tables().length, 3);
+  assert.deepEqual(currentView(), view);
+  await click(byLabel("orders.user_id を接続"));
+  await click(byText("関連だけ表示"));
+  assert.equal(tables().length, 3); // both incoming and outgoing tables
+  await click(byText("関連表示を解除"));
+  await click(byLabel("users.email を接続"));
+  await click(byText("関連だけ表示"));
+  await key(document.body, "f", { ctrlKey: true });
+  await type(byLabel("図の中を検索"), "order_items");
+  await click(document.querySelector(".sidebar-item"));
+  assert.deepEqual(tables(), ["orders", "order_items"]);
+  assert.ok(document.querySelector('[data-table="order_items"].selected'));
 });
 
 test("clicking a column selects only; dragging from its dot connects tables", async () => {
@@ -1734,7 +1826,7 @@ test("Delete or Backspace removes the selected foreign key or table with undo", 
     b.textContent.startsWith("users"),
   );
   await click(users);
-  await key(byLabel("テーブルを絞り込む"), "Backspace");
+  await key(byLabel("図の中を検索"), "Backspace");
   assert.equal(saved().tables.length, 3);
   await key(document.body, "Backspace");
   assert.equal(saved().tables.length, 2);

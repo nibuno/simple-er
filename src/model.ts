@@ -16,7 +16,11 @@ import { tableWidth, connectionSides } from "./geometry.ts";
 
 export const uid = () => crypto.randomUUID();
 export const title = (table: Table) => table.name ?? table.id;
+export const MAX_TABLES = 150;
+export const MAX_CONNECTIONS = 400;
 export const MAX_COLUMNS = 60;
+// Allow large saved drawings (including formatted JSON and multibyte names) to reopen.
+export const MAX_JSON_BYTES = 16_000_000;
 export function createColumn(columns: Table["columns"]): RenderColumn {
   let i = 1;
   while (columns.some((c) => c.name.trim().toLowerCase() === `column_${i}`))
@@ -90,8 +94,8 @@ export function validateDiagram(input: unknown): Diagram {
   const value = input as Diagram;
   if (!value || !Array.isArray(value.tables) || !Array.isArray(value.edges))
     fail("ER図のデータ形式が正しくありません。");
-  if (value.tables.length > 40 || value.edges.length > 200)
-    fail("読み込める上限は40テーブル・200接続です。");
+  if (value.tables.length > MAX_TABLES || value.edges.length > MAX_CONNECTIONS)
+    fail(`読み込める上限は${MAX_TABLES}テーブル・${MAX_CONNECTIONS}接続です。`);
   const tableIds = new Set(),
     names = new Set(),
     edgeIds = new Set();
@@ -380,7 +384,8 @@ export function encode(diagram: Diagram): string {
 }
 
 export function decodeDocument(text: string): DiagramDocument {
-  if (text.length > 2_000_000) fail("ファイルが大きすぎます（上限2MB）。");
+  if (text.length > MAX_JSON_BYTES)
+    fail("ファイルが大きすぎます（上限16MB）。");
   let data;
   try {
     data = JSON.parse(text);
@@ -642,7 +647,7 @@ function prepareRelations(diagram: Diagram) {
   if (
     diagram.unresolvedEdges != null &&
     (!Array.isArray(diagram.unresolvedEdges) ||
-      diagram.unresolvedEdges.length > 200)
+      diagram.unresolvedEdges.length > MAX_CONNECTIONS)
   )
     fail("未確定の線の形式が不正です。");
   const unresolved = legacy
@@ -731,11 +736,10 @@ function normalizeRelations(diagram: Diagram): Diagram {
     ...deriveEdges(tables, diagram.edges),
     ...diagram.edges.filter((e) => e.entityRelation),
   ];
-  if (
-    edges.length > 200 ||
-    new Set(edges.map((e) => e.id)).size !== edges.length
-  )
-    fail("接続は200本までです。接続IDは重複できません。");
+  if (edges.length > MAX_CONNECTIONS)
+    fail(`接続は${MAX_CONNECTIONS}本までです。`);
+  if (new Set(edges.map((e) => e.id)).size !== edges.length)
+    fail("接続IDは重複できません。");
   recomputeKeyFlags(tables);
   const title = typeof diagram.title === "string" ? diagram.title.trim() : "";
   return {
@@ -863,7 +867,8 @@ function deriveEdges(tables: Table[], previousEdges: Edge[]): Edge[] {
       });
     }
   }
-  if (edges.length > 200) fail("接続は200本までです。");
+  if (edges.length > MAX_CONNECTIONS)
+    fail(`接続は${MAX_CONNECTIONS}本までです。`);
   return edges;
 }
 

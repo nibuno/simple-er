@@ -25,6 +25,7 @@ import { relationshipLabels } from "./relationships.ts";
 import { MAX_COLUMNS } from "./model.ts";
 import { messageOf, overlaps } from "./utils.ts";
 import { Icon } from "./icons.tsx";
+import type { TableReveal } from "./diagram-view.ts";
 
 type NameTarget =
   { kind: "table" } | { kind: "column"; id: string } | { kind: "add" };
@@ -37,12 +38,14 @@ interface Props {
   onUndo: () => void;
   onRedo: () => void;
   state: Diagram;
+  visible: Diagram;
+  relatedTo: string | null;
   routes: Map<string, Route>;
   selected: string | null;
   selectedTable?: string | null;
   onSelectTable?: (id: string) => void;
   // `nearest` pans only as far as needed instead of centering the table.
-  revealRequest?: { id: string; n: number; nearest?: boolean } | null;
+  revealRequest?: TableReveal | null;
   adjustingLine?: boolean;
   onAdjustable?: (value: boolean) => void;
   pending: Endpoint | null;
@@ -121,7 +124,7 @@ export function DiagramCanvas(p: Props) {
   } | null>(null);
   /** The column row under a diagram point, if any. */
   function rowAt(pos: Point): Endpoint | null {
-    for (const t of latest.current.state.tables) {
+    for (const t of latest.current.visible.tables) {
       const i = Math.floor((pos.y - t.y - HEADER) / ROW);
       if (
         pos.x >= t.x &&
@@ -196,8 +199,8 @@ export function DiagramCanvas(p: Props) {
   const latestRoutes = useRef(routes);
   latestRoutes.current = routes;
   const labels = useMemo(
-    () => relationshipLabels(p.state, routes),
-    [p.state, routes],
+    () => relationshipLabels(p.visible, routes),
+    [p.visible, routes],
   );
   const latestLabels = useRef(labels);
   latestLabels.current = labels;
@@ -218,7 +221,7 @@ export function DiagramCanvas(p: Props) {
     setView({ x: cx - w / 2, y: cy - h / 2, w, h, zoom: percent });
   }
   function fit() {
-    const tables = latest.current.state.tables;
+    const tables = latest.current.visible.tables;
     if (!tables.length) {
       zoom(100, 0, 0);
       return;
@@ -254,6 +257,21 @@ export function DiagramCanvas(p: Props) {
     observer.observe(svg.current!);
     return () => observer.disconnect();
   }, []);
+  const unfilteredView = useRef<View | null>(null);
+  useLayoutEffect(() => {
+    if (p.relatedTo) {
+      unfilteredView.current ??= view;
+      fit();
+    } else if (unfilteredView.current) {
+      const previous = unfilteredView.current;
+      unfilteredView.current = null;
+      zoom(
+        previous.zoom,
+        previous.x + previous.w / 2,
+        previous.y + previous.h / 2,
+      );
+    }
+  }, [p.relatedTo]);
   useEffect(() => {
     if (p.fitRequest) fit();
   }, [p.fitRequest]);
@@ -262,6 +280,19 @@ export function DiagramCanvas(p: Props) {
       ? latest.current.state.tables.find((t) => t.id === p.revealRequest!.id)
       : undefined;
     if (!t) return;
+    const matches = p.revealRequest?.matchedColumns;
+    if (matches) {
+      const size = viewport();
+      const percent = Math.max(75, p.viewRef.current.zoom);
+      const span = (size.h * 100) / percent;
+      const row = t.columns.findIndex((c) => matches.includes(c.id));
+      const centerY =
+        row >= 0 && height(t) > span
+          ? HEADER + (row + 0.5) * ROW
+          : Math.min(height(t), span) / 2;
+      zoom(percent, t.x + tableWidth(t) / 2, t.y + centerY);
+      return;
+    }
     setView((v) => {
       const w = tableWidth(t),
         h = Math.min(height(t), v.h - 80),
@@ -518,7 +549,7 @@ export function DiagramCanvas(p: Props) {
           }}
         />
         <g id="edges">
-          {p.state.edges.map((edge) => {
+          {p.visible.edges.map((edge) => {
             const r = routes.get(edge.id)!,
               d = rounded(r.points),
               child = p.state.tables.find((t) => t.id === edge.to.table)!,
@@ -579,7 +610,7 @@ export function DiagramCanvas(p: Props) {
           })}
         </g>
         <g id="tables">
-          {p.state.tables.map((t) => {
+          {p.visible.tables.map((t) => {
             const width = tableWidth(t);
             const selected = focused === t.id;
             const target =
@@ -724,9 +755,14 @@ export function DiagramCanvas(p: Props) {
                   ]
                     .filter(Boolean)
                     .join("\n");
+                  const matched =
+                    selected &&
+                    p.revealRequest?.id === t.id &&
+                    p.revealRequest.matchedColumns?.includes(c.id);
                   return (
                     <g
                       key={c.id}
+                      data-search-match={matched || undefined}
                       className={`row${!c.key ? " non-key" : ""}${p.pending?.table === t.id && p.pending.row === i ? " pending" : ""}${related.has(`${t.id}:${i}`) ? " related" : ""}${linking && ((linking.from.table === t.id && linking.from.row === i) || (linking.target?.table === t.id && linking.target.row === i)) ? " link-end" : ""}`}
                       tabIndex={0}
                       role="button"

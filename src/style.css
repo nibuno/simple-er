@@ -1861,6 +1861,31 @@ select:focus {
   background: transparent;
   box-shadow: none !important;
 }
+.search-match {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 11px;
+}
+.sidebar-item:has(.search-match) {
+  height: 42px;
+  text-align: left;
+}
+.related-toggle {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: var(--surface);
+}
+.related-toggle:has(~ #selection:not([hidden])) {
+  top: auto;
+  bottom: 64px;
+}
+.related-toggle[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
 .sidebar-section {
   display: flex;
   align-items: center;
@@ -2009,6 +2034,7 @@ select:focus {
   stroke: var(--accent);
   stroke-width: 1.5;
 }
+.row[data-search-match] .column-name,
 .row.pending .column-name {
   fill: var(--accent-strong);
   font-weight: 600;
@@ -2455,7 +2481,13 @@ dialog::backdrop {
 
 @media (max-width: 960px) {
   .sidebar {
-    display: none;
+    position: absolute;
+    z-index: 3;
+    top: 0;
+    left: 0;
+    max-height: 65%;
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-md);
   }
   .editor-header {
     padding: 8px 12px;

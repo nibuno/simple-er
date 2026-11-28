@@ -21,6 +21,9 @@ import type {
   View,
 } from "./types.ts";
 import {
+  MAX_TABLES,
+  MAX_JSON_BYTES,
+  MAX_CONNECTIONS,
   canConnect,
   createColumn,
   removeForeignKey,
@@ -38,6 +41,7 @@ import { EdgeRouteCache, routeEdges, tableWidth } from "./geometry.ts";
 import { tidyDiagram } from "./layout.ts";
 import { historyReducer } from "./history.ts";
 import { DiagramCanvas } from "./DiagramCanvas.tsx";
+import { relatedDiagram, type TableReveal } from "./diagram-view.ts";
 import {
   TableEditor,
   InferDialog,
@@ -99,10 +103,22 @@ function Editor({
     () => projectDocument(history.present),
     [history.present],
   );
+  const [relatedTo, setRelatedTo] = useState<string | null>(null);
+  const visibleCommitted = useMemo(
+    () => relatedDiagram(committed, relatedTo),
+    [committed, relatedTo],
+  );
+  const filtered = visibleCommitted !== committed;
+  useEffect(() => {
+    if (relatedTo && !filtered) setRelatedTo(null);
+  }, [relatedTo, filtered]);
   const [routeCache] = useState(() => new EdgeRouteCache());
   const committedRoutes = useMemo(
-    () => routeEdges(committed.edges, committed.tables, { cache: routeCache }),
-    [committed, routeCache],
+    () =>
+      routeEdges(visibleCommitted.edges, visibleCommitted.tables, {
+        cache: routeCache,
+      }),
+    [visibleCommitted, routeCache],
   );
   const [preview, setPreview] = useState<{
     base: Diagram;
@@ -111,19 +127,31 @@ function Editor({
   } | null>(null);
   const activePreview = preview?.base === committed ? preview : null;
   const state = activePreview?.diagram ?? committed;
+  const visible = useMemo(
+    () => (activePreview ? relatedDiagram(state, relatedTo) : visibleCommitted),
+    [activePreview, state, relatedTo, visibleCommitted],
+  );
   const routes = useMemo(
     () =>
       activePreview
-        ? routeEdges(state.edges, state.tables, {
+        ? routeEdges(visible.edges, visible.tables, {
             preview: activePreview.tableId
               ? { tableId: activePreview.tableId, routes: committedRoutes }
               : undefined,
           })
         : committedRoutes,
-    [state, activePreview, committedRoutes],
+    [visible, activePreview, committedRoutes],
   );
   const [selected, setSelected] = useState<string | null>(null);
   const [focusedTable, setFocusedTable] = useState<string | null>(null);
+  const search = useRef<HTMLInputElement>(null);
+  const [searchRequest, setSearchRequest] = useState(0);
+  useEffect(() => {
+    if (searchRequest) {
+      search.current?.focus();
+      search.current?.select();
+    }
+  }, [searchRequest]);
   const [showSidebar, setShowSidebar] = useState(() => {
     try {
       return localStorage.getItem("er-sketch.sidebar") === "open";
@@ -131,11 +159,7 @@ function Editor({
       return false;
     }
   });
-  const [revealRequest, setRevealRequest] = useState<{
-    id: string;
-    n: number;
-    nearest?: boolean;
-  } | null>(null);
+  const [revealRequest, setRevealRequest] = useState<TableReveal | null>(null);
   const [adjustingLine, setAdjustingLine] = useState(false);
   const [adjustable, setAdjustable] = useState(false);
   const [pending, setPending] = useState<Endpoint | null>(null);
@@ -370,15 +394,22 @@ function Editor({
         options.current.querySelector("summary")?.focus();
         return;
       }
+      if (draft || infer || help || importFormat || sampleList || listOpen)
+        return;
       if (
-        draft ||
-        infer ||
-        help ||
-        importFormat ||
-        sampleList ||
-        listOpen ||
-        (e.target instanceof Element &&
-          e.target.matches("input,select,textarea"))
+        (e.ctrlKey || e.metaKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "f"
+      ) {
+        e.preventDefault();
+        setShowSidebar(true);
+        setSearchRequest((n) => n + 1);
+        return;
+      }
+      if (
+        e.target instanceof Element &&
+        e.target.matches("input,select,textarea")
       )
         return;
       if (e.key === "Escape") clear();
@@ -444,8 +475,8 @@ function Editor({
       setDraft(structuredClone(state.tables.find((t) => t.id === id)!));
       return;
     }
-    if (state.tables.length >= 40) {
-      setHint("テーブルは40個までです。");
+    if (state.tables.length >= MAX_TABLES) {
+      setHint(`テーブルは${MAX_TABLES}個までです。`);
       return;
     }
     let index = 1;
@@ -534,8 +565,8 @@ function Editor({
       setHint("このカラム同士は接続済みです。");
       return;
     }
-    if (state.edges.length >= 200) {
-      setHint("接続は200本までです。");
+    if (state.edges.length >= MAX_CONNECTIONS) {
+      setHint(`接続は${MAX_CONNECTIONS}本までです。`);
       return;
     }
     const next = structuredClone(state);
@@ -569,7 +600,7 @@ function Editor({
           diagram,
           displayTable,
           displayColumn,
-          diagram === state
+          diagram === visible
             ? routes
             : routeEdges(diagram.edges, diagram.tables, { cache: routeCache }),
         );
@@ -702,6 +733,7 @@ function Editor({
     );
   }
   function selectTable(id: string) {
+    setRevealRequest(null);
     setSelected(null);
     setAdjustingLine(false);
     setPending(null);
@@ -850,8 +882,8 @@ function Editor({
                 selectedFile = input.files?.[0];
               if (!selectedFile) return;
               try {
-                if (selectedFile.size > 2_000_000)
-                  throw new Error("ファイルの上限は2MBです。");
+                if (selectedFile.size > MAX_JSON_BYTES)
+                  throw new Error("ファイルの上限は16MBです。");
                 const doc = decodeDocument(await selectedFile.text());
                 createDiagram(
                   namedDocument(doc, titleFromFile(selectedFile.name)),
@@ -1095,15 +1127,25 @@ function Editor({
         <div className="workspace">
           {showSidebar && (
             <Sidebar
-              state={state}
+              state={committed}
+              visible={visibleCommitted}
+              searchRef={search}
               selectedTable={focusedTable}
               selectedRelation={edge?.foreignKeyId ?? edge?.id}
               displayTable={displayTable}
               displayColumn={displayColumn}
               onAdd={() => open()}
-              onSelectTable={(id) => {
+              onSelectTable={(id, matchedColumns) => {
                 selectTable(id);
-                setRevealRequest((r) => ({ id, n: (r?.n ?? 0) + 1 }));
+                if (filtered && !visible.tables.some((t) => t.id === id))
+                  setRelatedTo(id);
+                if (window.matchMedia?.("(max-width: 960px)").matches)
+                  setShowSidebar(false);
+                setRevealRequest((r) => ({
+                  id,
+                  n: (r?.n ?? 0) + 1,
+                  matchedColumns,
+                }));
               }}
               onSelectEdge={(id) => {
                 clear();
@@ -1116,6 +1158,8 @@ function Editor({
           )}
           <DiagramCanvas
             state={state}
+            visible={visible}
+            relatedTo={filtered ? relatedTo : null}
             routes={routes}
             selected={selected}
             selectedTable={focusedTable}
@@ -1162,6 +1206,18 @@ function Editor({
             fitRequest={fitRequest}
             viewRef={view}
           >
+            {(focused || filtered) && (
+              <button
+                className="related-toggle"
+                aria-pressed={filtered}
+                onClick={() => {
+                  setRelatedTo(filtered ? null : focused!.id);
+                  setPending(null);
+                }}
+              >
+                {filtered ? "関連表示を解除" : "関連だけ表示"}
+              </button>
+            )}
             {!state.tables.length && (
               <div className="empty-diagram">
                 <h2>空の図</h2>
@@ -1276,6 +1332,7 @@ function Editor({
           onApply={(next, message, created) => {
             replace(next, message);
             // Keep the zoom and pan only far enough to show the new table.
+            if (created && filtered) setRelatedTo(draft.id);
             if (created)
               setRevealRequest((r) => ({
                 id: draft.id,

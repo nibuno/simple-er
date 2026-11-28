@@ -50,11 +50,15 @@ export function diagramBounds(
     y = Math.min(...ys);
   return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
-export const boxes = (ts: Table[], padding = PREFERRED_CLEARANCE) =>
+export const boxes = (
+  ts: Table[],
+  padding = PREFERRED_CLEARANCE,
+  widthOf = tableWidth,
+) =>
   ts.map((t) => ({
     id: t.id,
     l: t.x - padding,
-    r: t.x + tableWidth(t) + padding,
+    r: t.x + widthOf(t) + padding,
     t: t.y - padding,
     b: t.y + height(t) + padding,
   }));
@@ -104,9 +108,14 @@ export function rounded(ps: Point[], r = 8) {
   let p = ps.at(-1)!;
   return d + ` L ${p.x} ${p.y}`;
 }
-export function port(t: Table, index: number, side: Port["side"]) {
+export function port(
+  t: Table,
+  index: number,
+  side: Port["side"],
+  widthOf = tableWidth,
+) {
   return {
-    x: t.x + (side === "right" ? tableWidth(t) : 0),
+    x: t.x + (side === "right" ? widthOf(t) : 0),
     y: t.y + (index === -1 ? HEADER / 2 : HEADER + ROW * (index + 0.5)),
   };
 }
@@ -116,10 +125,11 @@ const endpointKey = (p: Port) => JSON.stringify([p.table, p.row, p.side]);
 export function connectionSides(
   source: Table,
   target: Table,
+  widthOf = tableWidth,
 ): [Port["side"], Port["side"]] {
   if (source.id === target.id) return ["right", "right"];
-  if (source.x + tableWidth(source) <= target.x) return ["right", "left"];
-  if (target.x + tableWidth(target) <= source.x) return ["left", "right"];
+  if (source.x + widthOf(source) <= target.x) return ["right", "left"];
+  if (target.x + widthOf(target) <= source.x) return ["left", "right"];
   return ["right", "right"];
 }
 
@@ -160,11 +170,13 @@ export function route(
   shared: Segment[] = [],
   rs = boxes(ts, CLEARANCE),
   preferred = boxes(ts),
+  compactGrid = false,
+  widthOf = tableWidth,
 ): Route {
   const s = ts.find((t) => t.id === edge.from.table)!,
     t = ts.find((t) => t.id === edge.to.table)!,
-    a = port(s, edge.from.row, edge.from.side),
-    b = port(t, edge.to.row, edge.to.side),
+    a = port(s, edge.from.row, edge.from.side, widthOf),
+    b = port(t, edge.to.row, edge.to.side, widthOf),
     aa = { x: a.x + (edge.from.side === "right" ? PAD : -PAD), y: a.y },
     bb = { x: b.x + (edge.to.side === "right" ? PAD : -PAD), y: b.y };
   if (
@@ -242,7 +254,7 @@ export function route(
         Math.abs(a.x - x) - Math.abs(b.x - x),
     );
   const simple = simplePaths[0];
-  if (simple && (edge.manual || simple.penalty < 160))
+  if (simple && (edge.manual || simple.penalty < 160 || compactGrid))
     return {
       points: simplify([a, ...simple.points, b]),
       handle: {
@@ -261,14 +273,18 @@ export function route(
         aa.x,
         bb.x,
         ...candidateXs,
-        ...rs.flatMap((r) => [r.l, r.r, r.l - spacing, r.r + spacing]),
+        ...rs.flatMap((r) =>
+          compactGrid ? [r.l, r.r] : [r.l, r.r, r.l - spacing, r.r + spacing],
+        ),
       ]),
     ].sort((a, b) => a - b),
     ys = [
       ...new Set([
         aa.y,
         bb.y,
-        ...rs.flatMap((r) => [r.t, r.b, r.t - spacing, r.b + spacing]),
+        ...rs.flatMap((r) =>
+          compactGrid ? [r.t, r.b] : [r.t, r.b, r.t - spacing, r.b + spacing],
+        ),
       ]),
     ].sort((a, b) => a - b);
   const points = detour(
@@ -278,6 +294,7 @@ export function route(
     { ...bb, side: edge.to.side },
     x,
     { hard: rs, preferred, occupied },
+    compactGrid,
   );
   return points
     ? { points: simplify([a, ...points, b]), detour: true }
@@ -290,8 +307,8 @@ type CachedEdge = { key: string; path: Route };
 // prefix in routing order. The cache belongs to one editor.
 export class EdgeRouteCache {
   private layouts = new Map<string, CachedEdge[]>();
-  forLayout(obstacles: Box[]) {
-    const key = JSON.stringify(obstacles);
+  forLayout(obstacles: Box[], compactGrid: boolean) {
+    const key = JSON.stringify([compactGrid, obstacles]);
     const entries = this.layouts.get(key) ?? [];
     this.layouts.delete(key);
     this.layouts.set(key, entries);
@@ -313,23 +330,25 @@ export function routeEdges(
   options: RouteOptions = {},
 ): Map<string, Route> {
   const byId = new Map(tables.map((t) => [t.id, t]));
-  const rs = boxes(tables, CLEARANCE),
-    preferred = boxes(tables);
+  const widths = new Map(tables.map((t) => [t, tableWidth(t)]));
+  const widthOf = (t: Table) => widths.get(t)!;
+  const rs = boxes(tables, CLEARANCE, widthOf),
+    preferred = boxes(tables, PREFERRED_CLEARANCE, widthOf);
   const nearest = new Map<string, number>();
   const ordered = edges.map((original) => {
     const s = byId.get(original.from.table)!,
       t = byId.get(original.to.table)!;
     const [from, to] = original.manual
       ? [original.from.side, original.to.side]
-      : connectionSides(s, t);
+      : connectionSides(s, t, widthOf);
     const edge = {
       ...original,
       from: { ...original.from, side: from },
       to: { ...original.to, side: to },
     };
     const source = endpointKey(edge.from);
-    const a = port(s, edge.from.row, from),
-      b = port(t, edge.to.row, to);
+    const a = port(s, edge.from.row, from, widthOf),
+      b = port(t, edge.to.row, to, widthOf);
     const horizontal = Math.abs(a.x - b.x),
       span = horizontal + Math.abs(a.y - b.y);
     nearest.set(source, Math.min(nearest.get(source) ?? Infinity, span));
@@ -347,7 +366,9 @@ export function routeEdges(
 
   const result = new Map<string, Route>(),
     occupied: Segment[] = [];
-  const cache = options.cache?.forLayout(rs);
+  // Use clear corridors first and a boundary-only detour grid above the original limits.
+  const compactGrid = tables.length > 40 || edges.length > 200;
+  const cache = options.cache?.forLayout(rs, compactGrid);
   for (const [i, { edge }] of ordered.entries()) {
     const key = cache
       ? JSON.stringify([
@@ -386,8 +407,8 @@ export function routeEdges(
     ];
     if (
       !edge.manual &&
-      sourceTable.x < targetTable.x + tableWidth(targetTable) &&
-      targetTable.x < sourceTable.x + tableWidth(sourceTable)
+      sourceTable.x < targetTable.x + widthOf(targetTable) &&
+      targetTable.x < sourceTable.x + widthOf(sourceTable)
     ) {
       // In a vertical stack or cycle, either side may be the clear corridor.
       // Choosing ports and routing together avoids forcing every loop onto the
@@ -425,6 +446,8 @@ export function routeEdges(
           shared,
           rs,
           preferred,
+          compactGrid,
+          widthOf,
         );
         const score =
           (path.blocked ? 1e9 : 0) +

@@ -170,6 +170,7 @@ export function detour(
   to: Exit,
   trunk: number,
   obstacles: Obstacles,
+  useHeuristic = false,
 ): Point[] | undefined {
   const inside = (p: Point) =>
     obstacles.hard.some(
@@ -186,21 +187,28 @@ export function detour(
   const prev = new Int32Array(size * 2);
   const queue = new RouteQueue();
   dist[start * 2] = 0;
-  queue.push([start, 0, 0]);
+  // Manhattan distance is a lower bound on the remaining orthogonal path.
+  function estimate(col: number, row: number) {
+    return useHeuristic
+      ? Math.abs(xs[col] - to.x) + Math.abs(ys[row] - to.y)
+      : 0;
+  }
+  queue.push([start, 0, estimate(start % width, Math.floor(start / width))]);
   let end = -1;
   let visited = 0;
   while (queue.items.length && visited < MAX_VISITS) {
-    const [n, dir, cost] = queue.pop();
+    const [n, dir, priority] = queue.pop();
     // Each grid point has two distances: arriving horizontally or vertically.
     const key = n * 2 + dir;
-    if (cost !== dist[key]) continue;
+    const col = n % width,
+      row = Math.floor(n / width);
+    const cost = dist[key];
+    if (priority !== cost + estimate(col, row)) continue;
     visited++;
     if (n === goal) {
       end = key;
       break;
     }
-    const col = n % width,
-      row = Math.floor(n / width);
     const horizontal = (horizontalCosts[row] ??= gridLine(
       xs,
       false,
@@ -243,14 +251,14 @@ export function detour(
       if (v < dist[next]) {
         dist[next] = v;
         prev[next] = key;
-        queue.push([j, d, v]);
+        queue.push([j, d, v + estimate(nextCol, nextRow)]);
       }
     }
   }
   if (end === -1) {
     if (visited < MAX_VISITS) return;
     // The obstacle boundaries and the ports alone form a complete rectilinear
-    // visibility grid. At 40 tables this fallback has at most 82 × 82 points.
+    // visibility grid, with at most two boundaries per table on each axis.
     const boundaryX = [
       ...new Set([from.x, to.x, ...obstacles.hard.flatMap((r) => [r.l, r.r])]),
     ].sort((a, b) => a - b);
@@ -258,7 +266,15 @@ export function detour(
       ...new Set([from.y, to.y, ...obstacles.hard.flatMap((r) => [r.t, r.b])]),
     ].sort((a, b) => a - b);
     if (boundaryX.length < xs.length || boundaryY.length < ys.length)
-      return detour(boundaryX, boundaryY, from, to, trunk, obstacles);
+      return detour(
+        boundaryX,
+        boundaryY,
+        from,
+        to,
+        trunk,
+        obstacles,
+        useHeuristic,
+      );
     return;
   }
   const points = [];

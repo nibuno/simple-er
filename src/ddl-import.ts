@@ -1,6 +1,6 @@
 import { expression, SqlError, statements, Tokens } from "./ddl-tokens.ts";
 import { layoutImportedTables } from "./import-layout.ts";
-import { MAX_COLUMNS, uid } from "./model.ts";
+import { MAX_COLUMNS, MAX_TABLES, MAX_CONNECTIONS, uid } from "./model.ts";
 import { referenceActions } from "./types.ts";
 import type { Diagram, ForeignKey, KeyDefinition, Table } from "./types.ts";
 
@@ -237,7 +237,8 @@ export function importDDL(
         skipped.add(name.toLowerCase());
       throw new SqlError(line, `${name} はすでにあります。`);
     }
-    if (next.tables.length >= 40) t.fail("テーブルは40個までです。");
+    if (next.tables.length >= MAX_TABLES)
+      t.fail(`テーブルは${MAX_TABLES}個までです。`);
     const table: Table = {
       id: uid(),
       name,
@@ -409,8 +410,8 @@ export function importDDL(
               op.line,
               `${parent.name} の主キーまたは一意制約を参照してください。`,
             );
-          if (connections + ids.length > 200)
-            throw new SqlError(op.line, "接続は200本までです。");
+          if (connections + ids.length > MAX_CONNECTIONS)
+            throw new SqlError(op.line, `接続は${MAX_CONNECTIONS}本までです。`);
           table.foreignKeys.push({
             id: uid(),
             name: op.name,

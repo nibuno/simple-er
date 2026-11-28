@@ -1,6 +1,18 @@
-import { useState } from "react";
+import { useState, type RefObject } from "react";
+import { isImeKey } from "../shared/ime.ts";
 import type { Column, Diagram, ForeignKey, Table } from "./types.ts";
 import { Icon } from "./icons.tsx";
+
+function noteMatch(note: string | undefined, query: string) {
+  if (!note) return "";
+  const index = note.toLowerCase().indexOf(query);
+  if (index < 0) return "";
+  const start = Math.max(0, index - 8);
+  const end = Math.min(note.length, index + query.length + 16);
+  return (
+    (start ? "…" : "") + note.slice(start, end) + (end < note.length ? "…" : "")
+  );
+}
 
 type Names = {
   displayTable: (t: Table) => string;
@@ -31,6 +43,8 @@ function foreignKeyLabel(
 
 export function Sidebar({
   state,
+  visible,
+  searchRef,
   selectedTable,
   selectedRelation,
   onSelectTable,
@@ -39,30 +53,47 @@ export function Sidebar({
   ...names
 }: Names & {
   state: Diagram;
+  visible: Diagram;
+  searchRef: RefObject<HTMLInputElement | null>;
   selectedTable: string | null;
   selectedRelation?: string;
-  onSelectTable: (id: string) => void;
+  onSelectTable: (id: string, matchedColumns?: string[]) => void;
   onSelectEdge: (edgeId: string) => void;
   onAdd: () => void;
 }) {
   const [filter, setFilter] = useState("");
   const query = filter.trim().toLowerCase();
-  const tables = state.tables.filter(
-    (t) =>
-      !query ||
-      [t.name, t.logicalName, t.id].some((s) =>
-        s?.toLowerCase().includes(query),
-      ),
-  );
-  const relations = state.tables.flatMap((child) =>
+  const matches = (value?: string) => !!value?.toLowerCase().includes(query);
+  type Result = { table: Table; detail: string; columnIds?: string[] };
+  const tables = (query ? state : visible).tables.flatMap<Result>((table) => {
+    if (!query) return [{ table, detail: "", columnIds: undefined }];
+    const columns = table.columns.flatMap((c) => {
+      const label =
+        [c.name, c.logicalName].find(matches) ||
+        (matches(c.note) && names.displayColumn(c));
+      return label ? [{ id: c.id, label }] : [];
+    });
+    const tableMatch =
+      [table.name, table.logicalName, table.id].find(matches) ||
+      noteMatch(table.note, query);
+    if (!tableMatch && !columns.length) return [];
+    const detail = [
+      tableMatch !== names.displayTable(table) && tableMatch,
+      ...columns.map((c) => c.label),
+    ]
+      .filter(Boolean)
+      .join("、");
+    return [{ table, detail, columnIds: columns.map((c) => c.id) }];
+  });
+  const relations = (query ? [] : visible.tables).flatMap((child) =>
     (child.foreignKeys ?? []).flatMap((fk) => {
-      const edge = state.edges.find((e) => e.foreignKeyId === fk.id);
+      const edge = visible.edges.find((e) => e.foreignKeyId === fk.id);
       return edge
         ? [{ id: fk.id, edge, ...foreignKeyLabel(state, child, fk, names) }]
         : [];
     }),
   );
-  for (const edge of state.edges.filter((e) => e.entityRelation)) {
+  for (const edge of visible.edges.filter((e) => !query && e.entityRelation)) {
     const tableName = (id: string) =>
       names.displayTable(state.tables.find((t) => t.id === id)!);
     relations.push({
@@ -78,15 +109,27 @@ export function Sidebar({
         <Icon name="search" size={14} />
         <input
           type="search"
-          aria-label="テーブルを絞り込む"
-          placeholder="テーブルを絞り込む"
+          ref={searchRef}
+          aria-label="図の中を検索"
+          placeholder="テーブル・カラムを検索"
+          onKeyDown={(e) => {
+            if (
+              e.key === "Enter" &&
+              query &&
+              tables[0] &&
+              !isImeKey(e.nativeEvent)
+            ) {
+              e.preventDefault();
+              onSelectTable(tables[0].table.id, tables[0].columnIds);
+            }
+          }}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
       </label>
       <div className="sidebar-section">
         <h2>
-          テーブル <span>{state.tables.length}</span>
+          テーブル <span>{tables.length}</span>
         </h2>
         <button
           className="icon-button"
@@ -98,15 +141,19 @@ export function Sidebar({
         </button>
       </div>
       <ul className="sidebar-list">
-        {tables.map((t) => (
+        {tables.map(({ table: t, detail, columnIds }) => (
           <li key={t.id}>
             <button
               className="sidebar-item"
               aria-current={selectedTable === t.id || undefined}
-              onClick={() => onSelectTable(t.id)}
+              title={detail || undefined}
+              onClick={() => onSelectTable(t.id, columnIds)}
             >
               <Icon name="table" size={14} />
-              <span className="sidebar-name">{names.displayTable(t)}</span>
+              <span className="sidebar-name">
+                {names.displayTable(t)}
+                {detail && <small className="search-match">{detail}</small>}
+              </span>
               <span className="sidebar-count">{t.columns.length}</span>
             </button>
           </li>
@@ -119,31 +166,35 @@ export function Sidebar({
           </li>
         )}
       </ul>
-      <div className="sidebar-section">
-        <h2>
-          リレーション <span>{relations.length}</span>
-        </h2>
-      </div>
-      <ul className="sidebar-list">
-        {relations.map((r) => (
-          <li key={r.id}>
-            <button
-              className="sidebar-item relation"
-              aria-current={selectedRelation === r.id || undefined}
-              onClick={() => onSelectEdge(r.edge.id)}
-            >
-              <span className="sidebar-name">{r.from}</span>
-              <span className="arrow" aria-label="から">
-                →
-              </span>
-              <span className="sidebar-name">{r.to}</span>
-            </button>
-          </li>
-        ))}
-        {!relations.length && (
-          <li className="sidebar-empty">カラム端の点をドラッグして接続</li>
-        )}
-      </ul>
+      {!query && (
+        <>
+          <div className="sidebar-section">
+            <h2>
+              リレーション <span>{relations.length}</span>
+            </h2>
+          </div>
+          <ul className="sidebar-list">
+            {relations.map((r) => (
+              <li key={r.id}>
+                <button
+                  className="sidebar-item relation"
+                  aria-current={selectedRelation === r.id || undefined}
+                  onClick={() => onSelectEdge(r.edge.id)}
+                >
+                  <span className="sidebar-name">{r.from}</span>
+                  <span className="arrow" aria-label="から">
+                    →
+                  </span>
+                  <span className="sidebar-name">{r.to}</span>
+                </button>
+              </li>
+            ))}
+            {!relations.length && (
+              <li className="sidebar-empty">カラム端の点をドラッグして接続</li>
+            )}
+          </ul>
+        </>
+      )}
     </aside>
   );
 }
