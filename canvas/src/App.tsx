@@ -35,6 +35,7 @@ import {
 } from "./model";
 import { looksLikeFlowchart, parseFlowchart, toFlowchart } from "./flowchart";
 import { copyImage, downloadFile, exportPng, filename, toSvg } from "./export";
+import { viewerHtml } from "./html";
 import { Canvas } from "./Canvas";
 import { DiagramList } from "../../shared/DiagramList.tsx";
 import { TextField } from "../../shared/TextField.tsx";
@@ -169,9 +170,9 @@ function Editor({
   pausedRef.current = paused;
   const [recovery, setRecovery] = useState(initial.error ? initial.raw : null),
     [remote, setRemote] = useState<string | null>(null),
-    [exporting, setExporting] = useState<"png" | "image" | "markdown" | null>(
-      null,
-    );
+    [exporting, setExporting] = useState<
+      "png" | "image" | "markdown" | "html" | null
+    >(null);
   const saveWarning = paused
     ? "自動保存を停止中"
     : saveProblem
@@ -492,7 +493,7 @@ function Editor({
     );
     notify("ファイルに保存しました");
   }
-  async function exportDiagram(format: "png" | "image" | "markdown") {
+  async function exportDiagram(format: "png" | "image" | "markdown" | "html") {
     flushInput();
     const current = docRef.current;
     if (!current.nodes.length || exporting) return;
@@ -505,6 +506,14 @@ function Editor({
       } else if (format === "image") {
         await copyImage(current, selectionRef.current, computed);
         notify("画像をコピーしました");
+      } else if (format === "html") {
+        const { default: template } = await import("./viewer.html?raw");
+        downloadFile(
+          viewerHtml(current, template, computed),
+          filename(current.title) + ".html",
+          "text/html;charset=utf-8",
+        );
+        notify("閲覧用HTMLを保存しました");
       } else {
         const { markdownArchive } = await import("./markdown");
         downloadFile(
@@ -1052,6 +1061,12 @@ function Editor({
                 onClick={() => exportDiagram("markdown")}
               >
                 Markdownで保存（図付き）
+              </button>
+              <button
+                disabled={!doc.nodes.length || !!exporting}
+                onClick={() => exportDiagram("html")}
+              >
+                閲覧用HTMLで保存
               </button>
               <button
                 disabled={!canExportMermaid}
