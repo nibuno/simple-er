@@ -802,6 +802,12 @@ test("file menu copies and saves the same DDL and Mermaid text and disables expo
   await click(byText("Mermaid を保存"));
   assert.equal(await blob.text(), copied);
   assert.equal(filename, "注文_管理.mmd");
+  await click(byText("定義書を保存（Markdown）"));
+  assert.equal(filename, "注文_管理.md");
+  assert.match(await blob.text(), /^# 注文\/管理\n/);
+  await click(byText("定義書を保存（CSV）"));
+  assert.equal(filename, "注文_管理.csv");
+  assert.match(await blob.text(), /注文\/管理,\d{4}-\d{2}-\d{2},users,/);
   await click(byText("新しい図"));
   for (const label of [
     "SVG で保存",
@@ -810,6 +816,8 @@ test("file menu copies and saves the same DDL and Mermaid text and disables expo
     "全テーブルの DDL を保存",
     "Mermaid をコピー",
     "Mermaid を保存",
+    "定義書を保存（Markdown）",
+    "定義書を保存（CSV）",
   ])
     assert.equal(byText(label).disabled, true);
 });
